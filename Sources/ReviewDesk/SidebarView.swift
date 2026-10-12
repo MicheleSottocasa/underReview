@@ -172,7 +172,8 @@ struct ItemRows: View {
             if item.isStack {
                 StackGroup(item: item)
             } else if let pr = item.pullRequests.first {
-                PRRow(pr: pr, muted: model.org.muted.contains(item.key), requested: pr.requestedReviewers.contains(model.viewer))
+                PRRow(pr: pr, muted: model.org.muted.contains(item.key), requested: pr.requestedReviewers.contains(model.viewer),
+                      review: model.reviewStatus(pr))
                     .tag(SidebarID.pr(pr.id))
                     .draggable(model.dragPayload(item.key))
             }
@@ -188,12 +189,12 @@ struct StackGroup: View {
     var body: some View {
         DisclosureGroup(isExpanded: model.expansion(item.key)) {
             ForEach(item.pullRequests.reversed()) { pr in
-                StackChildRow(pr: pr)
+                StackChildRow(pr: pr, review: model.reviewStatus(pr))
                     .tag(SidebarID.pr(pr.id))
                     .draggable(model.dragPayload(item.key))
             }
         } label: {
-            StackHeader(item: item, muted: model.org.muted.contains(item.key))
+            StackHeader(item: item, muted: model.org.muted.contains(item.key), review: item.pullRequests.map(model.reviewStatus).reduce(ReviewStatus(), +))
                 .tag(SidebarID.stack(item.key))
                 .draggable(model.dragPayload(item.key))
                 .simultaneousGesture(TapGesture().onEnded {
@@ -224,6 +225,7 @@ struct PRRow: View {
     let pr: PullRequest
     var muted = false
     var requested = false
+    var review = ReviewStatus()
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -236,6 +238,7 @@ struct PRRow: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
+            ReviewIndicator(status: review)
             Indicators(muted: muted, requested: requested)
         }
         .help(Text(verbatim: "\(pr.repo)#\(pr.number) · \(pr.headRefName) → \(pr.baseRefName)"))
@@ -245,6 +248,7 @@ struct PRRow: View {
 struct StackHeader: View {
     let item: Item
     var muted = false
+    var review = ReviewStatus()
 
     var body: some View {
         let open = item.pullRequests.filter { $0.state == "OPEN" }.count
@@ -257,6 +261,7 @@ struct StackHeader: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
+            ReviewIndicator(status: review)
             Indicators(muted: muted, requested: false)
         }
     }
@@ -265,14 +270,60 @@ struct StackHeader: View {
 /// Compact: repo and author are the same across a stack, so they live in the tooltip.
 struct StackChildRow: View {
     let pr: PullRequest
+    var review = ReviewStatus()
 
     var body: some View {
         HStack(spacing: 6) {
             Text(verbatim: "\(pr.stackPosition ?? 0)").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 18, alignment: .trailing)
             StateIcon(pr: pr)
             Text(pr.title).lineLimit(1).truncationMode(.tail)
+            Spacer(minLength: 0)
+            ReviewIndicator(status: review)
         }
         .help(Text(verbatim: "\(pr.repo)#\(pr.number) by \(pr.author)"))
+    }
+}
+
+/// Comments to send (orange), my submitted review (green/red/blue), replies I owe (purple). Nothing when not started.
+struct ReviewIndicator: View {
+    let status: ReviewStatus
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if status.hasPendingReview {
+                Label(status.toSend > 0 ? "\(status.toSend)" : "", systemImage: "paperplane.fill")
+                    .foregroundStyle(.orange)
+                    .help(status.toSend == 1 ? "1 review comment not sent yet" : "\(status.toSend) review comments not sent yet")
+            } else if let submitted = status.submitted, let (symbol, color, text) = Self.submitted(submitted) {
+                Image(systemName: symbol).foregroundStyle(color).help(text)
+            }
+            if status.awaitingReply > 0 {
+                Label("\(status.awaitingReply)", systemImage: "arrowshape.turn.up.left.fill")
+                    .foregroundStyle(.purple)
+                    .help(status.awaitingReply == 1 ? "1 conversation waiting for your reply" : "\(status.awaitingReply) conversations waiting for your reply")
+            }
+        }
+        .labelStyle(CompactLabel())
+        .font(.caption)
+    }
+
+    static func submitted(_ state: String) -> (String, Color, String)? {
+        switch state {
+        case "APPROVED": ("checkmark.circle.fill", .green, "You approved; all your comments are sent")
+        case "CHANGES_REQUESTED": ("exclamationmark.circle.fill", .red, "You requested changes; all your comments are sent")
+        case "COMMENTED": ("text.bubble.fill", .blue, "You reviewed; all your comments are sent")
+        default: nil
+        }
+    }
+}
+
+/// Icon then a tight count, without the default label spacing.
+private struct CompactLabel: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 2) {
+            configuration.icon
+            configuration.title.monospacedDigit()
+        }
     }
 }
 

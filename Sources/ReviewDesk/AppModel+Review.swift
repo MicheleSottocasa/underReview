@@ -128,3 +128,32 @@ extension AppModel {
         return await publish(pr, event: event)
     }
 }
+
+/// Where the viewer stands on a PR, shown in the sidebar without opening it.
+struct ReviewStatus: Equatable {
+    /// Local drafts not on GitHub yet plus comments in the pending GitHub review.
+    var toSend = 0
+    /// An unsubmitted review exists on GitHub (possibly with only a summary).
+    var hasPendingReview = false
+    /// Latest submitted review state, when nothing is waiting to be sent.
+    var submitted: String?
+    var awaitingReply = 0
+
+    static func + (a: ReviewStatus, b: ReviewStatus) -> ReviewStatus {
+        ReviewStatus(toSend: a.toSend + b.toSend, hasPendingReview: a.hasPendingReview || b.hasPendingReview,
+                     submitted: nil, awaitingReply: a.awaitingReply + b.awaitingReply)
+    }
+}
+
+extension AppModel {
+    func reviewStatus(_ pr: PullRequest) -> ReviewStatus {
+        // Synced drafts are already counted in the pending review's comments.
+        let local = reviewDrafts.drafts.filter { $0.prID == pr.id && $0.remoteID == nil }.count
+        return ReviewStatus(
+            toSend: local + (pr.pendingReviewComments ?? 0),
+            hasPendingReview: pr.pendingReviewComments != nil || local > 0,
+            submitted: pr.viewerReviewState,
+            awaitingReply: pr.threadsAwaitingReply
+        )
+    }
+}
