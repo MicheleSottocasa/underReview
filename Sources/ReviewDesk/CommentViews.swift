@@ -44,7 +44,7 @@ struct CommentView<Badges: View, Actions: View>: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(author).font(.callout.bold())
-                    if let date { Text(date.formatted(.relative(presentation: .named))).font(.caption).foregroundStyle(.secondary) }
+                    if let date { Text(Self.dateFormatter.string(from: date)).font(.caption).foregroundStyle(.secondary) }
                     badges
                     Spacer()
                     actions
@@ -53,6 +53,15 @@ struct CommentView<Badges: View, Actions: View>: View {
             }
         }
         .padding(10)
+    }
+
+    /// "Today at 3:16 PM", like PyCharm's review comments.
+    private static var dateFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        formatter.doesRelativeDateFormatting = true
+        return formatter
     }
 }
 
@@ -163,12 +172,9 @@ struct ThreadView: View {
                             }
                             .disabled(sending)
                         } else {
-                            Button { replying = true } label: {
-                                Text("Reply…").foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(6)
-                                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3)))
-                            }
-                            .buttonStyle(.plain)
+                            Button("Reply") { replying = true }
+                                .buttonStyle(.link)
+                                .padding(.leading, 32)
                         }
                     }
                     .padding(10)
