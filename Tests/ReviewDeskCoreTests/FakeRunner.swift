@@ -7,6 +7,7 @@ final class FakeRunner: CommandRunner, @unchecked Sendable {
         var tool: String
         var args: [String]
         var stdin: Data?
+        var cwd: URL?
 
         /// The GraphQL request body sent through `gh api graphql --input -`.
         var graphQL: [String: Any]? { stdin.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } }
@@ -23,7 +24,7 @@ final class FakeRunner: CommandRunner, @unchecked Sendable {
     var calls: [Call] { lock.withLock { recorded } }
 
     func run(_ tool: String, _ args: [String], stdin: Data?, cwd: URL?, timeout: Duration) async throws -> CommandResult {
-        let call = Call(tool: tool, args: args, stdin: stdin)
+        let call = Call(tool: tool, args: args, stdin: stdin, cwd: cwd)
         lock.withLock { recorded.append(call) }
         return try respond(call)
     }

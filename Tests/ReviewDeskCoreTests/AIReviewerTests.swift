@@ -78,3 +78,19 @@ private let subscribed = ok(#"{"loggedIn":true,"authMethod":"claude.ai"}"#)
     #expect(AIEngine.ollama(model: "m").isLocal)
     #expect(!AIEngine.claudeCode.isLocal && !AIEngine.codex.isLocal)
 }
+
+@Test func linkedSessionReviewForksWithoutSavingAndKeepsToolsOff() async throws {
+    let runner = FakeRunner { call in
+        call.args.first == "auth" ? subscribed : ok(#"{"type":"result","is_error":false,"structured_output":\#(review)}"#)
+    }
+    let engine = AIEngine.claudeSession(id: "S1", name: "fix-matters", cwd: "/Users/me/lexroom/lexroom-backend")
+    let result = try await AIReviewer(runner: runner).review(engine, prompt: "p")
+
+    #expect(result.summary == "ok")
+    let call = try #require(runner.calls.last)
+    #expect(call.args[call.args.firstIndex(of: "--resume")! + 1] == "S1")
+    for flag in ["--fork-session", "--no-session-persistence", "--strict-mcp-config"] { #expect(call.args.contains(flag)) }
+    #expect(call.args[call.args.firstIndex(of: "--tools")! + 1] == "")
+    #expect(call.cwd?.path == "/Users/me/lexroom/lexroom-backend")
+    #expect(engine.name == "Claude Code · fix-matters" && !engine.isLocal)
+}

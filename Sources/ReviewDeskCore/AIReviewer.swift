@@ -4,10 +4,12 @@ public enum AIEngine: Codable, Hashable, Sendable {
     case claudeCode
     case codex
     case ollama(model: String)
+    /// A running Claude Code session linked to the PR: the review starts from its conversation.
+    case claudeSession(id: String, name: String, cwd: String)
 
     public var tool: String {
         switch self {
-        case .claudeCode: "claude"
+        case .claudeCode, .claudeSession: "claude"
         case .codex: "codex"
         case .ollama: "ollama"
         }
@@ -16,6 +18,7 @@ public enum AIEngine: Codable, Hashable, Sendable {
     public var name: String {
         switch self {
         case .claudeCode: "Claude Code"
+        case .claudeSession(_, let name, _): "Claude Code · \(name)"
         case .codex: "Codex"
         case .ollama(let model): "Ollama (\(model))"
         }
@@ -67,7 +70,7 @@ public struct AIReviewer: Sendable {
 
     public func checkAuth(_ engine: AIEngine) async throws {
         switch engine {
-        case .claudeCode:
+        case .claudeCode, .claudeSession:
             let status = try await runner.run("claude", ["auth", "status", "--json"])
             let json = (try? JSONSerialization.jsonObject(with: status.stdout)) as? [String: Any]
             guard json?["loggedIn"] as? Bool == true else { throw AIError.notLoggedIn("run `claude auth login`") }
@@ -99,6 +102,17 @@ public struct AIReviewer: Sendable {
                 "--tools", "", "--strict-mcp-config", "--setting-sources", "",
                 "--disable-slash-commands", "--no-session-persistence",
             ], stdin: input, cwd: workdir, timeout: timeout)
+            return try Self.parseClaude(result)
+
+        case .claudeSession(let id, _, let cwd):
+            // Fork without saving: the review reuses the agent's context but never writes back into its
+            // session, and running in its folder is how Claude Code finds the session. Tools stay off,
+            // so the user's checkout is only ever read through the context we send.
+            let result = try await runner.run("claude", [
+                "-p", "--resume", id, "--fork-session", "--no-session-persistence",
+                "--output-format", "json", "--json-schema", AIContext.schema,
+                "--tools", "", "--strict-mcp-config", "--setting-sources", "", "--disable-slash-commands",
+            ], stdin: input, cwd: URL(fileURLWithPath: cwd), timeout: timeout)
             return try Self.parseClaude(result)
 
         case .codex:
