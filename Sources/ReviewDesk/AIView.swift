@@ -25,10 +25,12 @@ struct AIView: View {
         VStack(spacing: 0) {
             toolbar(status: status)
             Divider()
-            AgentLinkBar(pr: pr)
-            Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    LinkedAgentCard(pr: pr) {
+                        engineName = "linked"
+                        prepare()
+                    }
                     if let status {
                         HStack(spacing: 8) {
                             ProgressView().controlSize(.small)
@@ -234,49 +236,58 @@ struct FindingCard: View {
     }
 }
 
-/// Shows the Claude Code session linked to this PR, or lets the user pick a running one.
-struct AgentLinkBar: View {
+/// The Claude Code session linked to this PR, or a prompt to link one.
+struct LinkedAgentCard: View {
     @Environment(AppModel.self) private var model
     let pr: PullRequest
+    let review: () -> Void
     @AppStorage("aiEngine") private var engineName = "claude"
+    @ViewState private var picking = false
     @ViewState private var logs: String?
     @ViewState private var confirmingStop: RunningAgent?
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "terminal").foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Linked agent").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             if let link = model.agentLinks[pr.id] {
                 let running = model.runningAgent(for: link)
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 6) {
-                        Text(link.name).bold().lineLimit(1)
-                        Badge(text: running?.status ?? "not running", color: statusColor(running?.status))
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "apple.terminal").font(.title3).foregroundStyle(.secondary).frame(width: 24)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 8) {
+                            Text(link.name).bold().lineLimit(1)
+                            AgentStatus(status: running?.status)
+                            Spacer()
+                            actions(running)
+                        }
+                        Text(link.cwd.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                            .font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                        Button("Review with This Agent", action: review)
+                            .buttonStyle(.borderedProminent)
+                            .padding(.top, 4)
+                            .help("Runs the review in a fork of the session: it reuses the agent's context and never writes back into it.")
                     }
-                    Text(link.cwd.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
-                        .font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                 }
-                Spacer()
-                if let running, running.isBackground {
-                    Button("Open in Terminal") { Task { await model.openInTerminal(running) } }
-                    Button("Logs") { Task { logs = await model.logs(running) } }
-                    Button("Stop…") { confirmingStop = running }
-                } else if let running {
-                    Text(verbatim: "Open in a terminal (pid \(running.pid ?? 0))").font(.caption).foregroundStyle(.secondary)
-                }
-                Button("Unlink") {
-                    model.unlink(pr)
-                    if engineName == "linked" { engineName = "claude" }
-                }
-                .buttonStyle(.link)
             } else {
-                Text("Link a running Claude Code session to review with its context of the code.")
-                    .font(.callout).foregroundStyle(.secondary)
-                Spacer()
-                linkMenu
+                HStack {
+                    Image(systemName: "apple.terminal").font(.title3).foregroundStyle(.tertiary).frame(width: 24)
+                    Text("Link a running Claude Code session to review with its context of the code.")
+                        .font(.callout).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Link Agent…") { picking = true }
+                }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(14)
+        .background(.background, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.25)))
+        .sheet(isPresented: $picking) {
+            AgentPicker(pr: pr) { agent in
+                model.link(agent, to: pr)
+                engineName = "linked"
+                picking = false
+            } cancel: { picking = false }
+        }
         .sheet(item: Binding(get: { logs.map(LogText.init) }, set: { if $0 == nil { logs = nil } })) { log in
             VStack(alignment: .leading) {
                 ScrollView { Text(log.text.isEmpty ? "No output." : log.text).font(.caption.monospaced()).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
@@ -294,31 +305,123 @@ struct AgentLinkBar: View {
         }
     }
 
-    private var linkMenu: some View {
-        Menu("Link Agent") {
-            let agents = ClaudeAgents.sorted(model.runningAgents, for: pr.ref)
-            if agents.isEmpty { Text("No Claude Code sessions running") }
-            ForEach(agents) { agent in
-                Button {
-                    model.link(agent, to: pr)
-                    engineName = "linked"
-                } label: {
-                    let suggested = ClaudeAgents.relevance(agent, to: pr.ref) > 0 ? "★ " : ""
-                    Text(verbatim: "\(suggested)\(agent.name) · \(URL(fileURLWithPath: agent.cwd).lastPathComponent) · \(agent.status)")
-                }
+    private func actions(_ running: RunningAgent?) -> some View {
+        Menu {
+            if let running, running.isBackground {
+                Button("Open in Terminal") { Task { await model.openInTerminal(running) } }
+                Button("Show Logs") { Task { logs = await model.logs(running) } }
+                Divider()
+                Button("Stop Agent…") { confirmingStop = running }
+            } else if let running {
+                Text(verbatim: "Running in a terminal (pid \(running.pid ?? 0))")
             }
             Divider()
-            Button("Refresh List") { Task { await model.refreshAgents() } }
+            Button("Change Agent…") { picking = true }
+            Button("Unlink") {
+                model.unlink(pr)
+                if engineName == "linked" { engineName = "claude" }
+            }
+        } label: { Image(systemName: "ellipsis.circle") }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+    }
+}
+
+/// Searchable list of running sessions: ones named after the PR or in its repo first.
+struct AgentPicker: View {
+    @Environment(AppModel.self) private var model
+    let pr: PullRequest
+    let choose: (RunningAgent) -> Void
+    let cancel: () -> Void
+    @ViewState private var query = ""
+    @ViewState private var selection: String?
+
+    var body: some View {
+        let agents = ClaudeAgents.sorted(model.runningAgents, for: pr.ref).filter {
+            query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.cwd.localizedCaseInsensitiveContains(query)
         }
-        .fixedSize()
+        let suggested = agents.filter { ClaudeAgents.relevance($0, to: pr.ref) > 0 }
+        let other = agents.filter { ClaudeAgents.relevance($0, to: pr.ref) == 0 }
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Link a Claude Code agent").font(.headline)
+            HStack {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("Search agents", text: $query).textFieldStyle(.plain)
+                Button { Task { await model.refreshAgents() } } label: { Image(systemName: "arrow.clockwise") }
+                    .buttonStyle(.borderless)
+                    .help("Refresh running agents")
+            }
+            .padding(6)
+            .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+            List(selection: $selection) {
+                if !suggested.isEmpty {
+                    Section("Suggested") { ForEach(suggested) { row($0) } }
+                }
+                if !other.isEmpty {
+                    Section("Other") { ForEach(other) { row($0) } }
+                }
+            }
+            .listStyle(.inset)
+            .overlay {
+                if agents.isEmpty {
+                    ContentUnavailableView("No running agents", systemImage: "apple.terminal",
+                                           description: Text("Start a session with `claude` or `claude --bg`, then refresh."))
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)
+                Button("Link") {
+                    if let agent = model.runningAgents.first(where: { $0.id == selection }) { choose(agent) }
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(selection == nil)
+            }
+        }
+        .padding(16)
+        .frame(width: 520, height: 440)
+        .task { await model.refreshAgents() }
     }
 
-    private func statusColor(_ status: String?) -> Color {
+    private func row(_ agent: RunningAgent) -> some View {
+        HStack(spacing: 10) {
+            AgentStatus(status: agent.status, compact: true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(agent.name).lineLimit(1)
+                Text(agent.cwd.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                    .font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+            }
+            Spacer()
+            Text(agent.isBackground ? "background" : "terminal").font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
+        .tag(agent.id)
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) { choose(agent) }
+    }
+}
+
+/// Colored dot plus status text, like a presence indicator.
+struct AgentStatus: View {
+    let status: String?
+    var compact = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Circle().fill(color).frame(width: 8, height: 8)
+            if !compact { Text(status ?? "not running").font(.caption).foregroundStyle(.secondary) }
+        }
+        .help(status ?? "not running")
+    }
+
+    private var color: Color {
         switch status {
-        case "working", "running": .green
+        case "idle": .green
+        case "busy", "working", "running": .blue
         case "blocked": .orange
-        case nil: .secondary
-        default: .blue
+        default: .gray
         }
     }
 }
