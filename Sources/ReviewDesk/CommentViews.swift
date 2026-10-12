@@ -21,12 +21,13 @@ struct Badge: View {
     var color: Color = .secondary
 
     var body: some View {
-        Text(text)
-            .font(.caption2.weight(.semibold))
-            .padding(.horizontal, 6)
+        // PyCharm-style tag: uppercase text on a filled, slightly rounded rectangle.
+        Text(text.uppercased())
+            .font(.system(size: 10, weight: .medium))
+            .padding(.horizontal, 5)
             .padding(.vertical, 1)
             .foregroundStyle(color)
-            .overlay(Capsule().stroke(color.opacity(0.6)))
+            .background(color.opacity(0.18), in: RoundedRectangle(cornerRadius: 3))
     }
 }
 
@@ -152,7 +153,7 @@ struct ThreadView: View {
                 } else {
                     ForEach(comments) { comment in
                         CommentView(author: comment.author, date: comment.createdAt, text: comment.body) {
-                            if comment.isPending { Badge(text: "Pending", color: .orange) }
+                            if comment.isPending { Badge(text: "Pending") }
                             if thread.isOutdated && comment.id == comments.first?.id { Badge(text: "Outdated", color: .orange) }
                         }
                         Divider().padding(.leading, 42)
@@ -232,7 +233,7 @@ struct DraftView: View {
         } else if draft.needsSync {
             Badge(text: "Edited", color: .accentColor)
         } else {
-            Badge(text: "Pending", color: .orange)
+            Badge(text: "Pending")
         }
     }
 }
