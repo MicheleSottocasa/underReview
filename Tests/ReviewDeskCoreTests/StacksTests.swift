@@ -35,3 +35,12 @@ private func pr(_ id: String, _ number: Int, stack: Int? = nil, entries: [String
 @Test func findsStackMembersNotYetFollowed() {
     #expect(Stacks.missingMembers(of: [pr("B", 2, stack: 1, entries: ["A", "B", "C"]), pr("x", 3)]) == ["A", "C"])
 }
+
+@Test func orderIsStableAcrossUpdates() {
+    var a = pr("A", 5, updated: 100), b = pr("B", 9, updated: 1)
+    b.repo = "o/a"
+    let first = Stacks.items([a, b]).map(\.key)
+    a.updatedAt = .distantPast
+    #expect(first == ["pr:B", "pr:A"]) // repo o/a before o/r
+    #expect(Stacks.items([a, b]).map(\.key) == first)
+}
