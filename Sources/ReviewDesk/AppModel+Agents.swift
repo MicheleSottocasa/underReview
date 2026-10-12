@@ -18,6 +18,17 @@ extension AppModel {
         } catch {
             lastError = "Couldn't list Claude Code agents: \(error.localizedDescription)"
         }
+        recentSessions = await agents.recent()
+    }
+
+    /// Stored sessions in the PR's repo that aren't running: named after the PR first, then newest.
+    func recentSessions(for pr: PullRequest, limit: Int = 30) -> [RunningAgent] {
+        let running = Set(runningAgents.map(\.sessionID))
+        return recentSessions
+            .filter { !running.contains($0.sessionID) && ClaudeAgents.relevance($0, to: pr.ref) > 0 }
+            .sorted { (ClaudeAgents.relevance($0, to: pr.ref), $0.updatedAt ?? .distantPast) > (ClaudeAgents.relevance($1, to: pr.ref), $1.updatedAt ?? .distantPast) }
+            .prefix(limit)
+            .map { $0 }
     }
 
     func link(_ agent: RunningAgent, to pr: PullRequest) {

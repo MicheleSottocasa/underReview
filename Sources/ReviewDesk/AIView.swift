@@ -328,7 +328,7 @@ struct LinkedAgentCard: View {
     }
 }
 
-/// Searchable list of running sessions: ones named after the PR or in its repo first.
+/// Searchable list of the repo's Claude Code sessions: running ones, then recent stored ones.
 struct AgentPicker: View {
     @Environment(AppModel.self) private var model
     let pr: PullRequest
@@ -338,14 +338,16 @@ struct AgentPicker: View {
     @ViewState private var selection: String?
 
     var body: some View {
-        let agents = ClaudeAgents.inScope(model.runningAgents, for: pr.ref).filter {
-            query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.cwd.localizedCaseInsensitiveContains(query)
+        let matches = { (agent: RunningAgent) in
+            query.isEmpty || agent.name.localizedCaseInsensitiveContains(query) || agent.cwd.localizedCaseInsensitiveContains(query)
+                || (agent.branch ?? "").localizedCaseInsensitiveContains(query)
         }
-        let named = agents.filter { ClaudeAgents.relevance($0, to: pr.ref) == 2 }
-        let inRepo = agents.filter { ClaudeAgents.relevance($0, to: pr.ref) == 1 }
+        let running = ClaudeAgents.inScope(model.runningAgents, for: pr.ref).filter(matches)
+        let recent = model.recentSessions(for: pr).filter(matches)
         VStack(alignment: .leading, spacing: 10) {
             Text("Link a Claude Code agent").font(.headline)
-            Text("Sessions running in a checkout of \(pr.repo).").font(.callout).foregroundStyle(.secondary)
+            Text("Claude Code sessions in a checkout of \(pr.repo). Stopped ones work too: the review resumes them as a fork.")
+                .font(.callout).foregroundStyle(.secondary)
             HStack {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Search agents", text: $query).textFieldStyle(.plain)
@@ -356,16 +358,16 @@ struct AgentPicker: View {
             .padding(6)
             .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
             List(selection: $selection) {
-                if !named.isEmpty {
-                    Section("Named after #\(pr.number)") { ForEach(named) { row($0) } }
+                if !running.isEmpty {
+                    Section("Running") { ForEach(running) { row($0) } }
                 }
-                if !inRepo.isEmpty {
-                    Section("In \(pr.repo)") { ForEach(inRepo) { row($0) } }
+                if !recent.isEmpty {
+                    Section("Recent sessions") { ForEach(recent) { row($0) } }
                 }
             }
             .listStyle(.inset)
             .overlay {
-                if agents.isEmpty {
+                if running.isEmpty && recent.isEmpty {
                     ContentUnavailableView("No agents in \(pr.repo)", systemImage: "apple.terminal",
                                            description: Text("Start `claude` in a checkout of this repo, then refresh."))
                 }
@@ -374,7 +376,7 @@ struct AgentPicker: View {
                 Spacer()
                 Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)
                 Button("Link") {
-                    if let agent = model.runningAgents.first(where: { $0.id == selection }) { choose(agent) }
+                    if let agent = (model.runningAgents + model.recentSessions).first(where: { $0.id == selection }) { choose(agent) }
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
@@ -382,20 +384,24 @@ struct AgentPicker: View {
             }
         }
         .padding(16)
-        .frame(width: 520, height: 440)
+        .frame(width: 600, height: 600)
         .task { await model.refreshAgents() }
     }
 
     private func row(_ agent: RunningAgent) -> some View {
         HStack(spacing: 10) {
-            AgentStatus(status: agent.status, compact: true)
+            AgentStatus(status: agent.updatedAt == nil ? agent.status : nil, compact: true)
             VStack(alignment: .leading, spacing: 1) {
                 Text(agent.name).lineLimit(1)
-                Text(agent.cwd.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                Text(agent.cwd.replacingOccurrences(of: NSHomeDirectory(), with: "~") + (agent.branch.map { " · \($0)" } ?? ""))
                     .font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             }
             Spacer()
-            Text(agent.isBackground ? "background" : "terminal").font(.caption).foregroundStyle(.secondary)
+            if let date = agent.updatedAt {
+                Text(date.formatted(.relative(presentation: .numeric, unitsStyle: .abbreviated))).font(.caption).foregroundStyle(.secondary)
+            } else {
+                Text(agent.isBackground ? "background" : "terminal").font(.caption).foregroundStyle(.secondary)
+            }
         }
         .padding(.vertical, 2)
         .tag(agent.id)

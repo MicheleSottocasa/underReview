@@ -60,6 +60,8 @@ final class AppModel {
     /// PR id → the Claude Code session linked to it in AI Review.
     var agentLinks: [String: AgentLink] { didSet { save(agentLinksFile, agentLinks) } }
     var runningAgents: [RunningAgent] = []
+    /// Stored Claude Code sessions, newest first; stopped ones can be linked too.
+    var recentSessions: [RunningAgent] = []
 
     let notifier = Notifier()
     /// Captured from SwiftUI so notifications and the menu bar can reopen a closed window.
