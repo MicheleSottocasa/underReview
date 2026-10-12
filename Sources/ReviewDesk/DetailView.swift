@@ -117,17 +117,3 @@ struct NotesView: View {
         .frame(minHeight: 120)
     }
 }
-
-/// GitHub Markdown rendered with Foundation's parser (inline styles, links, line breaks).
-struct MarkdownText: View {
-    let source: String
-
-    init(_ source: String) { self.source = source }
-
-    var body: some View {
-        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        Text((try? AttributedString(markdown: source, options: options)) ?? AttributedString(source))
-            .textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
