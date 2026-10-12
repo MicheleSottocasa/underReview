@@ -31,6 +31,15 @@ struct Badge: View {
     }
 }
 
+/// "Today at 3:16 PM", like PyCharm's review comments. File-level because generic types can't hold stored statics.
+private let commentDateFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateStyle = .medium
+    formatter.timeStyle = .short
+    formatter.doesRelativeDateFormatting = true
+    return formatter
+}()
+
 /// One comment: avatar, author, time, badges and Markdown text.
 struct CommentView<Badges: View, Actions: View>: View {
     let author: String
@@ -45,7 +54,7 @@ struct CommentView<Badges: View, Actions: View>: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text(author).font(.callout.bold())
-                    if let date { Text(Self.dateFormatter.string(from: date)).font(.caption).foregroundStyle(.secondary) }
+                    if let date { Text(commentDateFormatter.string(from: date)).font(.caption).foregroundStyle(.secondary) }
                     badges
                     Spacer()
                     actions
@@ -54,15 +63,6 @@ struct CommentView<Badges: View, Actions: View>: View {
             }
         }
         .padding(10)
-    }
-
-    /// "Today at 3:16 PM", like PyCharm's review comments.
-    private static var dateFormatter: DateFormatter {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        formatter.doesRelativeDateFormatting = true
-        return formatter
     }
 }
 
