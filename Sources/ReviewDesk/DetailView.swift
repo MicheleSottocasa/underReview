@@ -2,7 +2,7 @@ import ReviewDeskCore
 import SwiftUI
 
 enum DetailTab: String, CaseIterable {
-    case overview = "Overview", notes = "Notes"
+    case overview = "Overview", files = "Files", notes = "Notes"
 }
 
 struct DetailView: View {
@@ -22,6 +22,7 @@ struct DetailView: View {
             Divider().padding(.top, 8)
             switch tab {
             case .overview: OverviewView(pr: pr, detail: model.details[pr.id])
+            case .files: FilesView(pr: pr)
             case .notes: NotesView(pr: pr)
             }
         }

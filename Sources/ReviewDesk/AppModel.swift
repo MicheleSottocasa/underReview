@@ -18,16 +18,20 @@ final class AppModel {
     var prs: [String: PullRequest] = [:]
     var inboxIDs: Set<String> = []
     var details: [String: PRDetail] = [:]
+    /// Changed files per PR, fetched on demand and kept in memory only.
+    var files: [String: [FileChange]] = [:]
 
     var sidebar: SidebarSelection = .inbox
     var selectedPRID: String?
 
     var org: Organization { didSet { save(orgFile, org) } }
     var checkpoints: [String: Snapshot]
+    var reviewDrafts: ReviewDrafts { didSet { save(draftsFile, reviewDrafts) } }
 
     let github: GitHub
     private let orgFile = JSONFile<Organization>.appSupport("organization.json")
     private let checkpointFile = JSONFile<[String: Snapshot]>.appSupport("checkpoints.json")
+    private let draftsFile = JSONFile<ReviewDrafts>.appSupport("drafts.json")
     private var pollTask: Task<Void, Never>?
 
     init() {
@@ -35,6 +39,7 @@ final class AppModel {
         github = GitHub(runner: runner)
         org = orgFile.load(default: Organization())
         checkpoints = checkpointFile.load(default: [:])
+        reviewDrafts = draftsFile.load(default: ReviewDrafts())
     }
 
     var selectedPR: PullRequest? { selectedPRID.flatMap { prs[$0] } }
