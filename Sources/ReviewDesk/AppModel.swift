@@ -44,6 +44,9 @@ final class AppModel {
     /// Captured from SwiftUI so notifications and the menu bar can reopen a closed window.
     var openMainWindow: (() -> Void)?
 
+    static let tools = ["gh", "claude", "codex", "ollama"]
+    /// Where each CLI was found at launch.
+    let toolPaths: [String: String]
     let github: GitHub
     let reviewer: AIReviewer
     private let orgFile = JSONFile<Organization>.appSupport("organization.json")
@@ -53,7 +56,9 @@ final class AppModel {
     private var pollTask: Task<Void, Never>?
 
     init() {
-        let runner = ProcessRunner(paths: ProcessRunner.discover(["gh", "claude", "codex", "ollama"]))
+        let overrides = Self.tools.reduce(into: [String: String]()) { $0[$1] = UserDefaults.standard.string(forKey: "path.\($1)") }
+        let runner = ProcessRunner(paths: ProcessRunner.discover(Self.tools, overrides: overrides))
+        toolPaths = runner.paths
         github = GitHub(runner: runner)
         org = orgFile.load(default: Organization())
         checkpoints = checkpointFile.load(default: [:])

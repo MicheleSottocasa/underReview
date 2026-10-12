@@ -19,6 +19,10 @@ struct ReviewDeskApp: App {
             }
         }
 
+        Settings {
+            SettingsView().environment(model)
+        }
+
         // Closing the window leaves monitoring running here; Quit stops it.
         MenuBarExtra {
             MenuBarContent().environment(model)
@@ -140,3 +144,30 @@ struct SetupView: View {
 // ponytail: the macOS 27 SDK turns `@State` into a macro whose plugin ships only with Xcode.
 // The underlying property wrapper behaves the same; switch back to `@State` once Xcode is required.
 typealias ViewState<Value> = SwiftUI.State<Value>
+
+struct SettingsView: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(AppModel.tools, id: \.self) { tool in
+                    TextField(tool, text: path(tool), prompt: Text(model.toolPaths[tool] ?? "not found"))
+                }
+            } header: {
+                Text("Command-line tools")
+            } footer: {
+                Text("Leave empty to use the path found by your login shell. Changes apply after restarting ReviewDesk.")
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 480)
+    }
+
+    private func path(_ tool: String) -> Binding<String> {
+        Binding(
+            get: { UserDefaults.standard.string(forKey: "path.\(tool)") ?? "" },
+            set: { UserDefaults.standard.set($0.isEmpty ? nil : $0, forKey: "path.\(tool)") }
+        )
+    }
+}
