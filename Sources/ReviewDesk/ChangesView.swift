@@ -43,6 +43,7 @@ struct ReviewBar: View {
     @Environment(AppModel.self) private var model
     let pr: PullRequest
     @Binding var mode: DiffMode
+    @AppStorage("wrapLines") private var wrap = false
     @ViewState private var finishing = false
     @ViewState private var saving = false
 
@@ -59,6 +60,9 @@ struct ReviewBar: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .fixedSize()
+            Toggle(isOn: $wrap) { Image(systemName: "arrow.turn.down.left") }
+                .toggleStyle(.button)
+                .help("Soft-wrap long lines")
             Spacer()
             if stale > 0 {
                 Label("\(stale) outdated", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.callout)
@@ -253,14 +257,17 @@ struct FileDiffView: View {
     let pr: PullRequest
     let file: FileChange
     let mode: DiffMode
+    @AppStorage("wrapLines") private var wrap = false
     @ViewState private var hovered: ReviewDeskCore.Anchor?
     @ViewState private var composing: ReviewDeskCore.Anchor?
     @ViewState private var draftText = ""
     /// Lines whose comments the user folded away with the gutter bubble.
     @ViewState private var collapsed: Set<ReviewDeskCore.Anchor> = []
-    private static let gutterWidth: CGFloat = 62
+    private static let numberWidth: CGFloat = 42
+    private static let markerWidth: CGFloat = 20
 
     var body: some View {
+        let language = Syntax.language(for: file.filename)
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Text(file.filename).font(.callout.monospaced()).textSelection(.enabled)
@@ -283,19 +290,23 @@ struct FileDiffView: View {
                         let lines = Diff.parse(patch)
                         switch mode {
                         case .unified:
-                            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                                unifiedRow(line)
-                                if let anchor = line.anchor(path: file.filename) { annotations(anchor) }
+                            let changes = Diff.changes(lines)
+                            ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                                unifiedRow(line, change: changes[index], language: language)
+                                if let anchor = line.anchor(path: file.filename) {
+                                    annotations(anchor).padding(.leading, Self.numberWidth * 2 + Self.markerWidth)
+                                }
                             }
                         case .split:
                             ForEach(Array(Diff.sideBySide(lines).enumerated()), id: \.offset) { _, row in
-                                splitRow(row)
+                                splitRow(row, language: language)
                                 splitAnnotations(row)
                             }
                         }
                     }
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(.system(size: 12.5, design: .monospaced))
                 }
+                .background(DiffColors.editor)
             } else {
                 ContentUnavailableView("No diff available", systemImage: "doc.questionmark",
                                        description: Text("GitHub doesn't provide a diff for binary or very large files."))
@@ -309,46 +320,48 @@ struct FileDiffView: View {
 
     // MARK: Rows
 
-    private func unifiedRow(_ line: DiffLine) -> some View {
-        let anchor = line.anchor(path: file.filename)
-        return HStack(spacing: 0) {
-            if line.kind == .hunk {
-                hunk(line.text)
-            } else {
-                gutter(line.oldLine, anchor: line.kind == .removed ? anchor : nil)
-                gutter(line.newLine, anchor: line.kind == .removed ? nil : anchor)
-                code(line)
-            }
-        }
-        .background(background(line.kind))
-        .onHover { track(anchor, $0) }
-    }
-
-    private func splitRow(_ row: DiffRow) -> some View {
-        HStack(spacing: 0) {
+    /// PyCharm layout: old code | old and new line numbers | new code.
+    private func splitRow(_ row: DiffRow, language: SyntaxLanguage?) -> some View {
+        let left = side(row.left, left: true), right = side(row.right, left: false)
+        let leftColor = row.left == nil ? DiffColors.filler(row.change) : DiffColors.block(row.change, side: .left)
+        let rightColor = row.right == nil ? DiffColors.filler(row.change) : DiffColors.block(row.change, side: .right)
+        return Group {
             if let text = row.hunk {
                 hunk(text)
             } else {
-                half(row.left, left: true)
-                Divider()
-                half(row.right, left: false)
+                HStack(spacing: 0) {
+                    code(row.left, language: language).background(leftColor)
+                    HStack(spacing: 0) {
+                        number(row.left?.oldLine).background(leftColor)
+                        number(row.right?.newLine).background(rightColor)
+                        marker(right ?? left).background(rightColor)
+                    }
+                    .overlay(alignment: .leading) { Rectangle().fill(DiffColors.separator).frame(width: 1) }
+                    .overlay(alignment: .trailing) { Rectangle().fill(DiffColors.separator).frame(width: 1) }
+                    code(row.right, language: language).background(rightColor)
+                }
+                .onHover { track(right ?? left, $0) }
             }
         }
     }
 
-    private func half(_ line: DiffLine?, left: Bool) -> some View {
-        let anchor = side(line, left: left)
-        return HStack(spacing: 0) {
-            if let line {
-                gutter(left ? line.oldLine : line.newLine, anchor: anchor)
-                code(line)
+    private func unifiedRow(_ line: DiffLine, change: DiffChange?, language: SyntaxLanguage?) -> some View {
+        let anchor = line.anchor(path: file.filename)
+        let color = DiffColors.block(change, side: line.kind == .removed ? .left : .right)
+        return Group {
+            if line.kind == .hunk {
+                hunk(line.text)
             } else {
-                Color.secondary.opacity(0.06)
+                HStack(spacing: 0) {
+                    number(line.oldLine)
+                    number(line.newLine)
+                    marker(anchor)
+                    code(line, language: language)
+                }
+                .background(color)
+                .onHover { track(anchor, $0) }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .background(line.map { background($0.kind) } ?? .clear)
-        .onHover { track(anchor, $0) }
     }
 
     /// Left half comments only on removed lines; context and added lines take comments on the right.
@@ -358,62 +371,81 @@ struct FileDiffView: View {
         return line.kind == .removed ? nil : line.anchor(path: file.filename)
     }
 
-    private func gutter(_ number: Int?, anchor: ReviewDeskCore.Anchor?) -> some View {
-        HStack(spacing: 2) {
-            ZStack(alignment: .leading) {
-                Text(number.map(String.init) ?? "")
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 44, alignment: .trailing)
-                if let anchor, hovered == anchor {
-                    Button {
-                        draftText = ""
-                        composing = anchor
-                    } label: {
-                        Image(systemName: "plus.square.fill").symbolRenderingMode(.multicolor).foregroundStyle(.white, Color.accentColor)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Add a review comment")
+    private func number(_ value: Int?) -> some View {
+        Text(value.map(String.init) ?? "")
+            .foregroundStyle(DiffColors.lineNumber)
+            .padding(.trailing, 6)
+            .frame(width: Self.numberWidth, alignment: .trailing)
+            .frame(maxHeight: .infinity)
+    }
+
+    /// Comment bubble when the line has comments, "+" on hover to add one.
+    private func marker(_ anchor: ReviewDeskCore.Anchor?) -> some View {
+        ZStack {
+            if let anchor, hasComments(anchor) {
+                let folded = collapsed.contains(anchor)
+                Button { collapsed.formSymmetricDifference([anchor]) } label: {
+                    Image(systemName: folded ? "text.bubble" : "text.bubble.fill").foregroundStyle(DiffColors.lineNumber)
                 }
-            }
-            ZStack {
-                if let anchor, hasComments(anchor) {
-                    let folded = collapsed.contains(anchor)
-                    Button { collapsed.formSymmetricDifference([anchor]) } label: {
-                        Image(systemName: folded ? "text.bubble" : "text.bubble.fill").foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help(folded ? "Show comments" : "Hide comments")
+                .buttonStyle(.plain)
+                .help(folded ? "Show comments" : "Hide comments")
+            } else if let anchor, hovered == anchor {
+                Button {
+                    draftText = ""
+                    composing = anchor
+                } label: {
+                    Image(systemName: "plus.square.fill").symbolRenderingMode(.palette).foregroundStyle(.white, Color.accentColor)
                 }
+                .buttonStyle(.plain)
+                .help("Add a review comment")
             }
-            .frame(width: 16)
         }
-        .frame(width: Self.gutterWidth, alignment: .leading)
+        .frame(width: Self.markerWidth)
+        .frame(maxHeight: .infinity)
     }
 
-    private func code(_ line: DiffLine) -> some View {
-        Text(line.text.isEmpty ? " " : line.text)
-            .padding(.leading, 6)
-            .padding(.vertical, 1)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .fixedSize(horizontal: false, vertical: true)
-            .textSelection(.enabled)
+    @ViewBuilder
+    private func code(_ line: DiffLine?, language: SyntaxLanguage?) -> some View {
+        Group {
+            if let line {
+                Text(Self.highlighted(line.text, language: language))
+                    .lineLimit(wrap ? nil : 1)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            } else {
+                Text(" ")
+            }
+        }
+        .padding(.leading, 8)
+        .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .clipped()
     }
 
+    static func highlighted(_ text: String, language: SyntaxLanguage?) -> AttributedString {
+        var result = AttributedString(text.isEmpty ? " " : text)
+        result.foregroundColor = DiffColors.text
+        guard let language else { return result }
+        for token in Syntax.tokens(text, language: language) {
+            let start = result.index(result.startIndex, offsetByCharacters: token.range.lowerBound)
+            let end = result.index(result.startIndex, offsetByCharacters: token.range.upperBound)
+            result[start..<end].foregroundColor = DiffColors.syntax(token.kind)
+            if token.kind == .comment { result[start..<end].font = .system(size: 12.5, design: .monospaced).italic() }
+        }
+        return result
+    }
+
+    /// Unchanged lines between hunks are skipped, like PyCharm's folded regions.
     private func hunk(_ text: String) -> some View {
-        Text(text)
-            .foregroundStyle(.secondary)
-            .padding(.vertical, 3)
-            .padding(.leading, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.blue.opacity(0.08))
-    }
-
-    private func background(_ kind: DiffLine.Kind) -> Color {
-        switch kind {
-        case .added: .green.opacity(0.13)
-        case .removed: .red.opacity(0.13)
-        case .hunk, .context: .clear
+        HStack(spacing: 8) {
+            Image(systemName: "ellipsis").foregroundStyle(DiffColors.lineNumber)
+            Text(text).foregroundStyle(DiffColors.lineNumber).lineLimit(1)
         }
+        .font(.system(size: 11, design: .monospaced))
+        .padding(.vertical, 4)
+        .padding(.leading, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DiffColors.fold)
     }
 
     private func track(_ anchor: ReviewDeskCore.Anchor?, _ inside: Bool) {
@@ -427,8 +459,7 @@ struct FileDiffView: View {
             || model.drafts(for: pr.id).contains { $0.anchor == anchor }
     }
 
-    /// Comments sit in the column of the side they're anchored to: the incoming (right) side for added
-    /// and context lines, the left only for removed lines. The other column stays blank, like PyCharm.
+    /// Comments sit under the pane of the side they're anchored to, like PyCharm.
     @ViewBuilder
     private func splitAnnotations(_ row: DiffRow) -> some View {
         let left = side(row.left, left: true), right = side(row.right, left: false)
@@ -436,7 +467,7 @@ struct FileDiffView: View {
         if shown(left) || shown(right) {
             HStack(alignment: .top, spacing: 0) {
                 annotationColumn(left)
-                Divider()
+                Color.clear.frame(width: Self.numberWidth * 2 + Self.markerWidth)
                 annotationColumn(right)
             }
         }
@@ -446,7 +477,6 @@ struct FileDiffView: View {
         VStack(alignment: .leading, spacing: 0) {
             if let anchor { annotations(anchor) }
         }
-        .padding(.leading, Self.gutterWidth - 6)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -469,6 +499,51 @@ struct FileDiffView: View {
             .font(.body)
             .padding(10)
             .modifier(ThreadBox(accent: .accentColor))
+        }
+    }
+}
+
+/// PyCharm New UI diff palette, adapting to light and dark appearance.
+enum DiffColors {
+    private static func dynamic(dark: UInt32, light: UInt32) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let hex = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
+            return NSColor(srgbRed: CGFloat(hex >> 16 & 0xFF) / 255, green: CGFloat(hex >> 8 & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
+        })
+    }
+
+    static let editor = dynamic(dark: 0x1E1F22, light: 0xFFFFFF)
+    static let text = dynamic(dark: 0xBCBEC4, light: 0x080808)
+    static let lineNumber = dynamic(dark: 0x6F737A, light: 0xAEB3C2)
+    static let separator = dynamic(dark: 0x393B40, light: 0xEBECF0)
+    static let fold = dynamic(dark: 0x2B2D30, light: 0xF2F3F5)
+    static let modified = dynamic(dark: 0x283A4A, light: 0xDBE8FB)
+    static let added = dynamic(dark: 0x294436, light: 0xDCF0DC)
+    static let removed = dynamic(dark: 0x3C3F44, light: 0xE6E7EA)
+
+    enum Side { case left, right }
+
+    static func block(_ change: DiffChange?, side: Side) -> Color {
+        switch change {
+        case .modified: modified
+        case .added: added
+        case .removed: removed
+        case nil: .clear
+        }
+    }
+
+    /// The empty side of an added or removed block: a faint version of the block color.
+    static func filler(_ change: DiffChange?) -> Color {
+        block(change, side: .left).opacity(0.45)
+    }
+
+    static func syntax(_ kind: SyntaxKind) -> Color {
+        switch kind {
+        case .keyword: dynamic(dark: 0xCF8E6D, light: 0x0033B3)
+        case .string: dynamic(dark: 0x6AAB73, light: 0x067D17)
+        case .comment: dynamic(dark: 0x7A7E85, light: 0x8C8C8C)
+        case .number: dynamic(dark: 0x2AACB8, light: 0x1750EB)
+        case .call: dynamic(dark: 0x56A8F5, light: 0x00627A)
         }
     }
 }
