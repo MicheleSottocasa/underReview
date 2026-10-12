@@ -36,3 +36,9 @@ import Testing
     #expect(paths["gh"] == "/custom/gh")
     #expect(paths["definitely-not-a-tool"] == nil)
 }
+
+@Test func cancellingBeforeLaunchDoesNotCrash() async {
+    let task = Task { try await ProcessRunner(paths: ["sleep": "/bin/sleep"]).run("sleep", ["5"]) }
+    task.cancel()
+    await #expect(throws: CancellationError.self) { try await task.value }
+}

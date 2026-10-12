@@ -104,16 +104,18 @@ public struct ProcessRunner: CommandRunner {
         let start = ContinuousClock.now
         let watchdog = Task {
             try await Task.sleep(for: timeout)
-            process.terminate()
+            if process.isRunning { process.terminate() }
         }
         defer { watchdog.cancel() }
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, Error>) in
                 process.terminationHandler = { _ in done.resume() }
+                guard !Task.isCancelled else { return done.resume(throwing: CancellationError()) }
                 do { try process.run() } catch { done.resume(throwing: error) }
             }
         } onCancel: {
-            process.terminate()
+            // terminate() on a process that never launched raises an Objective-C exception.
+            if process.isRunning { process.terminate() }
         }
         try Task.checkCancellation()
         if process.terminationReason == .uncaughtSignal, ContinuousClock.now - start >= timeout {
