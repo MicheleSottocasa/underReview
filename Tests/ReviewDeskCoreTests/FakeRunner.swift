@@ -35,14 +35,23 @@ func ok(_ json: String) -> CommandResult { CommandResult(status: 0, stdout: Data
 func data(_ json: String) -> CommandResult { ok(#"{"data":\#(json)}"#) }
 
 /// A PR node in the shape GitHub returns for the `PR` fragment.
+/// `threads` entries: (comments, resolved, last comment is the viewer's, viewer started it).
 func prNode(id: String = "PR_1", number: Int = 1, head: String = "aaa", state: String = "OPEN", comments: Int = 0,
-            reviews: Int = 0, threadComments: [Int] = [], requested: [String] = [], stack: String = "null") -> String {
-    """
+            reviews: Int = 0, threadComments: [Int] = [], requested: [String] = [], stack: String = "null",
+            author: Bool = false, latestReview: String? = nil, pending: Int? = nil,
+            threads: [(comments: Int, resolved: Bool, lastMine: Bool, startedByMe: Bool)] = []) -> String {
+    let allThreads = threadComments.map { ($0, false, true, true) } + threads.map { ($0.comments, $0.resolved, $0.lastMine, $0.startedByMe) }
+    let threadJSON = allThreads.map { count, resolved, lastMine, mine in
+        #"{"isResolved":\#(resolved),"comments":{"totalCount":\#(count),"nodes":[{"viewerDidAuthor":\#(lastMine)}]},"starter":{"nodes":[{"viewerDidAuthor":\#(mine)}]}}"#
+    }.joined(separator: ",")
+    return """
     {"id":"\(id)","number":\(number),"title":"T\(number)","url":"https://github.com/o/r/pull/\(number)","state":"\(state)",
      "isDraft":false,"updatedAt":"2026-10-12T14:27:55Z","headRefOid":"\(head)","headRefName":"h\(number)","baseRefName":"main",
      "author":{"login":"alice"},"repository":{"nameWithOwner":"o/r"},
      "comments":{"totalCount":\(comments)},"reviews":{"totalCount":\(reviews)},
-     "reviewThreads":{"nodes":[\(threadComments.map { #"{"comments":{"totalCount":\#($0)}}"# }.joined(separator: ","))]},
+     "viewerDidAuthor":\(author),"viewerLatestReview":\(latestReview.map { #"{"state":"\#($0)"}"# } ?? "null"),
+     "pendingReview":{"nodes":[\(pending.map { #"{"comments":{"totalCount":\#($0)}}"# } ?? "")]},
+     "reviewThreads":{"nodes":[\(threadJSON)]},
      "reviewRequests":{"nodes":[\(requested.map { #"{"requestedReviewer":{"login":"\#($0)"}}"# }.joined(separator: ","))]},
      "stack":\(stack)}
     """

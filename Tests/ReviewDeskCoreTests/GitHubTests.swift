@@ -107,3 +107,21 @@ import Testing
         try await GitHub(runner: runner).pullRequests(ids: ["PR_1"])
     }
 }
+
+@Test func decodesTheViewersReviewState() async throws {
+    let nodes = [
+        prNode(id: "PENDING", pending: 4),
+        prNode(id: "SENT", latestReview: "APPROVED", pending: nil),
+        prNode(id: "MINE", author: true, threads: [(2, false, false, false), (3, true, false, false), (1, false, true, false)]),
+        prNode(id: "REVIEWER", threads: [(2, false, false, true), (2, false, false, false)]),
+    ]
+    let runner = FakeRunner { _ in data(#"{"nodes":[\#(nodes.joined(separator: ","))]}"#) }
+    let prs = try await GitHub(runner: runner).pullRequests(ids: ["x"])
+
+    #expect(prs[0].pendingReviewComments == 4 && prs[0].viewerReviewState == nil)
+    #expect(prs[1].pendingReviewComments == nil && prs[1].viewerReviewState == "APPROVED")
+    // My PR: unresolved threads where someone else spoke last.
+    #expect(prs[2].viewerIsAuthor && prs[2].threadsAwaitingReply == 1)
+    // Someone else's PR: only threads I started count.
+    #expect(prs[3].threadsAwaitingReply == 1)
+}

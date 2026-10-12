@@ -61,6 +61,13 @@ public struct PullRequest: Codable, Hashable, Identifiable, Sendable {
     public var threadCommentCount: Int
     public var requestedReviewers: [String]
     public var stack: StackInfo?
+    public var viewerIsAuthor = false
+    /// The viewer's latest submitted review: APPROVED, CHANGES_REQUESTED, COMMENTED or DISMISSED.
+    public var viewerReviewState: String?
+    /// Comments in the viewer's unsubmitted review on GitHub; nil when there is no pending review.
+    public var pendingReviewComments: Int?
+    /// Unresolved threads the viewer is part of (their PR, or a thread they started) where someone else spoke last.
+    public var threadsAwaitingReply = 0
 
     public var ref: PRRef { PRRef(nameWithOwner: repo, number: number) }
     public var stackPosition: Int? { stack?.entries.first { $0.id == id }?.position }
@@ -278,7 +285,11 @@ public struct GitHub: Sendable {
       id number title url state isDraft updatedAt headRefOid headRefName baseRefName
       author { login } repository { nameWithOwner }
       comments { totalCount } reviews { totalCount }
-      reviewThreads(first: 100) { nodes { comments { totalCount } } }
+      viewerDidAuthor viewerLatestReview { state }
+      pendingReview: reviews(states: PENDING, first: 1) { nodes { comments { totalCount } } }
+      reviewThreads(first: 100) { nodes { isResolved
+        comments(last: 1) { totalCount nodes { viewerDidAuthor } }
+        starter: comments(first: 1) { nodes { viewerDidAuthor } } } }
       reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } }
       stack { number entries(first: 50) { nodes { position pullRequest { id number } } } }
     }
@@ -314,8 +325,20 @@ public struct GitHub: Sendable {
                 let reviewer = $0["requestedReviewer"] as? [String: Any]
                 return (reviewer?["login"] ?? reviewer?["name"]) as? String
             },
-            stack: stack
+            stack: stack,
+            viewerIsAuthor: node["viewerDidAuthor"] as? Bool ?? false,
+            viewerReviewState: (node["viewerLatestReview"] as? [String: Any])?["state"] as? String,
+            pendingReviewComments: nodes(node["pendingReview"]).first.map { total($0["comments"]) },
+            threadsAwaitingReply: awaitingReply(nodes(node["reviewThreads"]), viewerIsAuthor: node["viewerDidAuthor"] as? Bool ?? false)
         )
+    }
+
+    static func awaitingReply(_ threads: [[String: Any]], viewerIsAuthor: Bool) -> Int {
+        threads.filter { thread in
+            guard thread["isResolved"] as? Bool != true,
+                  let last = nodes(thread["comments"]).last, last["viewerDidAuthor"] as? Bool == false else { return false }
+            return viewerIsAuthor || nodes(thread["starter"]).first?["viewerDidAuthor"] as? Bool == true
+        }.count
     }
 
     static func decodeComment(_ node: [String: Any]) -> Comment {
