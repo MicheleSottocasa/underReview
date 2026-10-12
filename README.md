@@ -17,6 +17,7 @@ There is no backend. Notes, folders, drafts and AI results stay in `~/Library/Ap
 | `make test` | Runs the core test suite (`swift test` plus the Swift Testing plugin path the Command Line Tools need). |
 | `make app` | Builds a release `ReviewDesk.app` signed ad hoc in the repo root. Notifications only work from this bundle. |
 | `make run` | `make app`, then opens it. |
+| `make icon` | Regenerates `assets/AppIcon.icns` from the drawing in `assets/make-icon.swift`. |
 | `swift run ReviewDesk` | Quick debug launch without a bundle (notifications are disabled). |
 
 ## Layout
@@ -24,7 +25,7 @@ There is no backend. Notes, folders, drafts and AI results stay in `~/Library/Ap
 - `Sources/ReviewDeskCore`: the testable core. It contains the process runner, the `gh` GitHub client, native stack grouping, the diff parser, pending-review sync, update detection, the AI context builder and the AI CLI adapters.
 - `Sources/ReviewDesk`: the SwiftUI app. It contains the three-column window, the menu bar extra, notifications and settings.
 - `Tests/ReviewDeskCoreTests`: Swift Testing tests. Every CLI is stubbed through `FakeRunner`.
-- `assets/Info.plist`: the bundle metadata used by `make app`.
+- `assets/`: `Info.plist` and `AppIcon.icns` for the bundle, plus `make-icon.swift`, which draws the icon.
 
 ## How it behaves
 
