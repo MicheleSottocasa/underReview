@@ -17,6 +17,7 @@ There is no backend. Notes, folders, drafts and AI results stay in `~/Library/Ap
 | `make test` | Runs the core test suite (`swift test` plus the Swift Testing plugin path the Command Line Tools need). |
 | `make app` | Builds a release `ReviewDesk.app` signed ad hoc in the repo root. Notifications only work from this bundle. |
 | `make run` | `make app`, then opens it. |
+| `make install` | Builds the app, quits the running copy, installs it in `/Applications` and opens it. Run it again to update. |
 | `make icon` | Regenerates `assets/AppIcon.icns` from the drawing in `assets/make-icon.swift`. |
 | `swift run ReviewDesk` | Quick debug launch without a bundle (notifications are disabled). |
 

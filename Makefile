@@ -1,11 +1,12 @@
 # Command Line Tools ship the Swift Testing macros but SwiftPM doesn't find them; Xcode doesn't need this.
 TESTING_PLUGINS := $(shell xcode-select -p)/usr/lib/swift/host/plugins/testing
 APP := ReviewDesk.app
+INSTALL_DIR := /Applications
 # `open` passes this shell's environment to the app; drop GitHub tokens (e.g. from direnv) so gh uses its
 # own active login, exactly as when launched from Finder.
 LAUNCH := env -u GH_TOKEN -u GITHUB_TOKEN open
 
-.PHONY: test app run icon
+.PHONY: test app run icon install
 
 test:
 	swift test -Xswiftc -plugin-path -Xswiftc $(TESTING_PLUGINS)
@@ -23,6 +24,16 @@ app:
 
 run: app
 	$(LAUNCH) $(APP)
+
+# Replaces the copy in /Applications and starts it. The repo build is removed so macOS doesn't have two
+# apps with the same bundle id (notification clicks could otherwise open the wrong one).
+install: app
+	-osascript -e 'quit app "ReviewDesk"' 2>/dev/null
+	@sleep 1; pkill -x ReviewDesk 2>/dev/null; true
+	rm -rf $(INSTALL_DIR)/$(APP)
+	ditto $(APP) $(INSTALL_DIR)/$(APP)
+	rm -rf $(APP)
+	$(LAUNCH) $(INSTALL_DIR)/$(APP)
 
 # Regenerates assets/AppIcon.icns from the drawing in assets/make-icon.swift.
 icon:
