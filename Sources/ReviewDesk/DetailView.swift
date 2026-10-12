@@ -27,6 +27,16 @@ struct DetailView: View {
             case .notes: NotesView(pr: pr)
             }
         }
+        // Changes takes the whole window, like a diff editor; only restore a sidebar the app hid itself.
+        .onChange(of: tab, initial: true) { _, tab in
+            if tab == .changes, model.columns != .detailOnly {
+                model.columns = .detailOnly
+                model.sidebarAutoHidden = true
+            } else if tab != .changes, model.sidebarAutoHidden {
+                model.columns = .all
+                model.sidebarAutoHidden = false
+            }
+        }
     }
 
     private var header: some View {

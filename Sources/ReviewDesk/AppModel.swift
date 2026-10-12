@@ -1,6 +1,7 @@
 import AppKit
 import Observation
 import ReviewDeskCore
+import SwiftUI
 
 struct RecentEvent: Identifiable {
     let id = UUID()
@@ -9,9 +10,11 @@ struct RecentEvent: Identifiable {
     let date = Date()
 }
 
-enum SidebarSelection: Hashable {
-    case inbox, all
+/// One row identity in the unified sidebar. Every PR appears exactly once, so tags never collide.
+enum SidebarID: Hashable {
     case folder(UUID)
+    case stack(String)
+    case pr(String)
 }
 
 @Observable @MainActor
@@ -28,8 +31,23 @@ final class AppModel {
     /// Changed files per PR, fetched on demand and kept in memory only.
     var files: [String: [FileChange]] = [:]
 
-    var sidebar: SidebarSelection = .inbox
+    /// Sidebar multi-selection. The detail follows the last single-selected PR and stays put otherwise.
+    var selection: Set<SidebarID> = [] {
+        didSet {
+            guard selection.count == 1, case .pr(let id)? = selection.first, id != selectedPRID else { return }
+            selectedPRID = id
+            Task { await loadDetail(id) }
+        }
+    }
     var selectedPRID: String?
+    var filter = ""
+    /// Expansion keys that differ from the default (folders open, stacks closed). Persisted.
+    var toggledExpansion: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "toggledExpansion") ?? []) {
+        didSet { UserDefaults.standard.set(Array(toggledExpansion), forKey: "toggledExpansion") }
+    }
+    var columns: NavigationSplitViewVisibility = .all
+    /// Set when the Changes tab hid the sidebar, so leaving it only restores what the app hid.
+    var sidebarAutoHidden = false
 
     var org: Organization { didSet { save(orgFile, org) } }
     var checkpoints: [String: Snapshot]
@@ -69,14 +87,7 @@ final class AppModel {
 
     var selectedPR: PullRequest? { selectedPRID.flatMap { prs[$0] } }
 
-    func items(for selection: SidebarSelection) -> [Item] {
-        let all = Stacks.items(Array(prs.values))
-        switch selection {
-        case .all: return all
-        case .inbox: return all.filter { org.placements[$0.key] == nil }
-        case .folder(let id): return all.filter { org.placements[$0.key] == id }
-        }
-    }
+    var allItems: [Item] { Stacks.items(Array(prs.values)) }
 
     // MARK: Lifecycle
 
@@ -150,18 +161,13 @@ final class AppModel {
     }
 
     func open(prID: String) {
-        guard prs[prID] != nil else { return }
-        selectedPRID = prID
-        if let item = items(for: .all).first(where: { $0.pullRequests.contains { $0.id == prID } }) {
-            sidebar = org.placements[item.key].map(SidebarSelection.folder) ?? .inbox
-        }
+        guard let pr = prs[prID] else { return }
+        reveal(pr)
+        selection = [.pr(prID)]
         openMainWindow?()
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    func toggleMute(_ item: Item) {
-        if org.muted.contains(item.key) { org.muted.remove(item.key) } else { org.muted.insert(item.key) }
-    }
 
     func refreshNow() {
         Task {
@@ -180,22 +186,9 @@ final class AppModel {
         try await refresh()
     }
 
-    /// Moving a stack moves all its PRs: placement is keyed by the stack.
-    func move(_ itemKey: String, to folder: UUID?) {
-        org.place(itemKey, in: folder)
-    }
-
     func deleteFolder(_ id: UUID) {
         org.deleteFolder(id)
-        if case .folder(let selected) = sidebar, !org.folders.contains(where: { $0.id == selected }) { sidebar = .inbox }
-    }
-
-    func stopMonitoring(_ item: Item) {
-        for pr in item.pullRequests {
-            org.unfollow(id: pr.id)
-            prs[pr.id] = nil
-        }
-        if item.pullRequests.contains(where: { $0.id == selectedPRID }) { selectedPRID = nil }
+        selection = selection.filter { if case .folder(let folder) = $0 { org.folders.contains { $0.id == folder } } else { true } }
     }
 
     func loadDetail(_ id: String) async {

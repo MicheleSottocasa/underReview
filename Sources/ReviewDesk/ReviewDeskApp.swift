@@ -14,6 +14,7 @@ struct ReviewDeskApp: App {
                 .task { model.start() }
         }
         .commands {
+            SidebarCommands()
             CommandGroup(after: .newItem) {
                 Button("Refresh") { model.refreshNow() }.keyboardShortcut("r")
             }
@@ -93,10 +94,9 @@ struct ContentView: View {
         if let error = model.setupError {
             SetupView(error: error)
         } else {
-            NavigationSplitView {
-                SidebarView()
-            } content: {
-                ItemListView()
+            @Bindable var model = model
+            NavigationSplitView(columnVisibility: $model.columns) {
+                SidebarView().navigationSplitViewColumnWidth(min: 280, ideal: 320, max: 460)
             } detail: {
                 if let pr = model.selectedPR {
                     DetailView(pr: pr).id(pr.id)

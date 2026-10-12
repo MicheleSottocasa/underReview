@@ -80,7 +80,7 @@ struct AIView: View {
                     .help("The selected code is sent to \(engine.name)'s provider using your CLI login.")
             }
             Spacer()
-            if let stack = model.items(for: .all).first(where: { $0.key == pr.itemKey && $0.isStack }) {
+            if let stack = model.allItems.first(where: { $0.key == pr.itemKey && $0.isStack }) {
                 Button("Review Stack (\(stack.pullRequests.count))") {
                     model.startStackReview(stack.pullRequests.filter { $0.state == "OPEN" }, engine: engine, budget: budget, from: pr.id)
                 }
