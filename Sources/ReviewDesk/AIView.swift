@@ -338,13 +338,14 @@ struct AgentPicker: View {
     @ViewState private var selection: String?
 
     var body: some View {
-        let agents = ClaudeAgents.sorted(model.runningAgents, for: pr.ref).filter {
+        let agents = ClaudeAgents.inScope(model.runningAgents, for: pr.ref).filter {
             query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.cwd.localizedCaseInsensitiveContains(query)
         }
-        let suggested = agents.filter { ClaudeAgents.relevance($0, to: pr.ref) > 0 }
-        let other = agents.filter { ClaudeAgents.relevance($0, to: pr.ref) == 0 }
+        let named = agents.filter { ClaudeAgents.relevance($0, to: pr.ref) == 2 }
+        let inRepo = agents.filter { ClaudeAgents.relevance($0, to: pr.ref) == 1 }
         VStack(alignment: .leading, spacing: 10) {
             Text("Link a Claude Code agent").font(.headline)
+            Text("Sessions running in a checkout of \(pr.repo).").font(.callout).foregroundStyle(.secondary)
             HStack {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Search agents", text: $query).textFieldStyle(.plain)
@@ -355,18 +356,18 @@ struct AgentPicker: View {
             .padding(6)
             .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
             List(selection: $selection) {
-                if !suggested.isEmpty {
-                    Section("Suggested") { ForEach(suggested) { row($0) } }
+                if !named.isEmpty {
+                    Section("Named after #\(pr.number)") { ForEach(named) { row($0) } }
                 }
-                if !other.isEmpty {
-                    Section("Other") { ForEach(other) { row($0) } }
+                if !inRepo.isEmpty {
+                    Section("In \(pr.repo)") { ForEach(inRepo) { row($0) } }
                 }
             }
             .listStyle(.inset)
             .overlay {
                 if agents.isEmpty {
-                    ContentUnavailableView("No running agents", systemImage: "apple.terminal",
-                                           description: Text("Start a session with `claude` or `claude --bg`, then refresh."))
+                    ContentUnavailableView("No agents in \(pr.repo)", systemImage: "apple.terminal",
+                                           description: Text("Start `claude` in a checkout of this repo, then refresh."))
                 }
             }
             HStack {

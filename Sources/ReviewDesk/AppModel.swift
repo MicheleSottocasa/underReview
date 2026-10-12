@@ -65,7 +65,7 @@ final class AppModel {
     /// Captured from SwiftUI so notifications and the menu bar can reopen a closed window.
     var openMainWindow: (() -> Void)?
 
-    static let tools = ["gh", "claude", "codex", "ollama"]
+    static let tools = ["gh", "claude", "codex", "ollama", "git"]
     /// Where each CLI was found at launch.
     let toolPaths: [String: String]
     let github: GitHub
