@@ -1,0 +1,151 @@
+import AppKit
+import Observation
+import ReviewDeskCore
+
+enum SidebarSelection: Hashable {
+    case inbox, all
+}
+
+@Observable @MainActor
+final class AppModel {
+    var viewer = ""
+    var setupError: String?
+    var lastError: String?
+    var isRefreshing = false
+
+    /// Every PR we track, by node id.
+    var prs: [String: PullRequest] = [:]
+    var inboxIDs: Set<String> = []
+    var details: [String: PRDetail] = [:]
+
+    var sidebar: SidebarSelection = .inbox
+    var selectedPRID: String?
+
+    var org: Organization { didSet { save(orgFile, org) } }
+    var checkpoints: [String: Snapshot]
+
+    let github: GitHub
+    private let orgFile = JSONFile<Organization>.appSupport("organization.json")
+    private let checkpointFile = JSONFile<[String: Snapshot]>.appSupport("checkpoints.json")
+    private var pollTask: Task<Void, Never>?
+
+    init() {
+        let runner = ProcessRunner(paths: ProcessRunner.discover(["gh", "claude", "codex", "ollama"]))
+        github = GitHub(runner: runner)
+        org = orgFile.load(default: Organization())
+        checkpoints = checkpointFile.load(default: [:])
+    }
+
+    var selectedPR: PullRequest? { selectedPRID.flatMap { prs[$0] } }
+
+    func items(for selection: SidebarSelection) -> [Item] {
+        let all = Stacks.items(Array(prs.values))
+        switch selection {
+        case .all: return all
+        case .inbox: return all.filter { org.placements[$0.key] == nil }
+        }
+    }
+
+    // MARK: Lifecycle
+
+    func start() {
+        guard pollTask == nil else { return }
+        pollTask = Task {
+            do {
+                viewer = try await github.viewerLogin()
+                setupError = nil
+            } catch {
+                setupError = error.localizedDescription
+                pollTask = nil
+                return
+            }
+            var failures = 0
+            while !Task.isCancelled {
+                do {
+                    try await refresh()
+                    failures = 0
+                } catch {
+                    failures += 1
+                    lastError = error.localizedDescription
+                }
+                try? await Task.sleep(for: Updates.interval(foreground: NSApp.isActive, failures: failures))
+            }
+        }
+    }
+
+    func retrySetup() {
+        pollTask?.cancel()
+        pollTask = nil
+        start()
+    }
+
+    func refresh() async throws {
+        isRefreshing = true
+        defer { isRefreshing = false }
+        let inbox = try await github.inbox()
+        inboxIDs = Set(inbox.map(\.id))
+        var fresh = Dictionary(inbox.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let others = org.followed.keys.filter { fresh[$0] == nil }
+        for pr in try await github.pullRequests(ids: Array(others)) { fresh[pr.id] = pr }
+        for pr in try await github.pullRequests(ids: Stacks.missingMembers(of: Array(fresh.values)).filter { !org.unfollowed.contains($0) }) { fresh[pr.id] = pr }
+
+        // ponytail: everything seen is followed until the user stops monitoring it, so merges and closes
+        // still notify. Merged PRs keep being polled; auto-archive them if the list grows too long.
+        var updated = org
+        for pr in fresh.values where updated.followed[pr.id] == nil && !updated.unfollowed.contains(pr.id) {
+            updated.follow(id: pr.id, url: pr.url)
+        }
+        if updated != org { org = updated }
+        prs = fresh.filter { !org.unfollowed.contains($0.key) }
+        lastError = nil
+        await didRefresh(Array(prs.values))
+        save(checkpointFile, checkpoints)
+        if let id = selectedPRID, prs[id] != nil { await loadDetail(id) }
+    }
+
+    /// Hook for later features (notifications, stale drafts).
+    func didRefresh(_ prs: [PullRequest]) async {
+        _ = Updates.advance(&checkpoints, with: prs, viewer: viewer)
+    }
+
+    func refreshNow() {
+        Task {
+            do { try await refresh() } catch { lastError = error.localizedDescription }
+        }
+    }
+
+    // MARK: Actions
+
+    func addPR(_ text: String) async throws {
+        guard let ref = PRRef(text) else { throw GitHubError.notFound("Pull request link “\(text)”") }
+        let pr = try await github.pullRequest(ref)
+        org.follow(id: pr.id, url: pr.url)
+        prs[pr.id] = pr
+        selectedPRID = pr.id
+        try await refresh()
+    }
+
+    func stopMonitoring(_ item: Item) {
+        for pr in item.pullRequests {
+            org.unfollow(id: pr.id)
+            prs[pr.id] = nil
+        }
+        if item.pullRequests.contains(where: { $0.id == selectedPRID }) { selectedPRID = nil }
+    }
+
+    func loadDetail(_ id: String) async {
+        do {
+            details[id] = try await github.detail(id: id)
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func openOnGitHub(_ pr: PullRequest) {
+        if let url = URL(string: pr.url) { NSWorkspace.shared.open(url) }
+    }
+
+    func save<T: Codable>(_ file: JSONFile<T>, _ value: T) {
+        do { try file.save(value) } catch { lastError = "Couldn't save \(file.url.lastPathComponent): \(error.localizedDescription)" }
+    }
+}
