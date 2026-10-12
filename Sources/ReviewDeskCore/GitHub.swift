@@ -71,6 +71,8 @@ public struct Comment: Hashable, Identifiable, Sendable {
     public var author: String
     public var body: String
     public var createdAt: Date
+    /// Part of the viewer's unsubmitted review (only the viewer sees it).
+    public var isPending = false
 }
 
 public struct Review: Hashable, Identifiable, Sendable {
@@ -85,6 +87,7 @@ public struct ReviewThread: Hashable, Identifiable, Sendable {
     public var id: String
     public var path: String
     public var line: Int?
+    public var side: DiffSide
     public var isResolved: Bool
     public var isOutdated: Bool
     public var comments: [Comment]
@@ -216,8 +219,8 @@ public struct GitHub: Sendable {
           body
           comments(last: 100) { nodes { id author { login } body createdAt } }
           reviews(last: 50) { nodes { id author { login } state body submittedAt } }
-          reviewThreads(first: 100) { nodes { id path line isResolved isOutdated
-            comments(first: 100) { nodes { id author { login } body createdAt } } } }
+          reviewThreads(first: 100) { nodes { id path line diffSide isResolved isOutdated
+            comments(first: 100) { nodes { id author { login } body createdAt state } } } }
           pending: reviews(states: PENDING, first: 1) { nodes { id commit { oid }
             comments(first: 100) { nodes { id path line body } } } }
         } } }
@@ -242,6 +245,7 @@ public struct GitHub: Sendable {
             },
             threads: Self.nodes(pr["reviewThreads"]).map {
                 ReviewThread(id: $0["id"] as? String ?? "", path: $0["path"] as? String ?? "", line: $0["line"] as? Int,
+                             side: DiffSide(rawValue: $0["diffSide"] as? String ?? "") ?? .right,
                              isResolved: $0["isResolved"] as? Bool ?? false, isOutdated: $0["isOutdated"] as? Bool ?? false,
                              comments: Self.nodes($0["comments"]).map(Self.decodeComment))
             },
@@ -315,7 +319,8 @@ public struct GitHub: Sendable {
     }
 
     static func decodeComment(_ node: [String: Any]) -> Comment {
-        Comment(id: node["id"] as? String ?? "", author: login(node), body: node["body"] as? String ?? "", createdAt: date(node["createdAt"]) ?? .distantPast)
+        Comment(id: node["id"] as? String ?? "", author: login(node), body: node["body"] as? String ?? "",
+                createdAt: date(node["createdAt"]) ?? .distantPast, isPending: node["state"] as? String == "PENDING")
     }
 
     static func nodes(_ connection: Any?) -> [[String: Any]] {

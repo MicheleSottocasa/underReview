@@ -65,7 +65,8 @@ import Testing
           "comments":{"nodes":[{"id":"IC_1","author":null,"body":"hi","createdAt":"2026-10-01T00:00:00Z"}]},
           "reviews":{"nodes":[{"id":"R_1","author":{"login":"bob"},"state":"APPROVED","body":"","submittedAt":"2026-10-01T00:00:00Z"},
                               {"id":"R_2","author":{"login":"me"},"state":"PENDING","body":"","submittedAt":null}]},
-          "reviewThreads":{"nodes":[{"id":"T_1","path":"a.swift","line":3,"isResolved":false,"isOutdated":true,"comments":{"nodes":[]}}]},
+          "reviewThreads":{"nodes":[{"id":"T_1","path":"a.swift","line":3,"diffSide":"LEFT","isResolved":false,"isOutdated":true,
+            "comments":{"nodes":[{"id":"C_9","author":{"login":"me"},"body":"web comment","createdAt":"2026-10-01T00:00:00Z","state":"PENDING"}]}}]},
           "pending":{"nodes":[{"id":"R_2","commit":{"oid":"abc"},"comments":{"nodes":[{"id":"C_9","path":"a.swift","line":4,"body":"web comment"}]}}]}}}
         """#)
     }
@@ -73,6 +74,9 @@ import Testing
     #expect(detail.comments.first?.author == "ghost")
     #expect(detail.reviews.map(\.id) == ["R_1"])
     #expect(detail.threads.first?.isOutdated == true)
+    #expect(detail.threads.first?.side == .left)
+    #expect(detail.threads.first?.comments.first?.isPending == true)
+    #expect(detail.comments.first?.isPending == false)
     #expect(detail.pendingReview == PendingReview(id: "R_2", commitOID: "abc", comments: [PendingComment(id: "C_9", path: "a.swift", line: 4, body: "web comment")]))
 }
 
