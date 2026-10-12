@@ -10,6 +10,22 @@ struct RecentEvent: Identifiable {
     let date = Date()
 }
 
+/// Sidebar state filter; Draft is an open PR marked as draft.
+enum PRStateFilter: String, CaseIterable {
+    case open, draft, merged, closed
+
+    var title: String { rawValue.capitalized }
+
+    func matches(_ pr: PullRequest) -> Bool {
+        switch self {
+        case .open: pr.state == "OPEN" && !pr.isDraft
+        case .draft: pr.state == "OPEN" && pr.isDraft
+        case .merged: pr.state == "MERGED"
+        case .closed: pr.state == "CLOSED"
+        }
+    }
+}
+
 /// One row identity in the unified sidebar. Every PR appears exactly once, so tags never collide.
 enum SidebarID: Hashable {
     case folder(UUID)
@@ -41,6 +57,10 @@ final class AppModel {
     }
     var selectedPRID: String?
     var filter = ""
+    /// States shown in the sidebar. Persisted; all by default.
+    var stateFilter: Set<PRStateFilter> = Set((UserDefaults.standard.stringArray(forKey: "stateFilter") ?? PRStateFilter.allCases.map(\.rawValue)).compactMap(PRStateFilter.init)) {
+        didSet { UserDefaults.standard.set(stateFilter.map(\.rawValue), forKey: "stateFilter") }
+    }
     /// Expansion keys that differ from the default (folders open, stacks closed). Persisted.
     var toggledExpansion: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "toggledExpansion") ?? []) {
         didSet { UserDefaults.standard.set(Array(toggledExpansion), forKey: "toggledExpansion") }

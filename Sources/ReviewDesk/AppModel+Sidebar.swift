@@ -3,16 +3,25 @@ import ReviewDeskCore
 import SwiftUI
 
 extension AppModel {
-    /// Items per folder (nil = Inbox), filtered by the sidebar search. Build once per render.
+    /// Items per folder (nil = Inbox), filtered by state and the sidebar search. Build once per render.
+    /// Stacks keep only the PRs that pass, and disappear when none do.
     func itemIndex() -> [UUID?: [Item]] {
         let query = filter.trimmingCharacters(in: .whitespaces).lowercased()
-        let items = allItems.filter { item in
-            query.isEmpty || item.pullRequests.contains { pr in
+        let items = allItems.compactMap { item -> Item? in
+            let shown = item.pullRequests.filter { pr in stateFilter.contains { $0.matches(pr) } }
+            guard !shown.isEmpty else { return nil }
+            let matchesQuery = query.isEmpty || shown.contains { pr in
                 [pr.title, "#\(pr.number)", pr.author, pr.repo, pr.headRefName].contains { $0.lowercased().contains(query) }
             }
+            guard matchesQuery else { return nil }
+            var filtered = item
+            filtered.pullRequests = shown
+            return filtered
         }
         return Dictionary(grouping: items) { org.placements[$0.key] }
     }
+
+    var isFilteringState: Bool { stateFilter.count < PRStateFilter.allCases.count }
 
     func isExpanded(_ key: String) -> Bool {
         if !filter.isEmpty { return true }
@@ -36,6 +45,8 @@ extension AppModel {
             folder = org.folders.first { $0.id == id }?.parentID
         }
         if org.placements[pr.itemKey] == nil, !isExpanded("inbox") { toggleExpansion("inbox") }
+        let scope = org.placements[pr.itemKey].map { "folder:\($0)" } ?? "inbox"
+        if !isExpanded("repo:\(scope):\(pr.repo)") { toggleExpansion("repo:\(scope):\(pr.repo)") }
         if pr.stack != nil, !isExpanded(pr.itemKey) { toggleExpansion(pr.itemKey) }
     }
 

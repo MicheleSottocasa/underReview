@@ -15,7 +15,7 @@ struct SidebarView: View {
         let index = model.itemIndex()
         List(selection: $model.selection) {
             DisclosureGroup(isExpanded: model.expansion("inbox")) {
-                ItemRows(items: index[nil] ?? [])
+                RepoGroups(items: index[nil] ?? [], scope: "inbox", folder: nil)
             } label: {
                 Label("Inbox", systemImage: "tray")
                     .badge(openCount(index[nil] ?? []))
@@ -51,6 +51,21 @@ struct SidebarView: View {
             }
         }
         .toolbar {
+            ToolbarItem {
+                Menu {
+                    ForEach(PRStateFilter.allCases, id: \.self) { state in
+                        Toggle(state.title, isOn: Binding(
+                            get: { model.stateFilter.contains(state) },
+                            set: { if $0 { model.stateFilter.insert(state) } else { model.stateFilter.remove(state) } }
+                        ))
+                    }
+                    Divider()
+                    Button("Show All") { model.stateFilter = Set(PRStateFilter.allCases) }
+                } label: {
+                    Label("Filter", systemImage: model.isFilteringState ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                }
+                .help("Show pull requests by state")
+            }
             ToolbarItem {
                 Menu {
                     Button("Add Pull Request…") { addingPR = true }
@@ -135,7 +150,7 @@ struct FolderBranch: View {
         if model.filter.isEmpty || subtreeCount(folder.id) > 0 {
             DisclosureGroup(isExpanded: model.expansion("folder:\(folder.id)")) {
                 ForEach(children) { FolderBranch(folder: $0, index: index) }
-                ItemRows(items: items)
+                RepoGroups(items: items, scope: "folder:\(folder.id)", folder: folder.id)
                 if children.isEmpty && items.isEmpty {
                     Text("Drop pull requests here").font(.callout).foregroundStyle(.tertiary)
                 }
@@ -160,6 +175,32 @@ struct FolderBranch: View {
     private func openCount(_ id: UUID) -> Int {
         (index[id] ?? []).reduce(0) { $0 + $1.pullRequests.filter { $0.state == "OPEN" }.count }
             + model.org.children(of: id).reduce(0) { $0 + openCount($1.id) }
+    }
+}
+
+/// Items of one place (Inbox or a folder) split into collapsible per-repo groups.
+struct RepoGroups: View {
+    @Environment(AppModel.self) private var model
+    let items: [Item]
+    let scope: String
+    let folder: UUID?
+
+    var body: some View {
+        ForEach(Dictionary(grouping: items, by: \.repo).sorted { $0.key < $1.key }, id: \.key) { repo, group in
+            DisclosureGroup(isExpanded: model.expansion("repo:\(scope):\(repo)")) {
+                ItemRows(items: group)
+            } label: {
+                Label(String(repo.split(separator: "/").last ?? ""), systemImage: "shippingbox")
+                    .foregroundStyle(.secondary)
+                    .badge(group.reduce(0) { $0 + $1.pullRequests.count })
+                    .help(repo)
+                    .dropDestination(for: String.self) { payload, _ in
+                        let keys = Set(payload.flatMap { $0.split(separator: "\n").map(String.init) })
+                        model.move(keys, to: folder)
+                        return !keys.isEmpty
+                    }
+            }
+        }
     }
 }
 
@@ -220,7 +261,7 @@ struct StateIcon: View {
     }
 }
 
-/// Standalone PR: state icon and title, then `repo#n · author · age`.
+/// Standalone PR: state icon and title, then `#n · author · age` (the repo is the group above).
 struct PRRow: View {
     let pr: PullRequest
     var muted = false
@@ -232,7 +273,7 @@ struct PRRow: View {
             StateIcon(pr: pr)
             VStack(alignment: .leading, spacing: 1) {
                 Text(pr.title).lineLimit(1).truncationMode(.tail)
-                Text(verbatim: "\(pr.repo.split(separator: "/").last ?? "")#\(pr.number) · \(pr.author) · \(age(pr.updatedAt))")
+                Text(verbatim: "#\(pr.number) · \(pr.author) · \(age(pr.updatedAt))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -256,7 +297,7 @@ struct StackHeader: View {
             Image(systemName: "square.stack.3d.up").foregroundStyle(.blue).frame(width: 16)
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.pullRequests.first?.title ?? "Stack").lineLimit(1)
-                Text(verbatim: "\(item.repo.split(separator: "/").last ?? "") · \(item.pullRequests.count) PRs · \(open) open")
+                Text(verbatim: "\(item.pullRequests.count) PRs · \(open) open")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
