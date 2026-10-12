@@ -46,3 +46,7 @@ The app is signed ad hoc, not with an Apple Developer ID, so macOS blocks the fi
 ## Not in v1
 
 Merge, rebase or push from the app. Creating or editing stacks. Multiple GitHub accounts. Sync between devices. Submodule and LFS content in AI context. Distribution beyond a local build.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
