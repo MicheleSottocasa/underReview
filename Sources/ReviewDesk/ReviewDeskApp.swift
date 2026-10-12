@@ -18,14 +18,67 @@ struct ReviewDeskApp: App {
                 Button("Refresh") { model.refreshNow() }.keyboardShortcut("r")
             }
         }
+
+        // Closing the window leaves monitoring running here; Quit stops it.
+        MenuBarExtra {
+            MenuBarContent().environment(model)
+        } label: {
+            MenuBarLabel().environment(model)
+        }
     }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var activity: NSObjectProtocol?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // `swift run` launches a bare executable; make it a regular app with a Dock icon and windows.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        // Without this, App Nap throttles the background poll timer once the window is closed.
+        activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep, reason: "Monitoring pull requests")
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+}
+
+struct MenuBarLabel: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Image(systemName: model.recentEvents.isEmpty ? "arrow.triangle.pull" : "bell.badge")
+            .onAppear {
+                model.openMainWindow = { openWindow(id: "main") }
+                model.start()
+            }
+    }
+}
+
+struct MenuBarContent: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        if model.recentEvents.isEmpty {
+            Text("No new activity")
+        }
+        ForEach(model.recentEvents.prefix(10)) { event in
+            Button("\(event.pr.repo)#\(event.pr.number): \(event.kinds.map(\.text).joined(separator: ", "))") {
+                model.open(prID: event.pr.id)
+            }
+        }
+        if !model.recentEvents.isEmpty {
+            Button("Clear") { model.recentEvents.removeAll() }
+        }
+        Divider()
+        Button("Open ReviewDesk") {
+            openWindow(id: "main")
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        Button("Refresh Now") { model.refreshNow() }
+        Divider()
+        Button("Quit ReviewDesk") { NSApp.terminate(nil) }.keyboardShortcut("q")
     }
 }
 

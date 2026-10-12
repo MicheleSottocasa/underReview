@@ -2,6 +2,13 @@ import AppKit
 import Observation
 import ReviewDeskCore
 
+struct RecentEvent: Identifiable {
+    let id = UUID()
+    let pr: PullRequest
+    let kinds: [UpdateKind]
+    let date = Date()
+}
+
 enum SidebarSelection: Hashable {
     case inbox, all
     case folder(UUID)
@@ -27,6 +34,11 @@ final class AppModel {
     var org: Organization { didSet { save(orgFile, org) } }
     var checkpoints: [String: Snapshot]
     var reviewDrafts: ReviewDrafts { didSet { save(draftsFile, reviewDrafts) } }
+    var recentEvents: [RecentEvent] = []
+
+    let notifier = Notifier()
+    /// Captured from SwiftUI so notifications and the menu bar can reopen a closed window.
+    var openMainWindow: (() -> Void)?
 
     let github: GitHub
     private let orgFile = JSONFile<Organization>.appSupport("organization.json")
@@ -57,6 +69,8 @@ final class AppModel {
 
     func start() {
         guard pollTask == nil else { return }
+        notifier.onOpen = { [weak self] id in self?.open(prID: id) }
+        notifier.setUp()
         pollTask = Task {
             do {
                 viewer = try await github.viewerLogin()
@@ -112,8 +126,28 @@ final class AppModel {
 
     /// Hook for later features (notifications, stale drafts).
     func didRefresh(_ prs: [PullRequest]) async {
-        _ = Updates.advance(&checkpoints, with: prs, viewer: viewer)
+        let events = Updates.advance(&checkpoints, with: prs, viewer: viewer)
+        for (id, kinds) in events {
+            guard let pr = self.prs[id] else { continue }
+            recentEvents.insert(RecentEvent(pr: pr, kinds: kinds), at: 0)
+            if !org.muted.contains(pr.itemKey) { notifier.post(pr, kinds: kinds) }
+        }
+        recentEvents = Array(recentEvents.prefix(20))
         await refreshStaleDrafts(prs)
+    }
+
+    func open(prID: String) {
+        guard prs[prID] != nil else { return }
+        selectedPRID = prID
+        if let item = items(for: .all).first(where: { $0.pullRequests.contains { $0.id == prID } }) {
+            sidebar = org.placements[item.key].map(SidebarSelection.folder) ?? .inbox
+        }
+        openMainWindow?()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func toggleMute(_ item: Item) {
+        if org.muted.contains(item.key) { org.muted.remove(item.key) } else { org.muted.insert(item.key) }
     }
 
     func refreshNow() {

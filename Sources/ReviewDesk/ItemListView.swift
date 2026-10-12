@@ -94,6 +94,7 @@ struct ItemMenu: View {
                 Button(String(repeating: "    ", count: entry.depth) + entry.folder.name) { model.move(item.key, to: entry.folder.id) }
             }
         }
+        Button(model.org.muted.contains(item.key) ? "Unmute Notifications" : "Mute Notifications") { model.toggleMute(item) }
         Divider()
         Button(item.isStack ? "Stop Monitoring Stack" : "Stop Monitoring", role: .destructive) { model.stopMonitoring(item) }
     }
