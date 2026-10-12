@@ -35,15 +35,21 @@ final class AppModel {
     var checkpoints: [String: Snapshot]
     var reviewDrafts: ReviewDrafts { didSet { save(draftsFile, reviewDrafts) } }
     var recentEvents: [RecentEvent] = []
+    var aiRuns: [AIRun] { didSet { save(aiRunsFile, aiRuns) } }
+    /// PR id → what the AI is doing right now.
+    var aiStatus: [String: String] = [:]
+    var aiTasks: [String: Task<Void, Never>] = [:]
 
     let notifier = Notifier()
     /// Captured from SwiftUI so notifications and the menu bar can reopen a closed window.
     var openMainWindow: (() -> Void)?
 
     let github: GitHub
+    let reviewer: AIReviewer
     private let orgFile = JSONFile<Organization>.appSupport("organization.json")
     private let checkpointFile = JSONFile<[String: Snapshot]>.appSupport("checkpoints.json")
     private let draftsFile = JSONFile<ReviewDrafts>.appSupport("drafts.json")
+    private let aiRunsFile = JSONFile<[AIRun]>.appSupport("ai-runs.json")
     private var pollTask: Task<Void, Never>?
 
     init() {
@@ -52,6 +58,8 @@ final class AppModel {
         org = orgFile.load(default: Organization())
         checkpoints = checkpointFile.load(default: [:])
         reviewDrafts = draftsFile.load(default: ReviewDrafts())
+        aiRuns = aiRunsFile.load(default: [])
+        reviewer = AIReviewer(runner: runner)
     }
 
     var selectedPR: PullRequest? { selectedPRID.flatMap { prs[$0] } }

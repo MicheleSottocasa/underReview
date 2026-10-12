@@ -21,6 +21,11 @@ public struct Finding: Codable, Hashable, Sendable {
 public struct ReviewResult: Codable, Hashable, Sendable {
     public var summary: String
     public var findings: [Finding]
+
+    public init(summary: String, findings: [Finding]) {
+        self.summary = summary
+        self.findings = findings
+    }
 }
 
 public struct ContextFile: Hashable, Identifiable, Sendable {
