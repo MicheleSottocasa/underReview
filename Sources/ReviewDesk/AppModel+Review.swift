@@ -116,3 +116,15 @@ extension AppModel {
         }
     }
 }
+
+extension AppModel {
+    /// Like GitHub's Submit: local drafts join the pending review first, then it's submitted with the chosen action.
+    func submitReview(_ pr: PullRequest, event: ReviewEvent) async -> Bool {
+        let unsaved = drafts(for: pr.id).filter { $0.needsSync && !$0.isStale }
+        if !unsaved.isEmpty {
+            await saveDrafts(Set(unsaved.map(\.id)), pr: pr)
+            guard drafts(for: pr.id).allSatisfy({ !$0.needsSync || $0.isStale }) else { return false }
+        }
+        return await publish(pr, event: event)
+    }
+}

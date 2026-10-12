@@ -2,13 +2,13 @@ import ReviewDeskCore
 import SwiftUI
 
 enum DetailTab: String, CaseIterable {
-    case overview = "Overview", files = "Files", review = "Review", ai = "AI", notes = "Notes"
+    case conversation = "Conversation", changes = "Changes", ai = "AI Review", notes = "Notes"
 }
 
 struct DetailView: View {
     @Environment(AppModel.self) private var model
     let pr: PullRequest
-    @ViewState private var tab = DetailTab.overview
+    @ViewState private var tab = DetailTab.conversation
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -21,9 +21,8 @@ struct DetailView: View {
             .padding(.horizontal)
             Divider().padding(.top, 8)
             switch tab {
-            case .overview: OverviewView(pr: pr, detail: model.details[pr.id])
-            case .files: FilesView(pr: pr)
-            case .review: ReviewView(pr: pr)
+            case .conversation: OverviewView(pr: pr, detail: model.details[pr.id])
+            case .changes: ChangesView(pr: pr)
             case .ai: AIView(pr: pr)
             case .notes: NotesView(pr: pr)
             }
