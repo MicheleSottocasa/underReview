@@ -22,7 +22,7 @@ struct ReviewView: View {
                     HStack(alignment: .top) {
                         Toggle("", isOn: selectionBinding(draft.id)).labelsHidden().disabled(draft.isStale)
                         VStack(alignment: .leading) {
-                            Text("\(draft.anchor.path):\(draft.anchor.line)").font(.caption.monospaced())
+                            Text(verbatim: "\(draft.anchor.path):\(draft.anchor.line)").font(.caption.monospaced())
                             DraftCard(draft: draft)
                         }
                         Menu {
@@ -94,7 +94,7 @@ struct ReviewView: View {
                 run { if await model.publish(pr, event: event) { self.event = nil } }
             }
         } message: {
-            Text("This submits your pending review on \(pr.repo)#\(pr.number). It can't be undone from ReviewDesk.")
+            Text(verbatim: "This submits your pending review on \(pr.repo)#\(pr.number). It can't be undone from ReviewDesk.")
         }
         .sheet(item: $replyingTo) { thread in
             DraftEditor(title: "Reply · \(thread.path)", initial: "", actionTitle: "Send Reply", onCancel: { replyingTo = nil }) { body in

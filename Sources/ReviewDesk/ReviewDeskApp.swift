@@ -68,7 +68,7 @@ struct MenuBarContent: View {
             Text("No new activity")
         }
         ForEach(model.recentEvents.prefix(10)) { event in
-            Button("\(event.pr.repo)#\(event.pr.number): \(event.kinds.map(\.text).joined(separator: ", "))") {
+            Button(String("\(event.pr.repo)#\(event.pr.number): \(event.kinds.map(\.text).joined(separator: ", "))")) {
                 model.open(prID: event.pr.id)
             }
         }

@@ -39,10 +39,10 @@ struct DetailView: View {
             }
             HStack(spacing: 8) {
                 StateBadge(pr: pr)
-                Text("\(pr.repo)#\(pr.number) by \(pr.author)")
+                Text(verbatim: "\(pr.repo)#\(pr.number) by \(pr.author)")
                 Text("\(pr.headRefName) → \(pr.baseRefName)").font(.caption.monospaced())
                 if let position = pr.stackPosition, let stack = pr.stack {
-                    Text("Stack #\(stack.number): \(position) of \(stack.entries.count)")
+                    Text(verbatim: "Stack #\(stack.number): \(position) of \(stack.entries.count)")
                 }
             }
             .font(.callout)

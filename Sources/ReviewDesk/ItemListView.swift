@@ -51,7 +51,7 @@ struct PRRow: View {
                 Text(pr.title).lineLimit(2)
             }
             HStack(spacing: 6) {
-                Text("\(pr.repo)#\(pr.number)")
+                Text(verbatim: "\(pr.repo)#\(pr.number)")
                 Text(pr.author)
                 StateBadge(pr: pr)
             }
