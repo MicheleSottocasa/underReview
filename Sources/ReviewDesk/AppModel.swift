@@ -113,6 +113,7 @@ final class AppModel {
     /// Hook for later features (notifications, stale drafts).
     func didRefresh(_ prs: [PullRequest]) async {
         _ = Updates.advance(&checkpoints, with: prs, viewer: viewer)
+        await refreshStaleDrafts(prs)
     }
 
     func refreshNow() {

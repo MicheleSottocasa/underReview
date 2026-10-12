@@ -34,3 +34,85 @@ extension AppModel {
         reviewDrafts.drafts.removeAll { $0.id == id }
     }
 }
+
+extension AppModel {
+    var reviewSync: ReviewSync { ReviewSync(github: github) }
+
+    /// Saves the chosen drafts into the viewer's pending review on GitHub.
+    func saveDrafts(_ ids: Set<UUID>, pr: PullRequest) async {
+        let selected = reviewDrafts.drafts.filter { ids.contains($0.id) }
+        do {
+            let saved = try await reviewSync.save(selected, pr: pr)
+            for draft in saved {
+                if let index = reviewDrafts.drafts.firstIndex(where: { $0.id == draft.id }) { reviewDrafts.drafts[index] = draft }
+            }
+        } catch {
+            lastError = error.localizedDescription
+        }
+        await afterOwnWrite(pr)
+    }
+
+    /// Deletes locally and, if it was saved, from the pending review.
+    func deleteDraft(_ draft: Draft, pr: PullRequest) async {
+        do {
+            try await reviewSync.delete(draft)
+            deleteLocalDraft(draft.id)
+        } catch {
+            lastError = error.localizedDescription
+        }
+        await afterOwnWrite(pr)
+    }
+
+    /// The user checked an outdated draft still points at the right line.
+    func keepDraftAtHead(_ id: UUID, pr: PullRequest) {
+        guard let index = reviewDrafts.drafts.firstIndex(where: { $0.id == id }) else { return }
+        reviewDrafts.drafts[index].isStale = false
+        reviewDrafts.drafts[index].commitOID = pr.headRefOid
+    }
+
+    func publish(_ pr: PullRequest, event: ReviewEvent) async -> Bool {
+        defer { Task { await afterOwnWrite(pr) } }
+        do {
+            try await reviewSync.publish(pr: pr, event: event, body: reviewDrafts.bodies[pr.id] ?? "", viewer: viewer)
+            // Saved drafts are now published comments; local-only ones stay for later.
+            reviewDrafts.drafts.removeAll { $0.prID == pr.id && $0.remoteID != nil }
+            reviewDrafts.bodies[pr.id] = nil
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
+    func reply(to threadID: String, body: String, pr: PullRequest) async -> Bool {
+        defer { Task { await afterOwnWrite(pr) } }
+        do {
+            try await reviewSync.reply(threadID: threadID, body: body, viewer: viewer)
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
+    /// Our own writes shouldn't come back as notifications: re-read the PR and move its checkpoint.
+    func afterOwnWrite(_ pr: PullRequest) async {
+        if let fresh = try? await github.pullRequests(ids: [pr.id]).first {
+            prs[fresh.id] = fresh
+            checkpoints[fresh.id] = Snapshot(fresh, viewer: viewer)
+        }
+        await loadDetail(pr.id)
+    }
+
+    /// After a push, flag drafts whose file changed.
+    func refreshStaleDrafts(_ prs: [PullRequest]) async {
+        for pr in prs {
+            let drafts = drafts(for: pr.id)
+            guard drafts.contains(where: { $0.commitOID != pr.headRefOid && !$0.isStale }) else { continue }
+            for draft in await reviewSync.refreshStaleness(drafts, pr: pr) {
+                if let index = reviewDrafts.drafts.firstIndex(where: { $0.id == draft.id }) { reviewDrafts.drafts[index] = draft }
+            }
+            files[pr.id] = nil
+        }
+    }
+}
