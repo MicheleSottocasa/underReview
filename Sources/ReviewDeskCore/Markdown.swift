@@ -22,6 +22,7 @@ public struct MarkdownBlock: Hashable, Sendable {
 public enum Markdown {
     /// Splits Markdown into blocks using Foundation's parser; falls back to one plain paragraph.
     public static func blocks(_ source: String) -> [MarkdownBlock] {
+        let source = cleanHTML(source)
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .full, failurePolicy: .returnPartiallyParsedIfPossible)
         guard let parsed = try? AttributedString(markdown: source, options: options) else {
             return [MarkdownBlock(kind: .paragraph, text: AttributedString(source), quoted: false)]
@@ -99,6 +100,47 @@ public enum Markdown {
             while trimmed.text.characters.last == "\n" { trimmed.text.characters.removeLast() }
             return trimmed
         }
+    }
+
+    /// GitHub renders inline HTML and hides comments; Foundation's parser shows them raw. Bots (e.g. review
+    /// tools) embed both. Comments are dropped, images become their alt text, links become Markdown links and
+    /// other common tags are removed, outside fenced code blocks only.
+    public static func cleanHTML(_ source: String) -> String {
+        var inFence = false
+        var prose: [String] = [], output: [String] = []
+        func flush() {
+            if !prose.isEmpty { output.append(cleanProse(prose.joined(separator: "\n"))) }
+            prose = []
+        }
+        for line in source.components(separatedBy: "\n") {
+            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                if !inFence { flush() }
+                inFence.toggle()
+                output.append(line)
+            } else if inFence {
+                output.append(line)
+            } else {
+                prose.append(line)
+            }
+        }
+        flush()
+        return output.joined(separator: "\n")
+    }
+
+    private static func cleanProse(_ text: String) -> String {
+        var text = text
+        func replace(_ pattern: String, with template: String) {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive, .dotMatchesLineSeparators]) else { return }
+            text = regex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: template)
+        }
+        replace("<!--.*?-->", with: "")
+        replace(#"<img\b[^>]*\balt="([^"]*)"[^>]*>"#, with: "$1")
+        replace(#"<br\s*/?>"#, with: "  \n")
+        replace(#"<a\b[^>]*\bhref="([^"]*)"[^>]*>(.*?)</a>"#, with: "[$2]($1)")
+        replace(#"</?(?:a|img|picture|source|div|span|p|details|summary|sub|sup|b|i|strong|em|kbd|code|h[1-6])\b[^>]*>"#, with: "")
+        replace(#"\[\s*\]\(([^)]*)\)"#, with: "[link]($1)")
+        replace(#"\n{3,}"#, with: "\n\n")
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func appendOrStart(_ blocks: inout [MarkdownBlock], key: Int, current: inout Int?, kind: MarkdownBlock.Kind,

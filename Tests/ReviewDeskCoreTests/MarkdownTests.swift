@@ -55,3 +55,30 @@ private func plain(_ block: MarkdownBlock) -> String { String(block.text.charact
     #expect(Markdown.blocks("just text").map(plain) == ["just text"])
     #expect(Markdown.blocks("").isEmpty)
 }
+
+@Test func htmlCommentsAndTagsAreCleanedLikeGitHub() {
+    let bot = """
+    ### MFA docs omit freshness requirement
+
+    <!-- DESCRIPTION START -->
+    The page is stale.
+    <!-- DESCRIPTION END -->
+    <!-- LOCATIONS START
+    a.py#L73-L78
+    LOCATIONS END -->
+    <div><a href="https://cursor.com/open?x=1" target="_blank"><picture><source media="(prefers-color-scheme: dark)" srcset="d.png"><img alt="Fix in Cursor" src="l.png"></picture></a></div>
+    """
+    #expect(Markdown.cleanHTML(bot) == """
+    ### MFA docs omit freshness requirement
+
+    The page is stale.
+
+    [Fix in Cursor](https://cursor.com/open?x=1)
+    """)
+    #expect(Markdown.blocks(bot).map { String($0.text.characters) } == ["MFA docs omit freshness requirement", "The page is stale.", "Fix in Cursor"])
+}
+
+@Test func htmlInsideCodeFencesIsKept() {
+    let source = "```swift\nlet a: Array<Int> = [] // <!-- not a comment -->\n```\n<b>bold</b>"
+    #expect(Markdown.cleanHTML(source) == "```swift\nlet a: Array<Int> = [] // <!-- not a comment -->\n```\nbold")
+}
