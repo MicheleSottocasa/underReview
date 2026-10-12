@@ -58,3 +58,30 @@ private let listing = """
     #expect(ClaudeAgents.inScope(agents, for: pr).map(\.sessionID) == ["named", "repo", "no-remote"])
     #expect(ClaudeAgents.relevance(agents[1], to: PRRef(nameWithOwner: "Lexroom-ai/lexroom-backend", number: 13860)) == 1)
 }
+
+@Test func readsStoredSessionsNewestFirstAndSkipsSuperseded() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("sessions-\(UUID())")
+    let folder = root.appendingPathComponent("-x-lexroom-backend")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    func write(_ name: String, _ lines: [String], age: TimeInterval) throws {
+        let url = folder.appendingPathComponent("\(name).jsonl")
+        try Data(lines.joined(separator: "\n").utf8).write(to: url)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -age)], ofItemAtPath: url.path)
+    }
+    let user = #"{"type":"user","cwd":"/x/lexroom-backend","gitBranch":"feat/a","message":{"content":"Review the auth flow\nplease"}}"#
+    try write("old", [user], age: 300)
+    try write("titled", [#"{"type":"user","cwd":"/x/lexroom-backend","message":{"content":"<local-command-caveat>"}}"#, user,
+                         #"{"type":"custom-title","customTitle":"auth0-review-1386"}"#], age: 100)
+    try write("superseded", [user, #"{"type":"continued-in","continuedInSessionId":"titled"}"#], age: 10)
+    try write("no-cwd", [#"{"type":"mode","mode":"normal"}"#], age: 5)
+
+    let runner = FakeRunner { _ in ok("https://github.com/Lexroom-ai/lexroom-backend.git") }
+    let sessions = await ClaudeAgents(runner: runner).recent(projects: root)
+
+    #expect(sessions.map(\.sessionID) == ["titled", "old"])
+    #expect(sessions[0].name == "auth0-review-1386" && sessions[0].branch == "feat/a" && sessions[0].status == "stopped")
+    #expect(sessions[1].name == "Review the auth flow please")
+    #expect(sessions.allSatisfy { $0.repo == "Lexroom-ai/lexroom-backend" })
+    #expect(runner.calls.count == 1) // remote resolved once per folder
+}
