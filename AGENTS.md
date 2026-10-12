@@ -16,6 +16,8 @@ ReviewDesk is a Swift package for a macOS 14+ app. See `README.md` for what each
 - `make test`: runs the core tests.
 - `make app`: builds and ad hoc signs `ReviewDesk.app`.
 - `make run`: builds the app and opens it.
+- `make install`: builds the app and installs it in `/Applications`, replacing and relaunching the running copy.
+- `make icon`: regenerates `assets/AppIcon.icns` from `assets/make-icon.swift`.
 - `swift build` / `swift run ReviewDesk`: debug build and launch, without notifications.
 
 These work with only the Command Line Tools installed. The Makefile passes the Swift Testing plugin path, and the app uses `@ViewState`, an alias of SwiftUI's `State` property wrapper, because the `@State` macro plugin ships only with Xcode.
