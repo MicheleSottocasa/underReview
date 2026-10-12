@@ -183,47 +183,67 @@ struct FileNode: Identifiable {
     }
 }
 
+/// Flat rows with depth indentation and our own chevrons: DisclosureGroup rows in this List drew some
+/// labels twice, and PyCharm's tree behaves like this anyway.
 struct FileTree: View {
     @Environment(AppModel.self) private var model
     let pr: PullRequest
     let files: [FileChange]
     @Binding var selection: String?
+    @ViewState private var collapsed: Set<String> = []
 
     var body: some View {
         List(selection: $selection) {
-            ForEach(FileNode.tree(files)) { FileTreeNode(pr: pr, node: $0) }
+            ForEach(rows(FileNode.tree(files), depth: 0), id: \.node.id) { row in
+                if let file = row.node.file {
+                    fileRow(file, name: row.node.name)
+                        .padding(.leading, CGFloat(row.depth) * 14 + 16)
+                        .tag(file.filename)
+                } else {
+                    folderRow(row.node)
+                        .padding(.leading, CGFloat(row.depth) * 14)
+                }
+            }
         }
         .listStyle(.sidebar)
         .onAppear { if selection == nil { selection = files.first?.filename } }
     }
-}
 
-struct FileTreeNode: View {
-    @Environment(AppModel.self) private var model
-    let pr: PullRequest
-    let node: FileNode
-    @ViewState private var expanded = true
-
-    var body: some View {
-        if let children = node.children {
-            DisclosureGroup(isExpanded: $expanded) {
-                ForEach(children) { FileTreeNode(pr: pr, node: $0) }
-            } label: {
-                Label(node.name, systemImage: "folder").lineLimit(1).truncationMode(.head)
-            }
-        } else if let file = node.file {
-            HStack(spacing: 6) {
-                Image(systemName: icon(file.status)).foregroundStyle(color(file.status)).frame(width: 14)
-                Text(node.name).lineLimit(1).truncationMode(.middle)
-                Spacer()
-                let comments = commentCount(file.filename)
-                if comments > 0 {
-                    Label("\(comments)", systemImage: "text.bubble").font(.caption).foregroundStyle(.secondary).labelStyle(.titleAndIcon)
-                }
-            }
-            .help("\(file.filename)  +\(file.additions) −\(file.deletions)")
-            .tag(file.filename)
+    private func rows(_ nodes: [FileNode], depth: Int) -> [(node: FileNode, depth: Int)] {
+        nodes.flatMap { node -> [(node: FileNode, depth: Int)] in
+            guard let children = node.children, !collapsed.contains(node.id) else { return [(node, depth)] }
+            return [(node, depth)] + rows(children, depth: depth + 1)
         }
+    }
+
+    private func folderRow(_ node: FileNode) -> some View {
+        let isCollapsed = collapsed.contains(node.id)
+        return HStack(spacing: 4) {
+            Image(systemName: "chevron.right")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                .frame(width: 12)
+            Image(systemName: "folder").foregroundStyle(.secondary)
+            Text(node.name).lineLimit(1).truncationMode(.middle)
+            Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { collapsed.formSymmetricDifference([node.id]) }
+        .help(node.name)
+    }
+
+    private func fileRow(_ file: FileChange, name: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon(file.status)).foregroundStyle(color(file.status)).frame(width: 14)
+            Text(name).lineLimit(1).truncationMode(.middle)
+            Spacer()
+            let comments = commentCount(file.filename)
+            if comments > 0 {
+                Label("\(comments)", systemImage: "text.bubble").font(.caption).foregroundStyle(.secondary).labelStyle(.titleAndIcon)
+            }
+        }
+        .help("\(file.filename)  +\(file.additions) −\(file.deletions)")
     }
 
     private func commentCount(_ path: String) -> Int {
