@@ -5,21 +5,28 @@ INSTALL_DIR := /Applications
 # `open` passes this shell's environment to the app; drop GitHub tokens (e.g. from direnv) so gh uses its
 # own active login, exactly as when launched from Finder.
 LAUNCH := env -u GH_TOKEN -u GITHUB_TOKEN open
+# Release version: Info.plist by default, overridden by the release workflow from the git tag.
+VERSION ?= $(shell /usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" assets/Info.plist)
+BUILD ?= $(shell git rev-list --count HEAD 2>/dev/null || echo 1)
+DIST := dist
+# Empty = this Mac's architecture; the dmg target builds a universal (Apple silicon + Intel) app.
+ARCH_FLAGS ?=
 
-.PHONY: test app run icon install
+.PHONY: test app run icon install dmg
 
 test:
 	swift test -Xswiftc -plugin-path -Xswiftc $(TESTING_PLUGINS)
 
 # Notifications need a real bundle, so wrap the release binary and sign it ad hoc (no sandbox: the app spawns CLIs).
 app:
-	swift build -c release
+	swift build -c release $(ARCH_FLAGS)
 	rm -rf $(APP)
 	mkdir -p $(APP)/Contents/MacOS
-	cp .build/release/ReviewDesk $(APP)/Contents/MacOS/
+	cp "$$(swift build -c release $(ARCH_FLAGS) --show-bin-path)/ReviewDesk" $(APP)/Contents/MacOS/
 	cp assets/Info.plist $(APP)/Contents/
 	mkdir -p $(APP)/Contents/Resources
 	cp assets/AppIcon.icns $(APP)/Contents/Resources/
+	/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(VERSION)" -c "Set :CFBundleVersion $(BUILD)" $(APP)/Contents/Info.plist
 	codesign --force --sign - $(APP)
 
 run: app
@@ -34,6 +41,17 @@ install: app
 	ditto $(APP) $(INSTALL_DIR)/$(APP)
 	rm -rf $(APP)
 	$(LAUNCH) $(INSTALL_DIR)/$(APP)
+
+# Drag-to-Applications disk image for GitHub Releases: dist/ReviewDesk-<version>.dmg.
+# ponytail: ad hoc signed, so first launch elsewhere needs right-click > Open; add Developer ID signing and
+# notarization (codesign --options runtime + notarytool) once there's an Apple Developer account.
+dmg:
+	$(MAKE) app ARCH_FLAGS="--arch arm64 --arch x86_64"
+	rm -rf $(DIST)/dmg && mkdir -p $(DIST)/dmg
+	ditto $(APP) $(DIST)/dmg/$(APP)
+	ln -s /Applications $(DIST)/dmg/Applications
+	hdiutil create -volname "ReviewDesk $(VERSION)" -srcfolder $(DIST)/dmg -ov -format UDZO $(DIST)/ReviewDesk-$(VERSION).dmg
+	rm -rf $(DIST)/dmg $(APP)
 
 # Regenerates assets/AppIcon.icns from the drawing in assets/make-icon.swift.
 icon:

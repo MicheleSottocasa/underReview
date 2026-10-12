@@ -10,6 +10,12 @@ There is no backend. Notes, folders, drafts and AI results stay in `~/Library/Ap
 - [`gh`](https://cli.github.com), logged in (`gh auth login`). The active `gh` account is the one ReviewDesk uses.
 - Optional, for AI review: `claude` (Claude Code) and/or `codex`, logged in with a subscription, or [`ollama`](https://ollama.com) with a local model. If a CLI is logged in with an API key, ReviewDesk refuses to run it, and it strips API-key environment variables from every child process.
 
+## Install
+
+Download `ReviewDesk-<version>.dmg` from the repository's GitHub Releases, open it and drag ReviewDesk onto Applications.
+
+The app is signed ad hoc, not with an Apple Developer ID, so macOS blocks the first launch of a downloaded copy. Right-click ReviewDesk in Applications and choose **Open** (or use System Settings → Privacy & Security → **Open Anyway**). From Terminal, `xattr -dr com.apple.quarantine /Applications/ReviewDesk.app` does the same. Later launches open normally.
+
 ## Commands
 
 | Command | What it does |
@@ -18,6 +24,7 @@ There is no backend. Notes, folders, drafts and AI results stay in `~/Library/Ap
 | `make app` | Builds a release `ReviewDesk.app` signed ad hoc in the repo root. Notifications only work from this bundle. |
 | `make run` | `make app`, then opens it. |
 | `make install` | Builds the app, quits the running copy, installs it in `/Applications` and opens it. Run it again to update. |
+| `make dmg` | Builds a universal (Apple silicon + Intel) `dist/ReviewDesk-<version>.dmg` installer. `VERSION=1.2.0` overrides the version from `Info.plist`. |
 | `make icon` | Regenerates `assets/AppIcon.icns` from the drawing in `assets/make-icon.swift`. |
 | `swift run ReviewDesk` | Quick debug launch without a bundle (notifications are disabled). |
 
