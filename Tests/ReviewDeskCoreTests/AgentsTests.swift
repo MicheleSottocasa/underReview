@@ -31,9 +31,12 @@ private let listing = """
     #expect(runner.calls.map(\.args) == [["logs", "65703f3d"], ["stop", "65703f3d"]])
 }
 
-@Test func agentsInThePRRepoComeFirst() async throws {
-    let agents = try await ClaudeAgents(runner: FakeRunner { _ in ok(listing) }).list()
-    #expect(ClaudeAgents.sorted(agents, for: "Lexroom-ai/lexroom-backend").map(\.sessionID) == ["S1", "S2"])
-    #expect(ClaudeAgents.sorted(agents, for: "Lexroom-ai/app_lex").map(\.sessionID) == ["S2", "S1"])
-    #expect(!ClaudeAgents.isLikely(agents[0], repo: "o/other"))
+@Test func agentsNamedAfterThePRThenInItsRepoComeFirst() async throws {
+    var agents = try await ClaudeAgents(runner: FakeRunner { _ in ok(listing) }).list()
+    agents.append(RunningAgent(sessionID: "S3", name: "auth0-review-1386", cwd: "/Users/me/lexroom/lexroom-backend", status: "idle"))
+    let backend = PRRef(nameWithOwner: "Lexroom-ai/lexroom-backend", number: 1386)
+
+    #expect(ClaudeAgents.sorted(agents, for: backend).map(\.sessionID) == ["S3", "S1", "S2"])
+    #expect(ClaudeAgents.relevance(agents[2], to: PRRef(nameWithOwner: "o/other", number: 13860)) == 0) // whole numbers only
+    #expect(ClaudeAgents.sorted(agents, for: PRRef(nameWithOwner: "Lexroom-ai/app_lex", number: 1)).first?.sessionID == "S2")
 }

@@ -50,14 +50,16 @@ public struct ClaudeAgents: Sendable {
         _ = try await runner.output("claude", ["stop", id])
     }
 
-    /// Agents whose working folder is named like the PR's repo come first.
-    // ponytail: folder-name match, not the git remote; check `git remote` if repos get renamed locally.
-    public static func sorted(_ agents: [RunningAgent], for repo: String) -> [RunningAgent] {
-        agents.sorted { (isLikely($0, repo: repo) ? 0 : 1, $0.name) < (isLikely($1, repo: repo) ? 0 : 1, $1.name) }
+    /// Sessions named after the PR number come first, then sessions in a folder named like the PR's repo.
+    // ponytail: name and folder-name heuristics, not the git remote; check `git remote` if repos get renamed locally.
+    public static func sorted(_ agents: [RunningAgent], for pr: PRRef) -> [RunningAgent] {
+        agents.sorted { (-relevance($0, to: pr), $0.name) < (-relevance($1, to: pr), $1.name) }
     }
 
-    public static func isLikely(_ agent: RunningAgent, repo: String) -> Bool {
-        guard let name = repo.split(separator: "/").last else { return false }
-        return URL(fileURLWithPath: agent.cwd).pathComponents.contains(String(name))
+    /// 2: the session name mentions the PR number; 1: it works in the repo's folder; 0: unrelated.
+    public static func relevance(_ agent: RunningAgent, to pr: PRRef) -> Int {
+        let numbers = agent.name.split { !$0.isNumber }.compactMap { Int($0) }
+        if numbers.contains(pr.number) { return 2 }
+        return URL(fileURLWithPath: agent.cwd).pathComponents.contains(pr.repo) ? 1 : 0
     }
 }
