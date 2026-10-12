@@ -57,24 +57,47 @@ public struct ProcessRunner: CommandRunner {
 
     public init(paths: [String: String]) { self.paths = paths }
 
-    /// GUI apps don't inherit the shell PATH, so ask a login shell where each tool lives.
-    public static func discover(_ tools: [String], overrides: [String: String] = [:]) -> [String: String] {
+    /// Where installers commonly put CLIs, checked when the shell doesn't know a tool.
+    public static let fallbackDirectories = ["~/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", "~/.bun/bin", "~/.npm-global/bin"]
+
+    /// GUI apps don't inherit the shell PATH. Ask an interactive login shell (many installers only touch
+    /// `.zshrc`, e.g. Claude Code's `~/.local/bin`), then fall back to common install folders.
+    public static func discover(_ tools: [String], overrides: [String: String] = [:],
+                                fallbacks: [String] = fallbackDirectories) -> [String: String] {
         var found: [String: String] = [:]
         for tool in tools {
-            if let path = overrides[tool], !path.isEmpty { found[tool] = path; continue }
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-            process.arguments = ["-lc", "command -v \(tool)"]
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = FileHandle.nullDevice
-            guard (try? process.run()) != nil else { continue }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            let path = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            if process.terminationStatus == 0, path.hasPrefix("/") { found[tool] = path }
+            if let path = overrides[tool], !path.isEmpty {
+                found[tool] = path
+            } else if let path = shellLookup(tool) {
+                found[tool] = path
+            } else if let path = fallbacks.map({ (($0 as NSString).expandingTildeInPath as NSString).appendingPathComponent(tool) })
+                .first(where: FileManager.default.isExecutableFile(atPath:)) {
+                found[tool] = path
+            }
         }
         return found
+    }
+
+    static func shellLookup(_ tool: String) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-ilc", "whence -p \(tool)"] // paths only: aliases and functions from .zshrc are skipped
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice // an interactive .zshrc must never wait for input
+        guard (try? process.run()) != nil else { return nil }
+        // ponytail: a 10 s cap per tool so a slow .zshrc can't hang launch; lower it if startup feels slow.
+        DispatchQueue.global().asyncAfter(deadline: .now() + 10) { if process.isRunning { process.terminate() } }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+        return lastPath(in: String(decoding: data, as: UTF8.self))
+    }
+
+    /// `.zshrc` may print greetings; the answer is the last line that is an absolute path.
+    static func lastPath(in output: String) -> String? {
+        output.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.last { $0.hasPrefix("/") }
     }
 
     public static func childEnvironment(_ base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {

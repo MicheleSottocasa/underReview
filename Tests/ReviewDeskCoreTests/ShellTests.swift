@@ -42,3 +42,20 @@ import Testing
     task.cancel()
     await #expect(throws: CancellationError.self) { try await task.value }
 }
+
+@Test func lookupIgnoresShellGreetings() {
+    #expect(ProcessRunner.lastPath(in: "Welcome back!\n/Users/me/.local/bin/claude\n") == "/Users/me/.local/bin/claude")
+    #expect(ProcessRunner.lastPath(in: "ls: aliased to ls -G\n") == nil)
+}
+
+@Test func discoverFallsBackToInstallFolders() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("bin-\(UUID())")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let tool = "reviewdesk-fake-\(UUID().uuidString.prefix(8))"
+    let path = dir.appendingPathComponent(tool).path
+    FileManager.default.createFile(atPath: path, contents: Data("#!/bin/sh\n".utf8), attributes: [.posixPermissions: 0o755])
+
+    #expect(ProcessRunner.discover([tool], fallbacks: [dir.path]) == [tool: path])
+    #expect(ProcessRunner.discover([tool], fallbacks: []) == [:])
+}
