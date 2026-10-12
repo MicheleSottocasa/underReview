@@ -256,9 +256,11 @@ struct FileDiffView: View {
     @ViewState private var hovered: ReviewDeskCore.Anchor?
     @ViewState private var composing: ReviewDeskCore.Anchor?
     @ViewState private var draftText = ""
+    /// Lines whose comments the user folded away with the gutter bubble.
+    @ViewState private var collapsed: Set<ReviewDeskCore.Anchor> = []
+    private static let gutterWidth: CGFloat = 62
 
     var body: some View {
-        let threads = model.details[pr.id]?.threads.filter { $0.path == file.filename } ?? []
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Text(file.filename).font(.callout.monospaced()).textSelection(.enabled)
@@ -283,12 +285,12 @@ struct FileDiffView: View {
                         case .unified:
                             ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                                 unifiedRow(line)
-                                if let anchor = line.anchor(path: file.filename) { annotations(anchor, threads: threads) }
+                                if let anchor = line.anchor(path: file.filename) { annotations(anchor) }
                             }
                         case .split:
                             ForEach(Array(Diff.sideBySide(lines).enumerated()), id: \.offset) { _, row in
                                 splitRow(row)
-                                ForEach(anchors(row), id: \.self) { annotations($0, threads: threads) }
+                                splitAnnotations(row)
                             }
                         }
                     }
@@ -300,6 +302,8 @@ struct FileDiffView: View {
             }
         }
     }
+
+    private var threads: [ReviewThread] { model.details[pr.id]?.threads.filter { $0.path == file.filename } ?? [] }
 
     private var hiddenIDs: Set<String> { Set(model.drafts(for: pr.id).compactMap(\.remoteID)) }
 
@@ -354,27 +358,36 @@ struct FileDiffView: View {
         return line.kind == .removed ? nil : line.anchor(path: file.filename)
     }
 
-    private func anchors(_ row: DiffRow) -> [ReviewDeskCore.Anchor] {
-        [side(row.left, left: true), side(row.right, left: false)].compactMap { $0 }
-    }
-
     private func gutter(_ number: Int?, anchor: ReviewDeskCore.Anchor?) -> some View {
-        ZStack(alignment: .leading) {
-            Text(number.map(String.init) ?? "")
-                .foregroundStyle(.tertiary)
-                .frame(width: 44, alignment: .trailing)
-            if let anchor, hovered == anchor {
-                Button {
-                    draftText = ""
-                    composing = anchor
-                } label: {
-                    Image(systemName: "plus.square.fill").symbolRenderingMode(.multicolor).foregroundStyle(.white, Color.accentColor)
+        HStack(spacing: 2) {
+            ZStack(alignment: .leading) {
+                Text(number.map(String.init) ?? "")
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 44, alignment: .trailing)
+                if let anchor, hovered == anchor {
+                    Button {
+                        draftText = ""
+                        composing = anchor
+                    } label: {
+                        Image(systemName: "plus.square.fill").symbolRenderingMode(.multicolor).foregroundStyle(.white, Color.accentColor)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Add a review comment")
                 }
-                .buttonStyle(.plain)
-                .help("Add a review comment")
             }
+            ZStack {
+                if let anchor, hasComments(anchor) {
+                    let folded = collapsed.contains(anchor)
+                    Button { collapsed.formSymmetricDifference([anchor]) } label: {
+                        Image(systemName: folded ? "text.bubble" : "text.bubble.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(folded ? "Show comments" : "Hide comments")
+                }
+            }
+            .frame(width: 16)
         }
-        .frame(width: 48)
+        .frame(width: Self.gutterWidth, alignment: .leading)
     }
 
     private func code(_ line: DiffLine) -> some View {
@@ -409,13 +422,43 @@ struct FileDiffView: View {
 
     // MARK: Inline comments
 
+    private func hasComments(_ anchor: ReviewDeskCore.Anchor) -> Bool {
+        threads.contains { $0.line == anchor.line && $0.side == anchor.side }
+            || model.drafts(for: pr.id).contains { $0.anchor == anchor }
+    }
+
+    /// Comments sit in the column of the side they're anchored to: the incoming (right) side for added
+    /// and context lines, the left only for removed lines. The other column stays blank, like PyCharm.
     @ViewBuilder
-    private func annotations(_ anchor: ReviewDeskCore.Anchor, threads: [ReviewThread]) -> some View {
-        ForEach(threads.filter { $0.line == anchor.line && $0.side == anchor.side }) {
-            ThreadView(pr: pr, thread: $0, hidden: hiddenIDs).font(.body)
+    private func splitAnnotations(_ row: DiffRow) -> some View {
+        let left = side(row.left, left: true), right = side(row.right, left: false)
+        let shown = { (anchor: ReviewDeskCore.Anchor?) in anchor.map { hasComments($0) || composing == $0 } ?? false }
+        if shown(left) || shown(right) {
+            HStack(alignment: .top, spacing: 0) {
+                annotationColumn(left)
+                Divider()
+                annotationColumn(right)
+            }
         }
-        ForEach(model.drafts(for: pr.id).filter { $0.anchor == anchor }) {
-            DraftView(pr: pr, draft: $0).font(.body)
+    }
+
+    private func annotationColumn(_ anchor: ReviewDeskCore.Anchor?) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let anchor { annotations(anchor) }
+        }
+        .padding(.leading, Self.gutterWidth - 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func annotations(_ anchor: ReviewDeskCore.Anchor) -> some View {
+        if !collapsed.contains(anchor) {
+            ForEach(threads.filter { $0.line == anchor.line && $0.side == anchor.side }) {
+                ThreadView(pr: pr, thread: $0, hidden: hiddenIDs).font(.body)
+            }
+            ForEach(model.drafts(for: pr.id).filter { $0.anchor == anchor }) {
+                DraftView(pr: pr, draft: $0).font(.body)
+            }
         }
         if composing == anchor {
             CommentComposer(text: $draftText, placeholder: "Add a review comment", submitTitle: "Add to Review",
