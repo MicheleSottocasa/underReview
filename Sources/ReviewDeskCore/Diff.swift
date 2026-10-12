@@ -85,9 +85,36 @@ public struct DiffRow: Hashable, Sendable {
     public var right: DiffLine?
     /// Set for hunk headers, which span both sides.
     public var hunk: String?
+    /// The kind of change block this row belongs to; nil for context and hunk rows.
+    public var change: DiffChange?
+}
+
+/// How a run of changed lines is colored: PyCharm colors whole blocks, not single lines.
+public enum DiffChange: Hashable, Sendable {
+    /// Lines removed and added together.
+    case modified
+    case added
+    case removed
 }
 
 extension Diff {
+    /// The change block each line belongs to (nil for context and hunk lines), index-aligned with `lines`.
+    public static func changes(_ lines: [DiffLine]) -> [DiffChange?] {
+        var result = [DiffChange?](repeating: nil, count: lines.count)
+        var start = 0
+        while start < lines.count {
+            guard lines[start].kind == .added || lines[start].kind == .removed else { start += 1; continue }
+            var end = start
+            while end < lines.count, lines[end].kind == .added || lines[end].kind == .removed { end += 1 }
+            let block = lines[start..<end]
+            let hasRemoved = block.contains { $0.kind == .removed }, hasAdded = block.contains { $0.kind == .added }
+            let change: DiffChange = hasRemoved && hasAdded ? .modified : hasAdded ? .added : .removed
+            for index in start..<end { result[index] = change }
+            start = end
+        }
+        return result
+    }
+
     /// Pairs each run of removed lines with the added lines that follow it.
     public static func sideBySide(_ lines: [DiffLine]) -> [DiffRow] {
         var rows: [DiffRow] = []
@@ -121,6 +148,23 @@ extension Diff {
             }
         }
         flush()
+
+        // Classify each run of changed rows as one block.
+        var start = 0
+        while start < rows.count {
+            guard rows[start].isChange else { start += 1; continue }
+            var end = start
+            while end < rows.count, rows[end].isChange { end += 1 }
+            let block = rows[start..<end]
+            let hasRemoved = block.contains { $0.left != nil }, hasAdded = block.contains { $0.right != nil }
+            let change: DiffChange = hasRemoved && hasAdded ? .modified : hasAdded ? .added : .removed
+            for index in start..<end { rows[index].change = change }
+            start = end
+        }
         return rows
     }
+}
+
+extension DiffRow {
+    var isChange: Bool { hunk == nil && (left?.kind == .removed || right?.kind == .added) }
 }

@@ -58,3 +58,20 @@ private let patch = """
     #expect(rows[5].left?.text == "end")
     #expect(rows[6].left == nil && rows[6].right?.text == "tail")
 }
+
+@Test func changeBlocksAreClassifiedAsAWhole() {
+    let lines = Diff.parse("""
+    @@ -1,6 +1,6 @@
+     keep
+    -old
+    +new
+    +extra
+     keep
+    +only added
+     keep
+    -only removed
+    """)
+    #expect(Diff.changes(lines) == [nil, nil, .modified, .modified, .modified, nil, .added, nil, .removed])
+    let rows = Diff.sideBySide(lines)
+    #expect(rows.map(\.change) == [nil, nil, .modified, .modified, nil, .added, nil, .removed])
+}
