@@ -28,6 +28,10 @@ The app is signed ad hoc, not with an Apple Developer ID, so macOS blocks the fi
 | `make icon` | Regenerates `assets/AppIcon.icns` from the drawing in `assets/make-icon.swift`. |
 | `swift run ReviewDesk` | Quick debug launch without a bundle (notifications are disabled). |
 
+## Releasing
+
+Push a version tag: `git tag v0.2.0 && git push origin v0.2.0`. The `Release` workflow in `.github/workflows/release.yml` runs the tests on macOS, builds the universal DMG with that version, and publishes a GitHub Release with the DMG attached. To rebuild an existing tag, run the workflow manually and enter the tag. Keep `CFBundleShortVersionString` in `assets/Info.plist` in step for local builds.
+
 ## Layout
 
 - `Sources/ReviewDeskCore`: the testable core. It contains the process runner, the `gh` GitHub client, native stack grouping, the diff parser, pending-review sync, update detection, the AI context builder and the AI CLI adapters.

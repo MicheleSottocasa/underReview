@@ -1,0 +1,55 @@
+name: Release
+
+# Push a version tag (git tag v0.2.0 && git push origin v0.2.0) to build the installer and publish it.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build and (re)publish, e.g. v0.1.0
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0 # the build number is the commit count
+
+      - name: Toolchain
+        run: swift --version
+
+      # Xcode on the runner finds the Swift Testing macros itself, so plain `swift test` (not `make test`).
+      - name: Test
+        run: swift test
+
+      - name: Build installer
+        run: make dmg VERSION="${TAG#v}"
+
+      - name: Publish release
+        run: |
+          VERSION="${TAG#v}"
+          DMG="dist/ReviewDesk-${VERSION}.dmg"
+          cat > notes.md <<'EOF'
+          ## Install
+
+          1. Download `ReviewDesk-*.dmg` below, open it and drag **ReviewDesk** onto **Applications**.
+          2. The app isn't notarized, so the first launch needs **right-click → Open** in Applications
+             (or System Settings → Privacy & Security → **Open Anyway**).
+
+          Requires macOS 14 or later and the GitHub CLI (`gh auth login`). Claude Code, Codex or Ollama are optional, for AI review.
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$DMG" --clobber
+          else
+            gh release create "$TAG" "$DMG" --title "ReviewDesk $VERSION" --notes-file notes.md --generate-notes
+          fi
