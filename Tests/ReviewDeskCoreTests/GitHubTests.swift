@@ -84,3 +84,22 @@ import Testing
     #expect(files.map(\.filename) == ["a", "big.bin"])
     #expect(files[1].patch == nil)
 }
+
+@Test func batchSkipsUnresolvableIDsInsteadOfFailing() async throws {
+    let runner = FakeRunner { _ in
+        CommandResult(status: 1, stdout: Data(#"""
+        {"data":{"nodes":[\#(prNode(id: "PR_ok")),null]},
+         "errors":[{"type":"NOT_FOUND","path":["nodes",1],"message":"Could not resolve to a node with the global id of 'PR_gone'."}]}
+        """#.utf8))
+    }
+    #expect(try await GitHub(runner: runner).pullRequests(ids: ["PR_ok", "PR_gone"]).map(\.id) == ["PR_ok"])
+}
+
+@Test func otherErrorsInBatchStillFail() async {
+    let runner = FakeRunner { _ in
+        CommandResult(status: 1, stdout: Data(#"{"data":null,"errors":[{"type":"RATE_LIMITED","message":"API rate limit exceeded"}]}"#.utf8))
+    }
+    await #expect(throws: GitHubError.graphQL(["API rate limit exceeded"])) {
+        try await GitHub(runner: runner).pullRequests(ids: ["PR_1"])
+    }
+}

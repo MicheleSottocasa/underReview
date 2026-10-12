@@ -145,12 +145,15 @@ public struct GitHub: Sendable {
 
     /// Returns the `data` object of a GraphQL response.
     @discardableResult
-    public func graphql(_ query: String, _ variables: [String: any Sendable] = [:]) async throws -> [String: Any] {
+    /// Errors whose `type` is in `tolerating` keep the partial data (e.g. NOT_FOUND for one id in a batch).
+    public func graphql(_ query: String, _ variables: [String: any Sendable] = [:], tolerating: Set<String> = []) async throws -> [String: Any] {
         let body = try JSONSerialization.data(withJSONObject: ["query": query, "variables": variables])
         let result = try await runner.run("gh", ["api", "graphql", "--input", "-"], stdin: body)
         let json = (try? JSONSerialization.jsonObject(with: result.stdout)) as? [String: Any]
         if let errors = json?["errors"] as? [[String: Any]], !errors.isEmpty {
-            throw GitHubError.graphQL(errors.compactMap { $0["message"] as? String })
+            let fatal = errors.filter { !tolerating.contains($0["type"] as? String ?? "") }
+            if fatal.isEmpty, let data = json?["data"] as? [String: Any] { return data }
+            throw GitHubError.graphQL((fatal.isEmpty ? errors : fatal).compactMap { $0["message"] as? String })
         }
         guard result.status == 0, let data = json?["data"] as? [String: Any] else {
             throw CommandError.failed(tool: "gh", status: result.status, stderr: result.stderr)
@@ -200,7 +203,8 @@ public struct GitHub: Sendable {
         for start in stride(from: 0, to: ids.count, by: 50) {
             let chunk = Array(ids[start..<min(start + 50, ids.count)])
             let query = "query($ids: [ID!]!) { nodes(ids: $ids) { ...PR } }" + Self.prFragment
-            let data = try await graphql(query, ["ids": chunk])
+            // A deleted PR or one this account can't see must not hide all the others.
+            let data = try await graphql(query, ["ids": chunk], tolerating: ["NOT_FOUND"])
             result += ((data["nodes"] as? [Any]) ?? []).compactMap { ($0 as? [String: Any]).flatMap(Self.decodePR) }
         }
         return result
