@@ -55,6 +55,8 @@ struct MenuBarLabel: View {
         Image(systemName: model.recentEvents.isEmpty ? "arrow.triangle.pull" : "bell.badge")
             .onAppear {
                 model.openMainWindow = { openWindow(id: "main") }
+                // Window restoration keeps a window closed if it was closed at quit; a launch should always show it.
+                openWindow(id: "main")
                 model.start()
             }
     }
