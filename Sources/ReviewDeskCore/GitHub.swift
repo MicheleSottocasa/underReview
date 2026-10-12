@@ -144,6 +144,7 @@ public struct GitHub: Sendable {
     public init(runner: any CommandRunner) { self.runner = runner }
 
     /// Returns the `data` object of a GraphQL response.
+    @discardableResult
     public func graphql(_ query: String, _ variables: [String: any Sendable] = [:]) async throws -> [String: Any] {
         let body = try JSONSerialization.data(withJSONObject: ["query": query, "variables": variables])
         let result = try await runner.run("gh", ["api", "graphql", "--input", "-"], stdin: body)
