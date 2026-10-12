@@ -21,7 +21,7 @@ struct DetailView: View {
             .padding(.horizontal)
             Divider().padding(.top, 8)
             switch tab {
-            case .conversation: OverviewView(pr: pr, detail: model.details[pr.id])
+            case .conversation: ConversationView(pr: pr, detail: model.details[pr.id])
             case .changes: ChangesView(pr: pr)
             case .ai: AIView(pr: pr)
             case .notes: NotesView(pr: pr)
@@ -47,48 +47,6 @@ struct DetailView: View {
             .font(.callout)
             .foregroundStyle(.secondary)
         }
-    }
-}
-
-struct OverviewView: View {
-    let pr: PullRequest
-    let detail: PRDetail?
-
-    var body: some View {
-        if let detail {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    MarkdownText(detail.body.isEmpty ? "_No description._" : detail.body)
-                    if !timeline(detail).isEmpty {
-                        Divider()
-                        Text("Conversation").font(.headline)
-                        ForEach(timeline(detail), id: \.id) { entry in
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("\(entry.author) · \(entry.label) · \(entry.date.formatted(.relative(presentation: .named)))")
-                                    .font(.caption).foregroundStyle(.secondary)
-                                if !entry.body.isEmpty { MarkdownText(entry.body) }
-                            }
-                        }
-                    }
-                }
-                .padding()
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        } else {
-            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-    private struct Entry {
-        var id: String, author: String, label: String, body: String, date: Date
-    }
-
-    private func timeline(_ detail: PRDetail) -> [Entry] {
-        let comments = detail.comments.map { Entry(id: $0.id, author: $0.author, label: "commented", body: $0.body, date: $0.createdAt) }
-        let reviews = detail.reviews.map {
-            Entry(id: $0.id, author: $0.author, label: $0.state.lowercased().replacingOccurrences(of: "_", with: " "), body: $0.body, date: $0.submittedAt ?? .distantPast)
-        }
-        return (comments + reviews).sorted { $0.date < $1.date }
     }
 }
 
