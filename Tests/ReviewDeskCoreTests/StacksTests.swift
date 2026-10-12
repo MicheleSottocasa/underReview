@@ -1,0 +1,37 @@
+import Foundation
+import Testing
+@testable import ReviewDeskCore
+
+private func pr(_ id: String, _ number: Int, stack: Int? = nil, entries: [String] = [], updated: TimeInterval = 0) -> PullRequest {
+    PullRequest(
+        id: id, number: number, title: "", url: "", state: "OPEN", isDraft: false,
+        updatedAt: Date(timeIntervalSince1970: updated), headRefOid: "", headRefName: "", baseRefName: "",
+        author: "", repo: "o/r", commentCount: 0, reviewCount: 0, threadCommentCount: 0, requestedReviewers: [],
+        stack: stack.map { StackInfo(number: $0, entries: entries.enumerated().map { .init(position: $0 + 1, id: $1, number: 0) }) }
+    )
+}
+
+@Test func groupsStacksInPositionOrder() {
+    let entries = ["A", "B", "C"]
+    let items = Stacks.items([
+        pr("C", 30, stack: 1, entries: entries, updated: 5),
+        pr("solo", 9, updated: 1),
+        pr("A", 10, stack: 1, entries: entries, updated: 2),
+        pr("B", 20, stack: 1, entries: entries, updated: 3),
+    ])
+    #expect(items.map(\.key) == ["stack:o/r#1", "pr:solo"])
+    #expect(items[0].pullRequests.map(\.id) == ["A", "B", "C"])
+    #expect(items[0].isStack && !items[1].isStack)
+}
+
+@Test func mergedBottomPRStaysInStack() {
+    var bottom = pr("A", 1, stack: 1, entries: ["A", "B"])
+    bottom.state = "MERGED"
+    let items = Stacks.items([bottom, pr("B", 2, stack: 1, entries: ["A", "B"])])
+    #expect(items.count == 1)
+    #expect(items[0].pullRequests.map(\.state) == ["MERGED", "OPEN"])
+}
+
+@Test func findsStackMembersNotYetFollowed() {
+    #expect(Stacks.missingMembers(of: [pr("B", 2, stack: 1, entries: ["A", "B", "C"]), pr("x", 3)]) == ["A", "C"])
+}
