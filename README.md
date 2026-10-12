@@ -23,7 +23,7 @@ There is no backend. Notes, folders, drafts and AI results stay in `~/Library/Ap
 ## Layout
 
 - `Sources/ReviewDeskCore`: the testable core. It contains the process runner, the `gh` GitHub client, native stack grouping, the diff parser, pending-review sync, update detection, the AI context builder and the AI CLI adapters.
-- `Sources/ReviewDesk`: the SwiftUI app. It contains the three-column window, the menu bar extra, notifications and settings.
+- `Sources/ReviewDesk`: the SwiftUI app. It contains the window (one sidebar for projects and PRs, plus the PR detail), the menu bar extra, notifications and settings.
 - `Tests/ReviewDeskCoreTests`: Swift Testing tests. Every CLI is stubbed through `FakeRunner`.
 - `assets/`: `Info.plist` and `AppIcon.icns` for the bundle, plus `make-icon.swift`, which draws the icon.
 
