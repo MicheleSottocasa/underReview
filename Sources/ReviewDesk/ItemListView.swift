@@ -14,6 +14,7 @@ struct ItemListView: View {
                         ForEach(item.pullRequests.reversed()) { pr in row(pr, item: item) }
                     } header: {
                         Label("Stack · \(item.pullRequests.first?.repo ?? "") · \(item.pullRequests.count) PRs", systemImage: "square.3.layers.3d")
+                            .draggable(item.key)
                             .contextMenu { ItemMenu(item: item) }
                     }
                 } else if let pr = item.pullRequests.first {
@@ -35,6 +36,7 @@ struct ItemListView: View {
     private func row(_ pr: PullRequest, item: Item) -> some View {
         PRRow(pr: pr)
             .tag(pr.id)
+            .draggable(item.key) // dragging any PR of a stack moves the whole stack
             .contextMenu { ItemMenu(item: item) }
     }
 }
@@ -84,6 +86,13 @@ struct ItemMenu: View {
     var body: some View {
         if let pr = item.pullRequests.first {
             Button("Open on GitHub") { model.openOnGitHub(pr) }
+        }
+        Menu(item.isStack ? "Move Stack To" : "Move To") {
+            Button("Inbox (unfiled)") { model.move(item.key, to: nil) }
+            Divider()
+            ForEach(FolderNode.flat(model.org), id: \.folder.id) { entry in
+                Button(String(repeating: "    ", count: entry.depth) + entry.folder.name) { model.move(item.key, to: entry.folder.id) }
+            }
         }
         Divider()
         Button(item.isStack ? "Stop Monitoring Stack" : "Stop Monitoring", role: .destructive) { model.stopMonitoring(item) }

@@ -4,6 +4,7 @@ import ReviewDeskCore
 
 enum SidebarSelection: Hashable {
     case inbox, all
+    case folder(UUID)
 }
 
 @Observable @MainActor
@@ -43,6 +44,7 @@ final class AppModel {
         switch selection {
         case .all: return all
         case .inbox: return all.filter { org.placements[$0.key] == nil }
+        case .folder(let id): return all.filter { org.placements[$0.key] == id }
         }
     }
 
@@ -123,6 +125,16 @@ final class AppModel {
         prs[pr.id] = pr
         selectedPRID = pr.id
         try await refresh()
+    }
+
+    /// Moving a stack moves all its PRs: placement is keyed by the stack.
+    func move(_ itemKey: String, to folder: UUID?) {
+        org.place(itemKey, in: folder)
+    }
+
+    func deleteFolder(_ id: UUID) {
+        org.deleteFolder(id)
+        if case .folder(let selected) = sidebar, !org.folders.contains(where: { $0.id == selected }) { sidebar = .inbox }
     }
 
     func stopMonitoring(_ item: Item) {
