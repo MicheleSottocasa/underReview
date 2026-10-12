@@ -78,3 +78,49 @@ public enum Diff {
         return (start("-"), start("+"))
     }
 }
+
+/// One row of a side-by-side diff: removed lines on the left, added on the right, context on both.
+public struct DiffRow: Hashable, Sendable {
+    public var left: DiffLine?
+    public var right: DiffLine?
+    /// Set for hunk headers, which span both sides.
+    public var hunk: String?
+}
+
+extension Diff {
+    /// Pairs each run of removed lines with the added lines that follow it.
+    public static func sideBySide(_ lines: [DiffLine]) -> [DiffRow] {
+        var rows: [DiffRow] = []
+        var removed: [DiffLine] = []
+        var paired = 0 // added lines already matched against `removed`
+
+        func flush() {
+            rows += removed.dropFirst(paired).map { DiffRow(left: $0) }
+            removed = []
+            paired = 0
+        }
+
+        for line in lines {
+            switch line.kind {
+            case .hunk:
+                flush()
+                rows.append(DiffRow(hunk: line.text))
+            case .context:
+                flush()
+                rows.append(DiffRow(left: line, right: line))
+            case .removed:
+                if paired > 0 { flush() }
+                removed.append(line)
+            case .added:
+                if paired < removed.count {
+                    rows.append(DiffRow(left: removed[paired], right: line))
+                    paired += 1
+                } else {
+                    rows.append(DiffRow(right: line))
+                }
+            }
+        }
+        flush()
+        return rows
+    }
+}

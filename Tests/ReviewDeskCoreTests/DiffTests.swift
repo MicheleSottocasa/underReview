@@ -36,3 +36,25 @@ private let patch = """
 @Test func ignoresTrailingNewline() {
     #expect(Diff.parse("@@ -1 +1 @@\n-a\n+b\n").map(\.kind) == [.hunk, .removed, .added])
 }
+
+@Test func sideBySidePairsRemovedWithAddedLines() {
+    let rows = Diff.sideBySide(Diff.parse("""
+    @@ -1,5 +1,4 @@
+     keep
+    -a
+    -b
+    -c
+    +x
+    +y
+     end
+    +tail
+    """))
+    #expect(rows.count == 7)
+    #expect(rows[0].hunk != nil)
+    #expect(rows[1].left?.text == "keep" && rows[1].right?.text == "keep")
+    #expect(rows[2].left?.text == "a" && rows[2].right?.text == "x")
+    #expect(rows[3].left?.text == "b" && rows[3].right?.text == "y")
+    #expect(rows[4].left?.text == "c" && rows[4].right == nil)
+    #expect(rows[5].left?.text == "end")
+    #expect(rows[6].left == nil && rows[6].right?.text == "tail")
+}
