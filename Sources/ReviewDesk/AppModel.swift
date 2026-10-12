@@ -57,6 +57,9 @@ final class AppModel {
     /// PR id → what the AI is doing right now.
     var aiStatus: [String: String] = [:]
     var aiTasks: [String: Task<Void, Never>] = [:]
+    /// PR id → the Claude Code session linked to it in AI Review.
+    var agentLinks: [String: AgentLink] { didSet { save(agentLinksFile, agentLinks) } }
+    var runningAgents: [RunningAgent] = []
 
     let notifier = Notifier()
     /// Captured from SwiftUI so notifications and the menu bar can reopen a closed window.
@@ -67,15 +70,18 @@ final class AppModel {
     let toolPaths: [String: String]
     let github: GitHub
     let reviewer: AIReviewer
+    let agents: ClaudeAgents
     private let orgFile = JSONFile<Organization>.appSupport("organization.json")
     private let checkpointFile = JSONFile<[String: Snapshot]>.appSupport("checkpoints.json")
     private let draftsFile = JSONFile<ReviewDrafts>.appSupport("drafts.json")
     private let aiRunsFile = JSONFile<[AIRun]>.appSupport("ai-runs.json")
+    private let agentLinksFile = JSONFile<[String: AgentLink]>.appSupport("agent-links.json")
     private var pollTask: Task<Void, Never>?
 
     init() {
         let overrides = Self.tools.reduce(into: [String: String]()) { $0[$1] = UserDefaults.standard.string(forKey: "path.\($1)") }
-        let runner = ProcessRunner(paths: ProcessRunner.discover(Self.tools, overrides: overrides))
+        // osascript opens background agents in Terminal; it's part of macOS.
+        let runner = ProcessRunner(paths: ProcessRunner.discover(Self.tools, overrides: overrides).merging(["osascript": "/usr/bin/osascript"]) { a, _ in a })
         toolPaths = runner.paths
         github = GitHub(runner: runner)
         org = orgFile.load(default: Organization())
@@ -83,6 +89,8 @@ final class AppModel {
         reviewDrafts = draftsFile.load(default: ReviewDrafts())
         aiRuns = aiRunsFile.load(default: [])
         reviewer = AIReviewer(runner: runner)
+        agents = ClaudeAgents(runner: runner)
+        agentLinks = agentLinksFile.load(default: [:])
     }
 
     var selectedPR: PullRequest? { selectedPRID.flatMap { prs[$0] } }

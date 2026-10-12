@@ -12,6 +12,7 @@ struct AIView: View {
 
     private var engine: AIEngine {
         switch engineName {
+        case "linked" where model.agentLinks[pr.id] != nil: model.agentLinks[pr.id]!.engine
         case "codex": .codex
         case "ollama": .ollama(model: ollamaModel)
         default: .claudeCode
@@ -23,6 +24,8 @@ struct AIView: View {
         let runs = model.runs(for: pr.id)
         VStack(spacing: 0) {
             toolbar(status: status)
+            Divider()
+            AgentLinkBar(pr: pr)
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -58,11 +61,13 @@ struct AIView: View {
             }
         }
         .onChange(of: budget) { _, value in context?.budget = value }
+        .task { await model.refreshAgents() }
     }
 
     private func toolbar(status: String?) -> some View {
         HStack(spacing: 10) {
             Picker("Engine", selection: $engineName) {
+                if let link = model.agentLinks[pr.id] { Text("Linked: \(link.name)").tag("linked") }
                 Text("Claude Code").tag("claude")
                 Text("Codex").tag("codex")
                 Text("Ollama (local)").tag("ollama")
@@ -227,4 +232,98 @@ struct FindingCard: View {
         default: .secondary
         }
     }
+}
+
+/// Shows the Claude Code session linked to this PR, or lets the user pick a running one.
+struct AgentLinkBar: View {
+    @Environment(AppModel.self) private var model
+    let pr: PullRequest
+    @AppStorage("aiEngine") private var engineName = "claude"
+    @ViewState private var logs: String?
+    @ViewState private var confirmingStop: RunningAgent?
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "terminal").foregroundStyle(.secondary)
+            if let link = model.agentLinks[pr.id] {
+                let running = model.runningAgent(for: link)
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 6) {
+                        Text(link.name).bold().lineLimit(1)
+                        Badge(text: running?.status ?? "not running", color: statusColor(running?.status))
+                    }
+                    Text(link.cwd.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                        .font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                }
+                Spacer()
+                if let running, running.isBackground {
+                    Button("Open in Terminal") { Task { await model.openInTerminal(running) } }
+                    Button("Logs") { Task { logs = await model.logs(running) } }
+                    Button("Stop…") { confirmingStop = running }
+                } else if let running {
+                    Text(verbatim: "Open in a terminal (pid \(running.pid ?? 0))").font(.caption).foregroundStyle(.secondary)
+                }
+                Button("Unlink") {
+                    model.unlink(pr)
+                    if engineName == "linked" { engineName = "claude" }
+                }
+                .buttonStyle(.link)
+            } else {
+                Text("Link a running Claude Code session to review with its context of the code.")
+                    .font(.callout).foregroundStyle(.secondary)
+                Spacer()
+                linkMenu
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .sheet(item: Binding(get: { logs.map(LogText.init) }, set: { if $0 == nil { logs = nil } })) { log in
+            VStack(alignment: .leading) {
+                ScrollView { Text(log.text.isEmpty ? "No output." : log.text).font(.caption.monospaced()).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+                HStack { Spacer(); Button("Close") { logs = nil }.keyboardShortcut(.cancelAction) }
+            }
+            .padding()
+            .frame(width: 720, height: 460)
+        }
+        .confirmationDialog("Stop this agent?", isPresented: Binding(get: { confirmingStop != nil }, set: { if !$0 { confirmingStop = nil } })) {
+            Button("Stop Agent", role: .destructive) {
+                if let agent = confirmingStop { Task { await model.stop(agent) } }
+            }
+        } message: {
+            Text("Its conversation is kept; you can reopen it with `claude attach`.")
+        }
+    }
+
+    private var linkMenu: some View {
+        Menu("Link Agent") {
+            let agents = ClaudeAgents.sorted(model.runningAgents, for: pr.ref)
+            if agents.isEmpty { Text("No Claude Code sessions running") }
+            ForEach(agents) { agent in
+                Button {
+                    model.link(agent, to: pr)
+                    engineName = "linked"
+                } label: {
+                    let suggested = ClaudeAgents.relevance(agent, to: pr.ref) > 0 ? "★ " : ""
+                    Text(verbatim: "\(suggested)\(agent.name) · \(URL(fileURLWithPath: agent.cwd).lastPathComponent) · \(agent.status)")
+                }
+            }
+            Divider()
+            Button("Refresh List") { Task { await model.refreshAgents() } }
+        }
+        .fixedSize()
+    }
+
+    private func statusColor(_ status: String?) -> Color {
+        switch status {
+        case "working", "running": .green
+        case "blocked": .orange
+        case nil: .secondary
+        default: .blue
+        }
+    }
+}
+
+private struct LogText: Identifiable {
+    let text: String
+    var id: String { text }
 }
