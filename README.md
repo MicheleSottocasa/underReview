@@ -49,4 +49,4 @@ Merge, rebase or push from the app. Creating or editing stacks. Multiple GitHub 
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+All rights reserved. You may download and use ReviewDesk for any purpose, including at work, but not modify, redistribute or sell it. See [LICENSE](LICENSE).

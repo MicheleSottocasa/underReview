@@ -20,6 +20,8 @@
 	<string>14.0</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.developer-tools</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>© 2026 Michele Sottocasa. All rights reserved.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 </dict>

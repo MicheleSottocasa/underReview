@@ -1,21 +1,38 @@
-MIT License
+ReviewDesk License
 
-Copyright (c) 2026 Michele Sottocasa
+Copyright (c) 2026 Michele Sottocasa. All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+1. Permission to use. You may download, install and use the official ReviewDesk
+   application ("the Software"), in unmodified form, free of charge and for any
+   purpose, including use within a company or other organization.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+2. Restrictions. Except as expressly permitted in section 1, you may not:
+   a. modify, adapt, translate or create derivative works of the Software or
+      its source code;
+   b. copy the Software, except as needed to install and use it and to keep a
+      backup copy;
+   c. distribute, publish, sublicense, rent, lend, lease, sell or otherwise make
+      the Software or its source code available to others, whether for free or
+      for a fee;
+   d. remove or alter any copyright notice or this license.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+3. Source code. The source code is published for transparency. Viewing it does
+   not grant any right beyond those in section 1.
+
+4. Ownership. The Software is licensed, not sold. Michele Sottocasa keeps all
+   rights, title and interest in the Software that this license does not
+   expressly grant.
+
+5. Termination. This permission ends automatically if you break any of these
+   terms. You must then stop using the Software and delete all copies.
+
+6. No warranty. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+7. Limitation of liability. IN NO EVENT SHALL THE AUTHOR OR COPYRIGHT HOLDER BE
+   LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+   CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+   SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+For any use not covered by this license, contact Michele Sottocasa.
