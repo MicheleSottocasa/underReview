@@ -50,11 +50,21 @@ public enum AppVersion {
         return false
     }
 
-    /// At launch, the version that ran before this one, when this build is newer: show what changed since.
-    /// Nil for a fresh install (nothing ran before), a `dev` build or the same version.
-    public static func updated(from lastLaunched: String?, to current: String) -> String? {
-        guard current != "dev", let lastLaunched, isNewer(current, than: lastLaunched) else { return nil }
-        return lastLaunched
+    /// What to show at launch.
+    public enum LaunchNotes: Equatable, Sendable {
+        /// The changes since this version, the one that ran before.
+        case since(String)
+        /// This version's own section: an existing user updating from a version that didn't record itself.
+        case thisVersion
+    }
+
+    /// At launch: the changes since the version that ran before, when this build is newer. Without a recorded
+    /// version, an existing user (`existingUser`: the tour was seen) gets this version's notes and a fresh install
+    /// nothing (the tour covers it). Never for a `dev` build or the same version.
+    public static func launchNotes(lastLaunched: String?, current: String, existingUser: Bool) -> LaunchNotes? {
+        guard current != "dev" else { return nil }
+        guard let lastLaunched else { return existingUser ? .thisVersion : nil }
+        return isNewer(current, than: lastLaunched) ? .since(lastLaunched) : nil
     }
 
     /// The `## <version>` sections of a changelog (the headings `scripts/release-notes.sh` reads) in
