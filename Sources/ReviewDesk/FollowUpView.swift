@@ -155,6 +155,7 @@ private struct FollowUpRunView: View {
                 }
             }
             MarkdownText(run.result.summary)
+            ResolveAllAddressed(pr: pr, run: run)
             ForEach(Array(run.result.items.enumerated()), id: \.offset) { _, item in
                 FollowUpItemView(pr: pr, item: item, thread: item.threadID.flatMap { id in model.details[pr.id]?.threads.first { $0.id == id } })
             }
@@ -162,6 +163,47 @@ private struct FollowUpRunView: View {
         .padding(14)
         .background(Color.purple.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.purple.opacity(0.25)))
+    }
+}
+
+/// One button for every addressed thread still open, after a confirmation that lists them.
+/// ponytail: per pull request only; a stack-wide one needs a dialog listing threads across PRs.
+private struct ResolveAllAddressed: View {
+    @Environment(AppModel.self) private var model
+    let pr: PullRequest
+    let run: FollowUpRun
+    @ViewState private var confirming = false
+
+    var body: some View {
+        if let detail = model.details[pr.id] {
+            // Counted as of the check's own head, so an outdated check still says what it would resolve.
+            let threads = FollowUp.resolvable(run, in: detail, head: run.headRefOid)
+            let outdated = run.headRefOid != pr.headRefOid
+            let busy = threads.contains { model.pending.contains($0.id) }
+            if !threads.isEmpty {
+                HStack(spacing: 8) {
+                    Button("Resolve All Addressed (\(threads.count))") { confirming = true }
+                        .disabled(outdated || busy)
+                        .help(outdated ? "This check ran before the latest commits: check again before resolving in bulk"
+                                       : "Resolve the \(threads.count) conversation\(threads.count == 1 ? "" : "s") judged addressed")
+                    if busy { ProgressView().controlSize(.small) }
+                    if outdated { Text("Check again to resolve in bulk: new commits since this check.").font(.caption).foregroundStyle(.secondary) }
+                }
+                .controlSize(.small)
+                .confirmationDialog("Resolve \(threads.count) conversation\(threads.count == 1 ? "" : "s")?", isPresented: $confirming) {
+                    Button("Resolve \(threads.count)") {
+                        // Re-picked against the latest head: a push since rendering resolves nothing.
+                        let current = model.prs[pr.id]?.headRefOid ?? pr.headRefOid
+                        Task { await model.resolveAll(FollowUp.resolvable(run, in: model.details[pr.id] ?? detail, head: current), pr: pr) }
+                    }
+                } message: {
+                    Text(threads.map { thread in
+                        let request = run.result.items.first { $0.threadID == thread.id }?.request ?? ""
+                        return "• \(thread.path)\(thread.line.map { ":\($0)" } ?? ""): \(request)"
+                    }.joined(separator: "\n"))
+                }
+            }
+        }
     }
 }
 

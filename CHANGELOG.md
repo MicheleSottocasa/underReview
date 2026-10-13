@@ -5,6 +5,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+- **Resolve All Addressed:** a Follow-up result resolves every conversation it judged addressed in one go, after a confirmation listing them; failures are named and don't stop the rest. It's off on a check older than the latest commits.
 - **SSH remotes for Check Out:** a clone whose remote is written `git@github.com:/owner/repo.git` (slash after the colon), or goes through an SSH host alias whose HostName is github.com (`git@github-work:owner/repo`), is now recognised when linking it.
 
 ## 0.9.0
