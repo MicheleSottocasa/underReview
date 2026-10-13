@@ -315,6 +315,8 @@ final class AppModel {
 
     func loadDetail(_ id: String) async {
         guard !Demo.owns(id) else { return } // the demo's detail is canned; it isn't on GitHub
+        // ponytail: last writer wins. A poll that started before our own write can land after its reload and show the
+        // old state until the next poll; add a per-PR generation counter if that shows up in practice.
         do {
             details[id] = try await github.detail(id: id)
         } catch {
