@@ -469,7 +469,7 @@ public enum AIContext {
         \(fenced(patch, info: "diff"))
 
         ## Selected lines: \(path), \(linesLabel(selected))
-        \(fenced(selected.filter { $0.kind != .hunk }.map(diffText).joined(separator: "\n"), info: "diff"))
+        \(fenced(selected.map(diffText).joined(separator: "\n"), info: "diff"))
 
         """
     }
@@ -487,7 +487,8 @@ public enum AIContext {
         switch line.kind {
         case .added: "+" + line.text
         case .removed: "-" + line.text
-        case .context, .hunk: " " + line.text
+        case .context: " " + line.text
+        case .hunk: line.text // "@@ -12,7 +12,9 @@": the lines between hunks are left out
         }
     }
 
