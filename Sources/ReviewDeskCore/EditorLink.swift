@@ -16,11 +16,15 @@ public enum EditorLink {
     /// Path characters left as they are: a path's own `/`, but not what would end it or start a query.
     private static let pathAllowed = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "?#&=+;"))
 
+    /// Security boundary: nil for a `file:` (or scheme-less) template, which would open the file in its default app,
+    /// i.e. a double-click that runs a pull request's script, `.command` or app.
     public static func url(template: String, path: String, line: Int) -> URL? {
-        guard let encoded = path.addingPercentEncoding(withAllowedCharacters: pathAllowed) else { return nil }
-        return URL(string: template
-            .replacingOccurrences(of: "{path}", with: encoded)
-            .replacingOccurrences(of: "{line}", with: String(max(line, 1))))
+        guard let encoded = path.addingPercentEncoding(withAllowedCharacters: pathAllowed),
+              let url = URL(string: template
+                  .replacingOccurrences(of: "{path}", with: encoded)
+                  .replacingOccurrences(of: "{line}", with: String(max(line, 1)))),
+              let scheme = url.scheme?.lowercased(), scheme != "file" else { return nil }
+        return url
     }
 
     public enum Refusal: Error, Equatable, LocalizedError {

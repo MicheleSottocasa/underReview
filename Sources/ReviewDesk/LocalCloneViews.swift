@@ -84,7 +84,7 @@ struct CloneSettings: View {
             } header: {
                 Text("Editor")
             } footer: {
-                Text("Open in Editor in the Changes tab opens the file from the local clone through this link, with {path} and {line} filled in. The default text editor opens it without a line. Files never open in the app that would run them, and only regular files inside the clone open. Lines match once the pull request is checked out.")
+                Text("Open in Editor in the Changes tab opens the file from the local clone through this link, with {path} and {line} filled in. The default text editor opens it without a line. Files never open in the app that would run them, so file: links are refused, and only regular files inside the clone open. Lines match once the pull request is checked out.")
             }
         }
         .formStyle(.grouped)

@@ -10,6 +10,13 @@ import Testing
         == "idea://open?file=/Users/me/My%20Code/r%26d/a%231.py&line=1")
 }
 
+@Test func editorLinksNeverOpenTheFileItself() {
+    // These would hand the file to its default app: a PR's `.command` would run.
+    for template in ["file://{path}", "FILE://{path}", "file:{path}", "{path}"] {
+        #expect(EditorLink.url(template: template, path: "/Users/me/code/r/run.command", line: 1) == nil)
+    }
+}
+
 @Test func firstChangeIsTheFirstAddedOrRemovedLine() {
     let patch = """
     @@ -10,4 +10,5 @@ func a() {
