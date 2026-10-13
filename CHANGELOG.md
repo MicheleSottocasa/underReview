@@ -5,9 +5,12 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+## 0.8.1
+
 - **Notifications in the app:** the bell in the toolbar lists the notifications received since ReviewDesk opened (up to 50, newest first), with a badge for new ones. Click one to open its pull request; muted pull requests are listed too, marked as muted.
 - **Suggested code changes:** AI findings can carry a small, certain fix. The card shows the code with a checkbox, and accepting sends it with the comment as a GitHub suggested change (single or multi-line) that the author applies with one click, submitted with your review. When its lines aren't all in the diff it's sent as plain code instead.
 - A spinner in the sidebar marks every pull request an AI review, follow-up check or stack run is working on; hover it to see what the agent is doing.
+
 ## 0.8.0
 
 - The pull request header shows how many lines the whole pull request adds and removes; hover for the number of files.
