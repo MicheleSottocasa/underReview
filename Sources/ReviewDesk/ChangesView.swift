@@ -26,7 +26,8 @@ struct ChangesView: View {
                         .frame(minWidth: 180, idealWidth: 240, maxWidth: 300)
                     Group {
                         if let file = files.first(where: { $0.filename == selectedPath }) ?? files.first {
-                            FileDiffView(pr: pr, file: file, mode: mode, target: target?.path == file.filename ? target : nil,
+                            // An added or deleted file has one empty side: show it full width.
+                            FileDiffView(pr: pr, file: file, mode: ["added", "removed"].contains(file.status) ? .unified : mode, target: target?.path == file.filename ? target : nil,
                                          keyAreas: model.keyAreasRun(for: pr)?.result.keyAreas.filter { $0.path == file.filename } ?? [])
                                 .id(file.filename)
                         } else {
