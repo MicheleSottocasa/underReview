@@ -176,6 +176,10 @@ import Testing
     #expect(GitHub.decodeComment(["id": "IC_1"]).kind == .issue)
 }
 
+@Test func namesReactionsLikeGitHub() {
+    #expect(ReactionContent.allCases.map(\.name) == ["+1", "-1", "Laugh", "Hooray", "Confused", "Heart", "Rocket", "Eyes"])
+}
+
 @Test func editsDeletesAndReactsWithTheRightMutation() async throws {
     let runner = FakeRunner { _ in data(#"{"x":{"clientMutationId":null}}"#) }
     let github = GitHub(runner: runner)

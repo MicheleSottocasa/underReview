@@ -351,6 +351,7 @@ struct ReactionBar: View {
     @Environment(AppModel.self) private var model
     let pr: PullRequest
     let comment: Comment
+    @ViewState private var picking = false
 
     var body: some View {
         if comment.viewerCanReact || !comment.reactions.isEmpty {
@@ -369,15 +370,15 @@ struct ReactionBar: View {
                     .help(reaction.viewerHasReacted ? "Remove your reaction" : "React")
                 }
                 if comment.viewerCanReact {
-                    Menu {
-                        ForEach(ReactionContent.allCases, id: \.self) { content in
-                            Button(content.emoji) { toggle(content) }
-                        }
-                    } label: { Image(systemName: "face.smiling") }
-                        .menuStyle(.borderlessButton)
-                        .menuIndicator(.hidden)
-                        .fixedSize()
+                    Button { picking = true } label: { Image(systemName: "face.smiling") }
+                        .buttonStyle(.borderless)
                         .help("Add reaction")
+                        .popover(isPresented: $picking, arrowEdge: .bottom) {
+                            ReactionPicker(given: Set(comment.reactions.filter(\.viewerHasReacted).map(\.content))) { content in
+                                picking = false
+                                if let content { toggle(content) }
+                            }
+                        }
                 }
             }
         }
@@ -385,6 +386,44 @@ struct ReactionBar: View {
 
     private func toggle(_ content: ReactionContent) {
         Task { await model.toggleReaction(content, on: comment, pr: pr) }
+    }
+}
+
+/// GitHub's reaction picker: the 8 emoji in one row. Arrow keys move, Return picks, Esc closes (`done(nil)`).
+private struct ReactionPicker: View {
+    let given: Set<ReactionContent>
+    let done: (ReactionContent?) -> Void
+    @ViewState private var selected = 0
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        let all = ReactionContent.allCases
+        HStack(spacing: 2) {
+            ForEach(Array(all.enumerated()), id: \.element) { index, content in
+                let mine = given.contains(content)
+                Button { done(content) } label: {
+                    Text(content.emoji)
+                        .font(.title3)
+                        .frame(width: 32, height: 30)
+                        .background(mine ? Color.accentColor.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(
+                            index == selected ? Color.primary.opacity(0.5) : mine ? Color.accentColor.opacity(0.7) : .clear))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(content.name)
+                .onHover { if $0 { selected = index } }
+            }
+        }
+        .padding(6)
+        .focusable()
+        .focusEffectDisabled()
+        .focused($focused)
+        .onAppear { focused = true }
+        .onKeyPress(.leftArrow) { selected = max(selected - 1, 0); return .handled }
+        .onKeyPress(.rightArrow) { selected = min(selected + 1, all.count - 1); return .handled }
+        .onKeyPress(.return) { done(all[selected]); return .handled }
+        .onKeyPress(.escape) { done(nil); return .handled }
     }
 }
 
