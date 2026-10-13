@@ -1,4 +1,5 @@
 import AppKit
+import ReviewDeskCore
 import SwiftUI
 
 @main
@@ -148,6 +149,147 @@ struct SetupView: View {
 typealias ViewState<Value> = SwiftUI.State<Value>
 
 struct SettingsView: View {
+    var body: some View {
+        TabView {
+            GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
+            AISettings().tabItem { Label("AI", systemImage: "sparkles") }
+            PromptSettings().tabItem { Label("Prompts", systemImage: "text.bubble") }
+            ToolSettings().tabItem { Label("Tools", systemImage: "terminal") }
+        }
+        .frame(width: 640)
+    }
+}
+
+struct GeneralSettings: View {
+    @AppStorage("pollForeground") private var foreground = Updates.defaultForeground
+    @AppStorage("pollBackground") private var background = Updates.defaultBackground
+    @AppStorage("diffMode") private var diffMode = DiffMode.split
+    @AppStorage("wrapLines") private var wrap = false
+
+    var body: some View {
+        Form {
+            Section {
+                seconds("While ReviewDesk is in front", $foreground)
+                seconds("In the background", $background)
+            } header: {
+                Text("Refresh")
+            } footer: {
+                Text("Never more often than every \(Updates.minimumInterval) s, to stay inside GitHub's hourly API limit. Failures back off up to 30 min.")
+            }
+            Section("Diff") {
+                Picker("Layout", selection: $diffMode) {
+                    Text("Side by side").tag(DiffMode.split)
+                    Text("Unified").tag(DiffMode.unified)
+                }
+                Toggle("Wrap long lines", isOn: $wrap)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private func seconds(_ title: String, _ value: Binding<Int>) -> some View {
+        LabeledContent(title) {
+            HStack(spacing: 4) {
+                TextField("", value: value, format: .number).frame(width: 70).multilineTextAlignment(.trailing)
+                Text("s").foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+struct AISettings: View {
+    @AppStorage("aiEngine") private var engine = "claude"
+    @AppStorage("claudeModel") private var claudeModel = ""
+    @AppStorage("reviewEffort") private var effort = "high"
+    @AppStorage("ollamaModel") private var ollamaModel = "qwen2.5-coder"
+    @AppStorage("aiBudget") private var budget = 150_000
+
+    var body: some View {
+        Form {
+            Section {
+                Picker("Engine", selection: $engine) {
+                    Text("Claude Code").tag("claude")
+                    Text("Codex").tag("codex")
+                    Text("Ollama (local)").tag("ollama")
+                    if engine == "linked" { Text("Linked Claude session").tag("linked") }
+                }
+            } footer: {
+                Text("Also used by Explain on comments. The AI tab changes the same setting.")
+            }
+            Section("Claude Code /code-review") {
+                Picker("Model", selection: $claudeModel) {
+                    Text("CLI default").tag("")
+                    Text("Fable").tag("fable")
+                    Text("Opus").tag("opus")
+                    Text("Sonnet").tag("sonnet")
+                    Text("Haiku").tag("haiku")
+                }
+                Picker("Effort", selection: $effort) {
+                    ForEach(CodeReviewOptions.efforts, id: \.self) { Text($0.capitalized).tag($0) }
+                }
+            }
+            Section {
+                TextField("Ollama model", text: $ollamaModel)
+                LabeledContent("Token budget") {
+                    TextField("", value: $budget, format: .number).frame(width: 100).multilineTextAlignment(.trailing)
+                }
+            } header: {
+                Text("Codex and Ollama")
+            } footer: {
+                Text("These engines get the diff and files you approve in Prepare Context; nothing is truncated to fit the budget.")
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+/// Each AI instruction, editable. An empty or default text means the built-in prompt.
+struct PromptSettings: View {
+    @AppStorage(Prompts.codeReviewKey) private var codeReview = ""
+    @AppStorage(Prompts.structureKey) private var structure = ""
+    @AppStorage(Prompts.reviewKey) private var review = ""
+    @AppStorage(Prompts.explainKey) private var explain = ""
+
+    var body: some View {
+        Form {
+            editor("Claude Code /code-review", note: "Added to Claude Code's system prompt when it runs /code-review. The review itself follows the command's own instructions.",
+                   text: $codeReview, fallback: AIContext.defaultCodeReviewInstructions)
+            editor("Findings and key areas from /code-review", note: "Turns the /code-review report into findings and picks the key areas. The JSON schema, the report and the PR's diffs are always appended.",
+                   text: $structure, fallback: AIContext.defaultStructureInstructions)
+            editor("Codex and Ollama review", note: "Starts the review prompt. The JSON schema, PR description and files are always appended.",
+                   text: $review, fallback: AIContext.defaultReviewInstructions)
+            editor("Explain a comment", note: "Starts the prompt. The PR description, the diff and the conversation are always appended.",
+                   text: $explain, fallback: AIContext.defaultExplainInstructions)
+        }
+        .formStyle(.grouped)
+        .frame(minHeight: 560)
+    }
+
+    private func editor(_ title: String, note: String, text: Binding<String>, fallback: String) -> some View {
+        let shown = Binding(
+            get: { text.wrappedValue.isEmpty ? fallback : text.wrappedValue },
+            set: { text.wrappedValue = $0 == fallback ? "" : $0 }
+        )
+        return Section {
+            TextEditor(text: shown)
+                .font(.callout.monospaced())
+                .frame(minHeight: 110)
+        } header: {
+            HStack {
+                Text(title)
+                if !text.wrappedValue.isEmpty { Badge(text: "Custom", color: .accentColor) }
+                Spacer()
+                Button("Reset to Default") { text.wrappedValue = "" }
+                    .controlSize(.small)
+                    .disabled(text.wrappedValue.isEmpty)
+            }
+        } footer: {
+            Text(note)
+        }
+    }
+}
+
+struct ToolSettings: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -163,7 +305,6 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 480)
     }
 
     private func path(_ tool: String) -> Binding<String> {

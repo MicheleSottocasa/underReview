@@ -52,3 +52,9 @@ private func pr(head: String = "a", state: String = "OPEN", comments: Int = 0, r
     #expect(Updates.changed(["PR_1": cached.updatedAt], cached: ["PR_1": cached]).isEmpty)
     #expect(Updates.changed(["PR_1": later, "PR_2": later], cached: ["PR_1": cached]) == ["PR_1", "PR_2"])
 }
+
+@Test func customPollIntervalsKeepAFloorAndBackOff() {
+    #expect(Updates.interval(foreground: true, failures: 0, foregroundSeconds: 90) == .seconds(90))
+    #expect(Updates.interval(foreground: false, failures: 0, backgroundSeconds: 5) == .seconds(60)) // floor protects the rate limit
+    #expect(Updates.interval(foreground: false, failures: 9, backgroundSeconds: 3600) == .seconds(3600)) // cap never undercuts the base
+}

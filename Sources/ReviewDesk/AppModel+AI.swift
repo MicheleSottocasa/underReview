@@ -76,7 +76,8 @@ extension AppModel {
             // Diffs only: they let the second pass pick key areas; /code-review fetches the PR itself.
             let context = AIContext.build(pr: pr, body: details[pr.id]?.body ?? "", files: files[pr.id] ?? [], contents: [:],
                                           budget: UserDefaults.standard.object(forKey: "aiBudget") as? Int ?? 150_000)
-            let result = try await reviewer.codeReview(engine, prURL: pr.url, context: context, options: options)
+            let result = try await reviewer.codeReview(engine, prURL: pr.url, context: context, options: options,
+                                                       instructions: Prompts.codeReview, structureInstructions: Prompts.structure)
             var run = AIRun(prID: pr.id, engine: engine, headRefOid: pr.headRefOid, result: result)
             run.options = options
             aiRuns.append(run)
@@ -90,7 +91,7 @@ extension AppModel {
         aiStatus[pr.id] = "Reviewing with \(engine.name)…"
         defer { aiStatus[pr.id] = nil }
         do {
-            let result = try await reviewer.review(engine, prompt: AIContext.prompt(context))
+            let result = try await reviewer.review(engine, prompt: AIContext.prompt(context, instructions: Prompts.review))
             aiRuns.append(AIRun(prID: pr.id, engine: engine, headRefOid: pr.headRefOid, result: result))
         } catch is CancellationError {
         } catch {
@@ -149,7 +150,7 @@ extension AppModel {
                 let prompt = AIContext.explainPrompt(
                     title: pr.title, body: details[pr.id]?.body ?? "", path: thread?.path, line: thread?.line,
                     patch: thread.flatMap { thread in files[pr.id]?.first { $0.filename == thread.path }?.patch },
-                    conversation: conversation, comment: comment)
+                    conversation: conversation, comment: comment, instructions: Prompts.explain)
                 explanations[comment.id]?.text = try await reviewer.ask(engine, prompt: prompt)
             } catch {
                 explanations[comment.id] = nil
@@ -163,4 +164,20 @@ struct Explanation {
     var engine: String
     /// Nil while the engine is still answering.
     var text: String?
+}
+
+/// The AI prompts, as customized in Settings. An empty override means the built-in default.
+enum Prompts {
+    static let reviewKey = "prompt.review", codeReviewKey = "prompt.codeReview", structureKey = "prompt.structure"
+    static let explainKey = "prompt.explain"
+
+    static var review: String { value(reviewKey, AIContext.defaultReviewInstructions) }
+    static var codeReview: String { value(codeReviewKey, AIContext.defaultCodeReviewInstructions) }
+    static var structure: String { value(structureKey, AIContext.defaultStructureInstructions) }
+    static var explain: String { value(explainKey, AIContext.defaultExplainInstructions) }
+
+    private static func value(_ key: String, _ fallback: String) -> String {
+        let custom = UserDefaults.standard.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return custom.isEmpty ? fallback : custom
+    }
 }

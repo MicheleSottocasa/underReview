@@ -148,7 +148,11 @@ final class AppModel {
                     failures += 1
                     lastError = error.localizedDescription
                 }
-                try? await Task.sleep(for: Updates.interval(foreground: NSApp.isActive, failures: failures))
+                let defaults = UserDefaults.standard
+                try? await Task.sleep(for: Updates.interval(
+                    foreground: NSApp.isActive, failures: failures,
+                    foregroundSeconds: defaults.object(forKey: "pollForeground") as? Int ?? Updates.defaultForeground,
+                    backgroundSeconds: defaults.object(forKey: "pollBackground") as? Int ?? Updates.defaultBackground))
             }
         }
     }

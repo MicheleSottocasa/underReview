@@ -71,9 +71,15 @@ public enum Updates {
         stamps.filter { cached[$0.key]?.updatedAt != $0.value }.map(\.key).sorted()
     }
 
-    /// Poll interval: 180 s in foreground, 600 s in background, doubling per consecutive failure up to 30 min.
-    public static func interval(foreground: Bool, failures: Int) -> Duration {
-        let base = foreground ? 180 : 600
-        return .seconds(min(base << min(failures, 4), 1800))
+    public static let defaultForeground = 180, defaultBackground = 600
+    /// Shorter polls risk GitHub's hourly GraphQL limit again.
+    public static let minimumInterval = 60
+
+    /// Poll interval (180 s in foreground and 600 s in background by default), doubling per consecutive
+    /// failure up to 30 min.
+    public static func interval(foreground: Bool, failures: Int,
+                                foregroundSeconds: Int = defaultForeground, backgroundSeconds: Int = defaultBackground) -> Duration {
+        let base = max(minimumInterval, foreground ? foregroundSeconds : backgroundSeconds)
+        return .seconds(min(base << min(failures, 4), max(1800, base)))
     }
 }
