@@ -331,6 +331,7 @@ extension AppModel {
                 let prompt = AIContext.fixPrompt(title: pr.title, body: details[pr.id]?.body ?? "", path: path, patch: patch,
                                                  problem: problem, instructions: Prompts.fix)
                 let proposal = try await reviewer.structured(engine, prompt: prompt, schema: AIContext.fixSchema, as: FixProposal.self)
+                    .validated(patch: patch)
                 fixes[key]?.patch = patch
                 fixes[key]?.proposal = proposal
             } catch {
