@@ -123,6 +123,14 @@ extension AppModel {
         await commentWrite(pr) { try await github.setReaction(content, on: comment.id, reacted: !reacted) }
     }
 
+    func setResolved(_ thread: ReviewThread, _ resolved: Bool, pr: PullRequest) async {
+        await commentWrite(pr) { try await github.setResolved(threadID: thread.id, resolved: resolved) }
+    }
+
+    func setHiddenAsResolved(_ comment: Comment, _ hidden: Bool, pr: PullRequest) async {
+        await commentWrite(pr) { try await github.setHiddenAsResolved(commentID: comment.id, hidden: hidden) }
+    }
+
     @discardableResult
     private func commentWrite(_ pr: PullRequest, _ write: () async throws -> Void) async -> Bool {
         defer { Task { await afterOwnWrite(pr) } }

@@ -88,6 +88,9 @@ public struct Comment: Hashable, Identifiable, Sendable {
     public var viewerCanDelete = false
     public var viewerCanReact = false
     public var reactions: [Reaction] = []
+    /// Hidden on GitHub, e.g. as resolved: conversation comments can't be resolved like review threads.
+    public var isMinimized = false
+    public var viewerCanMinimize = false
 }
 
 public enum ReactionContent: String, CaseIterable, Hashable, Sendable {
@@ -130,6 +133,8 @@ public struct ReviewThread: Hashable, Identifiable, Sendable {
     public var isResolved: Bool
     public var isOutdated: Bool
     public var comments: [Comment]
+    public var viewerCanResolve = false
+    public var viewerCanUnresolve = false
 }
 
 public struct PendingComment: Hashable, Identifiable, Sendable {
@@ -268,7 +273,7 @@ public struct GitHub: Sendable {
           body
           comments(last: 100) { nodes { ...CommentFields } }
           reviews(last: 50) { nodes { id author { login } state body submittedAt } }
-          reviewThreads(first: 100) { nodes { id path line diffSide isResolved isOutdated
+          reviewThreads(first: 100) { nodes { id path line diffSide isResolved isOutdated viewerCanResolve viewerCanUnresolve
             comments(first: 100) { nodes { ...CommentFields state } } } }
           \(Self.pendingField)
         } } }
@@ -277,6 +282,7 @@ public struct GitHub: Sendable {
           ... on Updatable { viewerCanUpdate }
           ... on Deletable { viewerCanDelete }
           ... on Reactable { viewerCanReact reactionGroups { content viewerHasReacted reactors { totalCount } } }
+          ... on Minimizable { isMinimized viewerCanMinimize }
         }
         """
         let data = try await graphql(query, ["id": id])
@@ -293,7 +299,9 @@ public struct GitHub: Sendable {
                 ReviewThread(id: $0["id"] as? String ?? "", path: $0["path"] as? String ?? "", line: $0["line"] as? Int,
                              side: DiffSide(rawValue: $0["diffSide"] as? String ?? "") ?? .right,
                              isResolved: $0["isResolved"] as? Bool ?? false, isOutdated: $0["isOutdated"] as? Bool ?? false,
-                             comments: Self.nodes($0["comments"]).map(Self.decodeComment))
+                             comments: Self.nodes($0["comments"]).map(Self.decodeComment),
+                             viewerCanResolve: $0["viewerCanResolve"] as? Bool ?? false,
+                             viewerCanUnresolve: $0["viewerCanUnresolve"] as? Bool ?? false)
             },
             pendingReview: pending
         )
@@ -372,6 +380,19 @@ public struct GitHub: Sendable {
         try await graphql("""
         mutation($id: ID!, $content: ReactionContent!) { \(mutation)(input: {subjectId: $id, content: $content}) { clientMutationId } }
         """, ["id": subjectID, "content": content.rawValue])
+    }
+
+    public func setResolved(threadID: String, resolved: Bool) async throws {
+        let mutation = resolved ? "resolveReviewThread" : "unresolveReviewThread"
+        try await graphql("mutation($id: ID!) { \(mutation)(input: {threadId: $id}) { clientMutationId } }", ["id": threadID])
+    }
+
+    /// Hides a conversation comment as resolved, GitHub's equivalent of resolving it, or shows it again.
+    public func setHiddenAsResolved(commentID: String, hidden: Bool) async throws {
+        let mutation = hidden
+            ? "minimizeComment(input: {subjectId: $id, classifier: RESOLVED}) { clientMutationId }"
+            : "unminimizeComment(input: {subjectId: $id}) { clientMutationId }"
+        try await graphql("mutation($id: ID!) { \(mutation) }", ["id": commentID])
     }
 
     /// File texts at a commit, 50 per GraphQL query (1 point each), instead of one REST call per file all at once,
@@ -480,7 +501,9 @@ public struct GitHub: Sendable {
                     let count = total(group["reactors"])
                     guard count > 0, let content = ReactionContent(rawValue: group["content"] as? String ?? "") else { return nil }
                     return Reaction(content: content, count: count, viewerHasReacted: group["viewerHasReacted"] as? Bool ?? false)
-                })
+                },
+                isMinimized: node["isMinimized"] as? Bool ?? false,
+                viewerCanMinimize: node["viewerCanMinimize"] as? Bool ?? false)
     }
 
     static func stamps(_ nodes: [[String: Any]]) -> [String: Date] {

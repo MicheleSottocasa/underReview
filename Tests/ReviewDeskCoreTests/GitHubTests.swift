@@ -214,3 +214,18 @@ import Testing
     #expect(try await GitHub(runner: runner).pendingReview(prID: "PR_1")?.id == "R")
     #expect(!(runner.calls.first?.query.contains("reviewThreads") ?? true))
 }
+
+@Test func resolvesThreadsAndHidesConversationCommentsAsResolved() async throws {
+    let runner = FakeRunner { _ in data(#"{"x":{"clientMutationId":null}}"#) }
+    let github = GitHub(runner: runner)
+    try await github.setResolved(threadID: "T_1", resolved: true)
+    try await github.setResolved(threadID: "T_1", resolved: false)
+    try await github.setHiddenAsResolved(commentID: "IC_1", hidden: true)
+    try await github.setHiddenAsResolved(commentID: "IC_1", hidden: false)
+    let queries = runner.calls.map(\.query)
+    #expect(queries[0].contains("resolveReviewThread(") && !queries[0].contains("unresolve"))
+    #expect(queries[1].contains("unresolveReviewThread("))
+    #expect(queries[2].contains("minimizeComment(") && queries[2].contains("classifier: RESOLVED"))
+    #expect(queries[3].contains("unminimizeComment("))
+    #expect(GitHub.decodeComment(["id": "IC_1", "isMinimized": true, "viewerCanMinimize": true]).isMinimized)
+}

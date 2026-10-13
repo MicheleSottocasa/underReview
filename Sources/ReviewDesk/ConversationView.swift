@@ -83,6 +83,7 @@ struct TimelineCard: View {
     var comment: Comment?
     var pr: PullRequest?
     @ViewState private var editing = false
+    @ViewState private var showHidden = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -103,7 +104,15 @@ struct TimelineCard: View {
                 .padding(.vertical, 8)
                 .background((accent ?? .secondary).opacity(0.08))
                 Divider()
-                if let comment, let pr {
+                if let comment, comment.isMinimized, !showHidden {
+                    HStack {
+                        Image(systemName: "checkmark.circle").foregroundStyle(.green)
+                        Text("Marked as resolved").font(.callout).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Show") { showHidden = true }.buttonStyle(.link)
+                    }
+                    .padding(12)
+                } else if let comment, let pr {
                     VStack(alignment: .leading, spacing: 8) {
                         EditableCommentBody(pr: pr, comment: comment, editing: $editing)
                         ReactionBar(pr: pr, comment: comment)

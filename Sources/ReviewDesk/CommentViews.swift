@@ -137,6 +137,7 @@ struct ThreadView: View {
     @ViewState private var replying = false
     @ViewState private var reply = ""
     @ViewState private var sending = false
+    @ViewState private var resolving = false
 
     var body: some View {
         let comments = thread.comments.filter { !hidden.contains($0.id) }
@@ -147,6 +148,7 @@ struct ThreadView: View {
                         Image(systemName: "checkmark.circle").foregroundStyle(.green)
                         Text("Resolved conversation · \(comments.count) comment\(comments.count == 1 ? "" : "s")").font(.callout)
                         Spacer()
+                        resolveButton
                         Button("Show") { expanded = true }.buttonStyle(.link)
                     }
                     .padding(10)
@@ -173,9 +175,12 @@ struct ThreadView: View {
                             }
                             .disabled(sending)
                         } else {
-                            Button("Reply") { replying = true }
-                                .buttonStyle(.link)
-                                .padding(.leading, 32)
+                            HStack {
+                                Button("Reply") { replying = true }.buttonStyle(.link)
+                                Spacer()
+                                resolveButton
+                            }
+                            .padding(.leading, 32)
                         }
                     }
                     .padding(10)
@@ -185,6 +190,25 @@ struct ThreadView: View {
         }
     }
 
+    /// GitHub's Resolve / Unresolve conversation, when the viewer is allowed.
+    @ViewBuilder
+    private var resolveButton: some View {
+        if thread.isResolved ? thread.viewerCanUnresolve : thread.viewerCanResolve {
+            Button {
+                resolving = true
+                Task {
+                    await model.setResolved(thread, !thread.isResolved, pr: pr)
+                    resolving = false
+                }
+            } label: {
+                Label(thread.isResolved ? "Unresolve" : "Resolve conversation",
+                      systemImage: thread.isResolved ? "arrow.uturn.backward.circle" : "checkmark.circle")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(resolving)
+        }
+    }
 }
 
 /// A local draft inline in the diff: edit, delete, or confirm after a push.
@@ -267,6 +291,13 @@ struct CommentMenu: View {
 
     var body: some View {
         HStack(spacing: 6) {
+            if comment.kind == .issue, comment.viewerCanMinimize {
+                Button { Task { await model.setHiddenAsResolved(comment, !comment.isMinimized, pr: pr) } } label: {
+                    Image(systemName: comment.isMinimized ? "eye" : "checkmark.circle")
+                }
+                .buttonStyle(.borderless)
+                .help(comment.isMinimized ? "Show again (unhide on GitHub)" : "Mark as resolved (hides it on GitHub as Resolved)")
+            }
             if comment.viewerCanUpdate {
                 Button { editing = true } label: { Image(systemName: "pencil") }
                     .buttonStyle(.borderless)
