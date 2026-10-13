@@ -5,6 +5,8 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+- **SSH remotes for Check Out:** a clone whose remote is written `git@github.com:/owner/repo.git` (slash after the colon), or goes through an SSH host alias whose HostName is github.com (`git@github-work:owner/repo`), is now recognised when linking it.
+
 ## 0.9.0
 
 - **Key areas on removed code:** the AI can now point at code a pull request deletes (a dropped check, say), by its old line numbers. The diff marks those lines on the removed side, and Focus and Risk label them "Removed code, old lines …".
