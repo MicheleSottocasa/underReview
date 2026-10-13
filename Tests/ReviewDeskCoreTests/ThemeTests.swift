@@ -110,3 +110,11 @@ import Testing
     #expect(throws: ThemeFileError("This isn't a regular file.")) { try Theme.fileData(URL(fileURLWithPath: "/dev/zero")) }
     #expect(throws: ThemeFileError("This isn't a regular file.")) { try Theme.fileData(dir) }
 }
+
+@Test func ownershipColorsAreThemeable() throws {
+    #expect(Theme.builtIn[.mine] == ThemeColor(light: HexColor(0x00897B), dark: HexColor(0x4DB6AC)))
+    #expect(Theme.builtIn[.others] == ThemeColor(light: HexColor(0x8E44AD), dark: HexColor(0xB388EB)))
+    let theme = try Theme.decode(Data(##"{"name": "T", "colors": {"accent.mine": {"dark": "#00FF00"}}}"##.utf8))
+    #expect(theme.color(.mine, dark: true) == HexColor(0x00FF00))
+    #expect(theme.color(.mine, dark: false) == HexColor(0x00897B))
+}

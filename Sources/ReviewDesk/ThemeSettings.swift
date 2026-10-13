@@ -133,6 +133,9 @@ enum DiffColors {
     static var draft: Color { color(.draft) }
     /// Drafts outdated by a push.
     static var outdated: Color { color(.outdated) }
+    /// Review threads and comments by me, and threads started by others.
+    static var mine: Color { color(.mine) }
+    static var others: Color { color(.others) }
 
     enum Side { case left, right }
 
@@ -194,7 +197,7 @@ struct AppearanceSettings: View {
             }
             colors("Editor", [.background, .text, .lineNumber, .separator, .fold])
             colors("Diff", [.modified, .added, .removed])
-            colors("Accents", [.keyArea, .draft, .outdated])
+            colors("Accents", [.keyArea, .draft, .outdated, .mine, .others])
             colors("Syntax", [.keyword, .string, .comment, .number, .call])
         }
         .formStyle(.grouped)
@@ -262,6 +265,8 @@ struct AppearanceSettings: View {
         case .keyArea: "Key area bar"
         case .draft: "Drafts (system accent unless set)"
         case .outdated: "Drafts outdated by a push"
+        case .mine: "Your threads and comments"
+        case .others: "Threads started by others"
         case .keyword: "Keywords"
         case .string: "Strings"
         case .comment: "Comments"
