@@ -639,6 +639,8 @@ struct FileDiffView: View {
     private static let markerWidth: CGFloat = 20
 
     var body: some View {
+        let shownThreads = threads // once per redraw: `involves` runs a regex per thread
+        let withComments = commentRows(shownThreads)
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Text(file.filename).font(.callout.monospaced()).textSelection(.enabled)
@@ -656,9 +658,9 @@ struct FileDiffView: View {
                     .controlSize(.small)
                     .disabled(file.status == "removed")
                     .help("Open this file from the local clone in your editor, at the line shown or else at the first change")
-                if !commentRows.isEmpty {
-                    StepControl(noun: "comment", modifiers: [.command, .option], state: { (Array(commentRows.keys), cursor) }) { row in
-                        collapsed.subtract(commentRows[row] ?? []) // show the comments you jump to, if they were folded
+                if !withComments.isEmpty {
+                    StepControl(noun: "comment", modifiers: [.command, .option], state: { (Array(withComments.keys), cursor) }) { row in
+                        collapsed.subtract(withComments[row] ?? []) // show the comments you jump to, if they were folded
                         jump = Jump(row: row)
                     }
                 }
@@ -672,7 +674,6 @@ struct FileDiffView: View {
                 let key = RenderedDiff.Key(patch: patch, mode: mode, ink: ThemeStore.shared.ink)
                 let diff = currentDiff
                 let commented = commentedAnchors
-                let shownThreads = threads // once per redraw: `involves` runs a regex per thread
                 ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -754,10 +755,12 @@ struct FileDiffView: View {
         rendered?.key.patch == file.patch && rendered?.key.mode == mode ? rendered : nil
     }
 
-    /// Diff rows with comments or drafts, and the anchors on each (a split row can have one per side).
-    private var commentRows: [Int: [ReviewDeskCore.Anchor]] {
+    /// Diff rows with shown threads (Involving Me hides the others) or drafts, and the anchors on each (a split row
+    /// can have one per side).
+    private func commentRows(_ shownThreads: [ReviewThread]) -> [Int: [ReviewDeskCore.Anchor]] {
         guard let diff = currentDiff else { return [:] }
-        let anchors = commentedAnchors.filter { $0.path == file.filename }
+        let anchors = Set(shownThreads.compactMap { thread in thread.line.map { ReviewDeskCore.Anchor(path: file.filename, line: $0, side: thread.side) } })
+            .union(drafts.map(\.anchor))
         return Dictionary(grouping: anchors.compactMap { anchor in diff.row(for: anchor).map { ($0, anchor) } }, by: \.0).mapValues { $0.map(\.1) }
     }
 
