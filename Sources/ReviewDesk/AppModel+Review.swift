@@ -119,8 +119,8 @@ extension AppModel {
 extension AppModel {
     var reviewSync: ReviewSync { ReviewSync(github: github) }
 
-    /// Saves the chosen drafts into the viewer's pending review on GitHub.
-    func saveDrafts(_ ids: Set<UUID>, pr: PullRequest) async {
+    /// Saves the chosen drafts into the viewer's pending review on GitHub. `reload: false` when another write follows.
+    func saveDrafts(_ ids: Set<UUID>, pr: PullRequest, reload: Bool = true) async {
         guard !blockDemo(pr) else { return }
         let selected = reviewDrafts.drafts.filter { ids.contains($0.id) }
         do {
@@ -131,7 +131,7 @@ extension AppModel {
         } catch {
             report(error)
         }
-        await afterOwnWrite(pr)
+        if reload { await afterOwnWrite(pr) }
     }
 
     /// Deletes locally and, if it was saved, from the pending review. A saved draft stays (dimmed) until the reload,
@@ -243,8 +243,12 @@ extension AppModel {
         guard !blockDemo(pr) else { return false }
         let unsaved = drafts(for: pr.id).filter { $0.needsSync && !$0.isStale }
         if !unsaved.isEmpty {
-            await saveDrafts(Set(unsaved.map(\.id)), pr: pr)
-            guard drafts(for: pr.id).allSatisfy({ !$0.needsSync || $0.isStale }) else { return false }
+            // Publishing reloads the PR anyway; only a failed save needs its own reload.
+            await saveDrafts(Set(unsaved.map(\.id)), pr: pr, reload: false)
+            guard drafts(for: pr.id).allSatisfy({ !$0.needsSync || $0.isStale }) else {
+                await afterOwnWrite(pr)
+                return false
+            }
         }
         return await publish(pr, event: event)
     }
