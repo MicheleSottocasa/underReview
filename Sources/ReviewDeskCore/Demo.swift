@@ -45,6 +45,9 @@ public enum Demo {
             let totals = (changes.reduce(0) { $0 + $1.additions }, changes.reduce(0) { $0 + $1.deletions }, changes.count)
             if index == 0 { (base.additions, base.deletions, base.changedFiles) = totals } else { (main.additions, main.deletions, main.changedFiles) = totals }
         }
+        // Shows the merge badges: #41 is behind main, and #42 conflicts with #41's branch.
+        (base.mergeable, base.mergeStateStatus) = ("MERGEABLE", "BEHIND")
+        (main.mergeable, main.mergeStateStatus) = ("CONFLICTING", "DIRTY")
         return [base, main]
     }
 

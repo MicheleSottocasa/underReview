@@ -99,4 +99,10 @@ extension AppModel {
         org = updated
         selection = []
     }
+
+    /// GitHub's page for resolving the PR's merge conflicts.
+    func openConflicts(_ pr: PullRequest) {
+        guard !blockDemo(pr), let url = URL(string: "\(pr.url)/conflicts") else { return }
+        NSWorkspace.shared.open(url)
+    }
 }
