@@ -14,6 +14,15 @@ struct FollowUpNotice: View {
             Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(.orange)
             Text(parts.joined(separator: " · ")).font(.callout)
             Spacer()
+            let stackDue = model.stackMembers(of: pr).filter(model.isFollowUpDue)
+            if stackDue.count > 1 {
+                Button("Check Stack (\(stackDue.count))") {
+                    model.detailTab = .followUp
+                    model.startStackFollowUp(stackDue, from: pr.id)
+                }
+                .disabled(model.aiStatus[pr.id] != nil)
+                .help("Check every pull request of the stack with new commits or replies since your review, bottom first")
+            }
             Button("Check if Addressed") {
                 model.detailTab = .followUp
                 model.startFollowUp(pr)
@@ -50,6 +59,8 @@ struct FollowUpView: View {
                         .help("Uses \(model.preferredEngine(for: pr).name), the engine picked in the AI Review tab")
                 }
                 if model.aiStatus[pr.id] != nil { AIStatusBox(pr: pr) }
+                let members = model.stackMembers(of: pr)
+                if members.count > 1 { StackFollowUp(pr: pr, members: members) }
                 if let run = runs.first {
                     FollowUpRunView(pr: pr, run: run)
                 } else if threads.isEmpty {
@@ -60,7 +71,59 @@ struct FollowUpView: View {
             .frame(maxWidth: 900, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .task { await model.loadDetail(pr.id) }
+        .task {
+            await model.loadDetail(pr.id)
+            // The stack card needs each member's threads to tell what's due.
+            for member in model.stackMembers(of: pr) where model.details[member.id] == nil { await model.loadDetail(member.id) }
+        }
+    }
+}
+
+/// The follow-up state of every PR in the stack, and one button to check all that changed.
+private struct StackFollowUp: View {
+    @Environment(AppModel.self) private var model
+    let pr: PullRequest
+    let members: [PullRequest]
+
+    var body: some View {
+        let due = members.filter(model.isFollowUpDue)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("Stack #\(pr.stack?.number ?? 0)", systemImage: "square.stack.3d.up").font(.headline)
+                Spacer()
+                Button("Check Stack (\(due.count))") { model.startStackFollowUp(due, from: pr.id) }
+                    .disabled(due.isEmpty || model.aiStatus[pr.id] != nil)
+                    .help(due.isEmpty ? "Nothing new since your review in this stack"
+                                      : "Check the \(due.count) pull request\(due.count == 1 ? "" : "s") with new commits or replies since your review, bottom first")
+            }
+            ForEach(members) { member in
+                let run = model.followUpRuns(for: member.id).first
+                Button { model.selection = [.pr(member.id)] } label: {
+                    HStack(spacing: 8) {
+                        Text(verbatim: "\(member.stackPosition ?? 0)").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 16, alignment: .trailing)
+                        Text(verbatim: "#\(member.number) \(member.title)").lineLimit(1).fontWeight(member.id == pr.id ? .semibold : .regular)
+                        Spacer()
+                        if let run {
+                            let counts = Dictionary(grouping: run.result.items, by: \.status).mapValues(\.count)
+                            ForEach(FollowUpItem.statuses, id: \.self) { status in
+                                if let count = counts[status] { FollowUpBadge(status: status, count: count) }
+                            }
+                            if run.headRefOid != member.headRefOid { Badge(text: "Outdated", color: .orange) }
+                        } else if model.isFollowUpDue(member) {
+                            Badge(text: "New since your review", color: .orange)
+                        } else {
+                            Text("Nothing new").font(.caption).foregroundStyle(.tertiary)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Open #\(member.number)'s follow-up")
+            }
+        }
+        .padding(12)
+        .background(.background, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.25)))
     }
 }
 
