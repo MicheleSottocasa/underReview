@@ -355,7 +355,8 @@ struct LinkedAgentCard: View {
                             Text(link.name).bold().lineLimit(1)
                             AgentStatus(status: running?.status)
                             Spacer()
-                            actions(running)
+                            if model.pending.contains(link.sessionID) { ProgressView().controlSize(.small) }
+                            actions(running).disabled(model.pending.contains(link.sessionID))
                         }
                         Text(link.cwd.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
                             .font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
@@ -448,9 +449,13 @@ struct AgentPicker: View {
             HStack {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Search agents", text: $query).textFieldStyle(.plain)
-                Button { Task { await model.refreshAgents() } } label: { Image(systemName: "arrow.clockwise") }
-                    .buttonStyle(.borderless)
-                    .help("Refresh running agents")
+                if model.pending.contains("agents") {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button { Task { await model.refreshAgents() } } label: { Image(systemName: "arrow.clockwise") }
+                        .buttonStyle(.borderless)
+                        .help("Refresh running agents")
+                }
             }
             .padding(6)
             .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
