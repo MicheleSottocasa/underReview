@@ -398,8 +398,7 @@ struct FileDiffView: View {
     /// The parsed and highlighted patch, rebuilt only when the patch or the mode changes, not on every redraw.
     @ViewState private var rendered: RenderedDiff?
     /// Shared horizontal offset of the code while soft wrap is off.
-    @ViewState private var hScroll = HorizontalScroll()
-    @ViewState private var paneWidth: CGFloat = 0
+    @ViewState private var hScroll = HorizontalScroll(gutter: FileDiffView.numberWidth * 2 + FileDiffView.markerWidth)
     private static let numberWidth: CGFloat = 42
     private static let markerWidth: CGFloat = 20
 
@@ -451,8 +450,11 @@ struct FileDiffView: View {
                 }
                 .background(DiffColors.editor)
                 .onHover { hScroll.hovering = $0 }
-                .onGeometryChange(for: CGFloat.self, of: \.size.width) { paneWidth = $0 }
-                .onChange(of: scrollLimit(diff), initial: true) { _, limit in hScroll.limit = limit }
+                .onGeometryChange(for: CGFloat.self, of: \.size.width) { hScroll.paneWidth = $0 }
+                .onChange(of: Pair(wrap ? 0 : CGFloat(diff?.longest ?? 0) * HorizontalScroll.charWidth + 32, mode), initial: true) { _, new in
+                    hScroll.codeWidth = new.a
+                    hScroll.columns = new.b == .split ? 2 : 1
+                }
                 .onAppear { hScroll.start() }
                 .onDisappear { hScroll.stop() }
                 .onChange(of: key, initial: true) { _, key in
@@ -469,13 +471,6 @@ struct FileDiffView: View {
                                        description: Text("GitHub doesn't provide a diff for binary or very large files."))
             }
         }
-    }
-
-    /// How far the longest line reaches past its code column (each half in split mode).
-    private func scrollLimit(_ diff: RenderedDiff?) -> CGFloat {
-        guard let diff, !wrap else { return 0 }
-        let column = (paneWidth - Self.numberWidth * 2 - Self.markerWidth) / (mode == .split ? 2 : 1)
-        return max(0, CGFloat(diff.longest) * HorizontalScroll.charWidth + 32 - column)
     }
 
     private func isKey(_ line: DiffLine?) -> Bool {
@@ -751,7 +746,19 @@ final class HorizontalScroll {
     static let charWidth = ("M" as NSString).size(withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 12.5, weight: .regular)]).width
 
     var x: CGFloat = 0
-    @ObservationIgnored var limit: CGFloat = 0 { didSet { x = min(x, limit) } }
+    /// What `limit` comes from, set by layout without redrawing anything: the code's full width (0 while wrapping),
+    /// the diff pane's width, and how many code columns share it with the gutter.
+    @ObservationIgnored var codeWidth: CGFloat = 0 { didSet { clamp() } }
+    @ObservationIgnored var paneWidth: CGFloat = 0 { didSet { clamp() } }
+    @ObservationIgnored var columns: CGFloat = 1 { didSet { clamp() } }
+    private let gutter: CGFloat
+
+    init(gutter: CGFloat) { self.gutter = gutter }
+
+    /// How far the widest line reaches past its code column.
+    var limit: CGFloat { max(0, codeWidth - (paneWidth - gutter) / columns) }
+
+    private func clamp() { if x > limit { x = limit } }
     @ObservationIgnored var hovering = false
     @ObservationIgnored private var monitor: Any?
 
