@@ -5,6 +5,8 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+- Pull requests inside a stack show their number under the title in the sidebar, like standalone ones.
+
 ## 0.8.1
 
 - **Notifications in the app:** the bell in the toolbar lists the notifications received since ReviewDesk opened (up to 50, newest first), with a badge for new ones. Click one to open its pull request; muted pull requests are listed too, marked as muted.
