@@ -5,24 +5,38 @@ import SwiftUI
 struct ConversationView: View {
     let pr: PullRequest
     let detail: PRDetail?
+    /// Ids of the folded cards; the description is "description".
+    @ViewState private var folded: Set<String> = []
 
     var body: some View {
         if let detail {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    let ids = ["description"] + entries(detail).map(\.id)
+                    HStack {
+                        Spacer()
+                        let all = folded.isSuperset(of: ids)
+                        Button(all ? "Expand All" : "Collapse All",
+                               systemImage: all ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left") {
+                            folded = all ? [] : Set(ids)
+                        }
+                        .controlSize(.small)
+                        .help(all ? "Show every comment in full" : "Fold the description and every comment to its header")
+                    }
                     TimelineCard(author: pr.author, action: "opened this pull request", date: nil,
-                                 text: detail.body.isEmpty ? "_No description provided._" : detail.body)
+                                 text: detail.body.isEmpty ? "_No description provided._" : detail.body,
+                                 collapsed: fold("description"))
                     ForEach(entries(detail)) { entry in
                         switch entry.kind {
                         case .comment(let comment):
                             TimelineCard(author: comment.author, action: "commented", date: comment.createdAt, text: comment.body,
-                                         comment: comment, pr: pr)
+                                         comment: comment, pr: pr, collapsed: fold(entry.id))
                         case .review(let review):
                             if review.body.isEmpty {
                                 TimelineEvent(review: review)
                             } else {
                                 TimelineCard(author: review.author, action: Self.verb(review.state), date: review.submittedAt,
-                                             text: review.body, accent: Self.color(review.state))
+                                             text: review.body, accent: Self.color(review.state), collapsed: fold(entry.id))
                             }
                         }
                     }
@@ -39,6 +53,10 @@ struct ConversationView: View {
         } else {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    private func fold(_ id: String) -> Binding<Bool> {
+        Binding { folded.contains(id) } set: { if $0 { folded.insert(id) } else { folded.remove(id) } }
     }
 
     private struct Entry: Identifiable {
@@ -81,6 +99,7 @@ struct TimelineCard: View {
     /// Set for conversation comments, which can be edited, deleted and reacted to.
     var comment: Comment?
     var pr: PullRequest?
+    @Binding var collapsed: Bool
     @ViewState private var editing = false
     @ViewState private var showHidden = false
 
@@ -97,13 +116,20 @@ struct TimelineCard: View {
                         ExplainButton(pr: pr, comment: comment)
                         CommentMenu(pr: pr, comment: comment, editing: $editing)
                     }
+                    Button { collapsed.toggle() } label: {
+                        Image(systemName: collapsed ? "chevron.right" : "chevron.down")
+                    }
+                    .buttonStyle(.borderless)
+                    .help(collapsed ? "Expand" : "Collapse")
                 }
                 .font(.callout)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background((accent ?? .secondary).opacity(0.08))
-                Divider()
-                if let comment, comment.isMinimized, !showHidden {
+                if !collapsed { Divider() }
+                if collapsed {
+                    // Header only.
+                } else if let comment, comment.isMinimized, !showHidden {
                     HStack {
                         Image(systemName: "checkmark.circle").foregroundStyle(.green)
                         Text("Marked as resolved").font(.callout).foregroundStyle(.secondary)

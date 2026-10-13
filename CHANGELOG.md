@@ -12,6 +12,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 - A folded resolved thread tells you what it's about without opening it: who resolved it, who took part (up to 3, then +N, you as "you"), how many comments, and the first line of the first comment (hover for all of it).
 - While ReviewDesk opens, the sidebar shows "Loading pull requests…" instead of an empty list or "No pull requests", and a spinner replaces the toolbar's Refresh button whenever the list is being fetched.
 - Refreshing while ReviewDesk is still connecting to GitHub no longer leads to a wrong "Your review was requested" notification for each pull request awaiting your review: refreshes wait until your GitHub account is known.
+- **Collapse the conversation:** each card in the Conversation tab (the description, comments and reviews) has a chevron that folds it to its header, and *Collapse All* / *Expand All* folds or unfolds them all at once.
 
 ## 0.8.1
 
