@@ -434,6 +434,9 @@ struct FixPreview: View {
                         .font(.caption.bold()).foregroundStyle(.secondary)
                     if fix.proposal == nil { ProgressView().controlSize(.small) }
                     Spacer()
+                    if fix.proposal == nil {
+                        Button("Discard") { model.discardFix(key) }.buttonStyle(.link).help("Stop asking for this fix")
+                    }
                     if let proposal = fix.proposal, proposal.suggestion != nil {
                         Text(verbatim: "\(fix.path):\(lines(proposal))").font(.caption.monospaced()).foregroundStyle(.secondary)
                     }
@@ -468,7 +471,7 @@ struct FixPreview: View {
                             .disabled(!current)
                             .help("Adds it to your pending review on GitHub as a suggested change: only you see it until you submit the review")
                         }
-                        Button("Discard") { model.fixes[key] = nil }.buttonStyle(.link)
+                        Button("Discard") { model.discardFix(key) }.buttonStyle(.link)
                     }
                 }
             }

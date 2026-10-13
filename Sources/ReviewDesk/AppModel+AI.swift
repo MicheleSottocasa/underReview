@@ -321,8 +321,11 @@ extension AppModel {
     func suggestFix(key: String, problem: String, path: String, pr: PullRequest) {
         guard !blockDemo(pr) else { return }
         let engine = preferredEngine(for: pr)
-        fixes[key] = Fix(engine: engine, path: path, head: pr.headRefOid)
-        Task {
+        let fix = Fix(engine: engine, path: path, head: pr.headRefOid)
+        fixes[key] = fix
+        // Only this request may fill or clear its entry: a discarded one (or one asked again) must not.
+        let isThisFix = { [weak self] in self?.fixes[key]?.id == fix.id }
+        fixes[key]?.task = Task {
             do {
                 if files[pr.id] == nil { files[pr.id] = try await github.files(pr.ref) }
                 guard let patch = files[pr.id]?.first(where: { $0.filename == path })?.patch else {
@@ -332,13 +335,21 @@ extension AppModel {
                                                  problem: problem, instructions: Prompts.fix)
                 let proposal = try await reviewer.structured(engine, prompt: prompt, schema: AIContext.fixSchema, as: FixProposal.self)
                     .validated(patch: patch)
+                guard isThisFix() else { return }
                 fixes[key]?.patch = patch
                 fixes[key]?.proposal = proposal
             } catch {
+                guard isThisFix(), !Task.isCancelled else { return }
                 fixes[key] = nil
                 report(error, engine.name)
             }
         }
+    }
+
+    /// Drops a fix; one still being asked is cancelled, which stops the CLI.
+    func discardFix(_ key: String) {
+        fixes[key]?.task?.cancel()
+        fixes[key] = nil
     }
 
     /// Posts the reviewer's (possibly edited) fix to the pending review as a suggested change on its lines.
@@ -469,6 +480,7 @@ struct Explanation {
 
 /// A fix the AI is proposing for a finding or a comment, until the reviewer accepts or discards it. In memory only.
 struct Fix {
+    let id = UUID()
     var engine: AIEngine
     var path: String
     /// The PR's head when the fix was asked: a push since makes its line numbers unreliable.
@@ -477,6 +489,8 @@ struct Fix {
     var patch: String?
     /// Nil while the AI is working.
     var proposal: FixProposal?
+    /// The request, while it runs, so Discard can cancel it.
+    var task: Task<Void, Never>?
 
     static let outdatedMessage = "The author pushed since this fix was proposed: ask again"
 
