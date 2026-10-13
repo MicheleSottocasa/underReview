@@ -26,8 +26,10 @@ import Testing
 }
 
 @Test func childEnvironmentDropsAPIKeys() {
-    let env = ProcessRunner.childEnvironment(["ANTHROPIC_API_KEY": "x", "OPENAI_API_KEY": "y", "HOME": "/h"])
+    let env = ProcessRunner.childEnvironment(["ANTHROPIC_API_KEY": "x", "OPENAI_API_KEY": "y", "HOME": "/h",
+                                              "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD": "1"])
     #expect(env["ANTHROPIC_API_KEY"] == nil && env["OPENAI_API_KEY"] == nil)
+    #expect(env["CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD"] == nil) // no instructions from --add-dir folders
     #expect(env["HOME"] == "/h")
 }
 

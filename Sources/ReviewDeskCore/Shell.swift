@@ -60,10 +60,11 @@ extension CommandRunner {
 }
 
 public struct ProcessRunner: CommandRunner {
-    /// API keys would make the AI CLIs bill the API instead of the user's subscription.
+    /// API keys would make the AI CLIs bill the API instead of the user's subscription. The CLAUDE.md switch would
+    /// load instructions from the project folders `/code-review` reads through `--add-dir`.
     public static let strippedEnvironment: Set<String> = [
         "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX",
-        "OPENAI_API_KEY", "CODEX_API_KEY",
+        "OPENAI_API_KEY", "CODEX_API_KEY", "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD",
     ]
 
     public var paths: [String: String]
