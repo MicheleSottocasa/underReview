@@ -562,7 +562,7 @@ struct ExplainButton: View {
                                      path: thread.path, pr: pr)
                 } label: { Image(systemName: "wand.and.stars") }
                     .disabled(model.fixes[comment.id] != nil)
-                    .help("Ask \(engine.name) to fix what this comment asks for, as replacement code you can edit, then add as a GitHub suggested change.\(engine.isLocal ? "" : " Sends the PR description, the conversation and the file's diff to \(engine.name)'s provider.")")
+                    .help("Ask \(engine.name) to fix what this comment asks for, as replacement code you can edit, then add as a GitHub suggested change.\(sends)")
             }
         }
         .buttonStyle(.borderless)
