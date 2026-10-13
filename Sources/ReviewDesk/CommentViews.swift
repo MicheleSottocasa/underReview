@@ -541,8 +541,9 @@ struct ExplainButton: View {
 
     var body: some View {
         let engine = model.preferredEngine(for: pr)
-        let project = model.contextSources(for: pr) == nil ? "" : ", the project's extra context (what fits the token budget)"
-        let sends = engine.isLocal ? "" : " Sends the comment, its conversation\(project) and the file's diff to \(engine.name)'s provider."
+        let sends = engine.isLocal ? "" : " Sends the comment, its conversation and the file's diff to \(engine.name)'s provider."
+        // Only Ask adds the project's context: its chat lists the files before the first question is sent.
+        let project = model.contextSources(for: pr) == nil ? "" : " Your first question also sends the project's extra context, listed in the chat first (what fits the token budget)."
         let busy = model.explanations[comment.id]?.isAnswering == true
         HStack(spacing: 6) {
             Button { model.explain(comment, thread: thread, pr: pr) } label: { Image(systemName: "sparkles") }
@@ -550,7 +551,7 @@ struct ExplainButton: View {
                 .help("Explain this comment with \(engine.name), then ask follow-ups.\(sends)")
             Button { model.openChat(comment, thread: thread, pr: pr) } label: { Image(systemName: "bubble.left.and.text.bubble.right") }
                 .disabled(model.explanations[comment.id] != nil)
-                .help("Ask \(engine.name) your own question about this comment.\(sends)")
+                .help("Ask \(engine.name) your own question about this comment.\(sends)\(engine.isLocal ? "" : project)")
         }
         .buttonStyle(.borderless)
     }
@@ -579,7 +580,7 @@ struct ExplanationView: View {
                 }
                 if !chat.extra.isEmpty {
                     let sent = chat.extra.filter(\.included), left = chat.extra.filter { !$0.included }
-                    Label("Project context: \(sent.count) file\(sent.count == 1 ? "" : "s") sent"
+                    Label("Project context: \(sent.count) file\(sent.count == 1 ? "" : "s") sent with your questions"
                           + (left.isEmpty ? "" : ", \(left.count) left out (over the token budget, or not readable)"),
                           systemImage: "books.vertical")
                         .font(.caption).foregroundStyle(.secondary)

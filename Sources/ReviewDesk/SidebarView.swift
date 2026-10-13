@@ -608,7 +608,7 @@ struct ProjectContextSheet: View {
         let repoName = repo.trimmingCharacters(in: .whitespaces)
         VStack(alignment: .leading, spacing: 12) {
             Text("AI context for \(project.name)").font(.headline)
-            Text("Reference material sent to the AI with this project's pull requests, on top of the pull request itself. It goes to the provider of the engine you use (it stays on this Mac with Ollama). With Codex and Ollama, Prepare Context lists every file so you can deselect it; Claude Code's /code-review can open any non-hidden file in the folders with its read-only tools (its log shows what it reads); Explain sends what fits the token budget and says what it left out.")
+            Text("Reference material sent to the AI with this project's pull requests, on top of the pull request itself. It goes to the provider of the engine you use (it stays on this Mac with Ollama). With Codex and Ollama, Prepare Context lists every file so you can deselect it; Claude Code's /code-review can open any non-hidden file in the folders with its read-only tools (its log shows what it reads); Ask lists what fits the token budget in the chat before your first question is sent. One-click Explain and stack reviews leave it out.")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             List {
                 ForEach(sources) { source in
