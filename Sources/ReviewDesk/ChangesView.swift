@@ -1014,6 +1014,8 @@ struct RenderedDiff {
     var text: [DiffLine: AttributedString]
     /// The widest line in points, with the diff's font.
     var widest: CGFloat
+    /// Rows by new-side line and by comment anchor, matching the ForEach ids of `mode`.
+    var index: DiffIndex
 
     @MainActor init(_ key: Key, path: String) {
         let lines = Diff.parse(key.patch)
@@ -1026,6 +1028,7 @@ struct RenderedDiff {
         changes = Diff.changes(lines)
         widest = Self.widest(lines.map(\.text))
         rows = key.mode == .split ? Diff.sideBySide(lines) : []
+        index = key.mode == .split ? DiffIndex(rows: rows, path: path) : DiffIndex(lines: lines, path: path)
     }
 
     /// A character is one to 2.5 columns wide (CJK about 1.6, emoji 2.3, a tab up to 4), so only the lines that
@@ -1042,10 +1045,9 @@ struct RenderedDiff {
     /// Offset of the target's first diff row, matching the ForEach ids; nil when its new-side lines aren't in the diff.
     /// An old-file target (a thread on a removed line) lands on the first row at or after its line.
     func row(for target: LineTarget) -> Int? {
-        let range = target.line...max(target.line, target.endLine ?? target.line)
-        return switch (mode, target.side) {
-        case (.unified, .right): Diff.index(ofNewLines: range, in: lines)
-        case (.split, .right): Diff.index(ofNewLines: range, in: rows)
+        switch (mode, target.side) {
+        case (_, .right): index.row(ofNewLines: target.line...max(target.line, target.endLine ?? target.line))
+        // ponytail: scans; only a click on a removed-line thread in Conversation gets here.
         case (.unified, .left): lines.firstIndex { $0.kind != .added && ($0.oldLine ?? 0) >= target.line }
         case (.split, .left): rows.firstIndex { ($0.left?.oldLine ?? 0) >= target.line }
         }
@@ -1053,10 +1055,7 @@ struct RenderedDiff {
 
     /// Offset of the row a comment is anchored to.
     func row(for anchor: ReviewDeskCore.Anchor) -> Int? {
-        switch mode {
-        case .unified: Diff.index(of: anchor, in: lines)
-        case .split: Diff.index(of: anchor, in: rows)
-        }
+        index.row(of: anchor)
     }
 }
 

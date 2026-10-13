@@ -78,27 +78,31 @@ private let patch = """
 
 @Test func keyAreaLinesMapToTheirDiffRows() {
     let lines = Diff.parse(patch)
+    let unified = DiffIndex(lines: lines, path: "a.swift")
     // Line 11 is also the removed "let b = 2" (old side): the jump must land on the added line 11.
-    #expect(Diff.index(ofNewLines: 11...11, in: lines) == 3)
-    #expect(Diff.index(ofNewLines: 10...12, in: lines) == 1)
-    #expect(Diff.index(ofNewLines: 5...30, in: lines) == 1) // starts before the hunk: its first line in the diff
-    #expect(Diff.index(ofNewLines: 20...30, in: lines) == nil) // unchanged code between hunks: not in this diff
-    #expect(Diff.index(ofNewLines: 1...9, in: lines) == nil) // before the first hunk
-    #expect(Diff.index(ofNewLines: 42...50, in: lines) == nil) // past the last hunk
+    #expect(unified.row(ofNewLines: 11...11) == 3)
+    #expect(unified.row(ofNewLines: 10...12) == 1)
+    #expect(unified.row(ofNewLines: 5...30) == 1) // starts before the hunk: its first line in the diff
+    #expect(unified.row(ofNewLines: 20...30) == nil) // unchanged code between hunks: not in this diff
+    #expect(unified.row(ofNewLines: 1...9) == nil) // before the first hunk
+    #expect(unified.row(ofNewLines: 42...50) == nil) // past the last hunk
     let rows = Diff.sideBySide(lines)
-    #expect(Diff.index(ofNewLines: 11...11, in: rows).flatMap { rows[$0].right?.text } == "let b = 3")
-    #expect(Diff.index(ofNewLines: 30...41, in: rows).flatMap { rows[$0].right?.text } == "new")
-    #expect(Diff.index(ofNewLines: 20...30, in: rows) == nil)
+    let split = DiffIndex(rows: rows, path: "a.swift")
+    #expect(split.row(ofNewLines: 11...11).flatMap { rows[$0].right?.text } == "let b = 3")
+    #expect(split.row(ofNewLines: 30...41).flatMap { rows[$0].right?.text } == "new")
+    #expect(split.row(ofNewLines: 20...30) == nil)
 }
 
 @Test func commentAnchorsMapToTheirDiffRows() {
     let lines = Diff.parse(patch)
     let rows = Diff.sideBySide(lines)
+    let unified = DiffIndex(lines: lines, path: "a.swift"), split = DiffIndex(rows: rows, path: "a.swift")
     let removed = Anchor(path: "a.swift", line: 11, side: .left), added = Anchor(path: "a.swift", line: 11)
-    #expect(Diff.index(of: removed, in: lines) == 2)
-    #expect(Diff.index(of: added, in: lines) == 3)
+    #expect(unified.row(of: removed) == 2)
+    #expect(unified.row(of: added) == 3)
     // Side by side, the removed and the added line 11 share a row.
-    #expect(Diff.index(of: removed, in: rows) == Diff.index(of: added, in: rows))
-    #expect(Diff.index(of: Anchor(path: "a.swift", line: 13), in: rows).flatMap { rows[$0].right?.text } == "return a")
-    #expect(Diff.index(of: Anchor(path: "a.swift", line: 30), in: lines) == nil) // outdated: no longer in the diff
+    #expect(split.row(of: removed) != nil && split.row(of: removed) == split.row(of: added))
+    #expect(split.row(of: Anchor(path: "a.swift", line: 13)).flatMap { rows[$0].right?.text } == "return a")
+    #expect(unified.row(of: Anchor(path: "a.swift", line: 30)) == nil) // outdated: no longer in the diff
+    #expect(unified.row(of: Anchor(path: "b.swift", line: 11)) == nil) // another file's draft
 }

@@ -169,25 +169,37 @@ extension DiffRow {
     var isChange: Bool { hunk == nil && (left?.kind == .removed || right?.kind == .added) }
 }
 
-extension Diff {
-    /// Index of the first new-side line within `range`, to scroll there; nil when none of them is in the diff
-    /// (they sit in unchanged code between hunks, or past the last one).
-    public static func index(ofNewLines range: ClosedRange<Int>, in lines: [DiffLine]) -> Int? {
-        lines.firstIndex { $0.kind != .removed && $0.newLine.map(range.contains) == true }
+/// Where each new-side line and each comment anchor sits among a file's diff rows (unified lines or side-by-side
+/// rows), built once per diff so jumps and steps don't scan it on every redraw.
+public struct DiffIndex: Sendable {
+    private var newLines: [Int: Int] = [:]
+    private var anchors: [Anchor: Int] = [:]
+
+    public init(lines: [DiffLine], path: String) {
+        for (index, line) in lines.enumerated() {
+            if line.kind != .removed, let new = line.newLine, newLines[new] == nil { newLines[new] = index }
+            if let anchor = line.anchor(path: path), anchors[anchor] == nil { anchors[anchor] = index }
+        }
     }
 
-    /// The same for side-by-side rows.
-    public static func index(ofNewLines range: ClosedRange<Int>, in rows: [DiffRow]) -> Int? {
-        rows.firstIndex { $0.right?.newLine.map(range.contains) == true }
+    public init(rows: [DiffRow], path: String) {
+        for (index, row) in rows.enumerated() {
+            if let new = row.right?.newLine, newLines[new] == nil { newLines[new] = index }
+            for anchor in [row.left, row.right].compactMap({ $0?.anchor(path: path) }) where anchors[anchor] == nil {
+                anchors[anchor] = index
+            }
+        }
     }
 
-    /// Index of the line a comment is anchored to, on either side; nil when it's no longer in the diff.
-    public static func index(of anchor: Anchor, in lines: [DiffLine]) -> Int? {
-        lines.firstIndex { $0.anchor(path: anchor.path) == anchor }
+    /// The row of the first of `range`'s new-side lines that is in the diff, to scroll there; nil when none is
+    /// (they sit in unchanged code between hunks, or outside the hunks).
+    public func row(ofNewLines range: ClosedRange<Int>) -> Int? {
+        // ponytail: walks the range, which is a key area's tens of lines; a sorted array if areas get huge.
+        range.lazy.compactMap { newLines[$0] }.first
     }
 
-    /// The same for side-by-side rows.
-    public static func index(of anchor: Anchor, in rows: [DiffRow]) -> Int? {
-        rows.firstIndex { $0.left?.anchor(path: anchor.path) == anchor || $0.right?.anchor(path: anchor.path) == anchor }
+    /// The row of the line a comment is anchored to, on either side; nil when it's no longer in the diff.
+    public func row(of anchor: Anchor) -> Int? {
+        anchors[anchor]
     }
 }
