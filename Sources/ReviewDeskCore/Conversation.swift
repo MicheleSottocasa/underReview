@@ -54,7 +54,9 @@ public enum Conversation {
         let reviews = detail.reviews.filter { review in
             switch filter {
             case .all: true
+            // Each reply is its own empty COMMENTED review: not something the viewer started.
             case .startedByMe: review.author == viewer
+                && !(review.state == "COMMENTED" && review.body.isEmpty && byReview[review.id] == nil)
             case .unresolved: byReview[review.id] != nil
             }
         }
