@@ -217,7 +217,7 @@ extension AppModel {
     func afterOwnWrite(_ pr: PullRequest) async {
         if let fresh = try? await github.pullRequests(ids: [pr.id]).first {
             prs[fresh.id] = fresh
-            checkpoints[fresh.id] = Snapshot(fresh, viewer: viewer, previous: checkpoints[fresh.id])
+            Updates.acknowledgeOwnWrite(&checkpoints, pr: fresh, viewer: viewer)
         }
         await loadDetail(pr.id)
     }

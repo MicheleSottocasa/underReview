@@ -33,6 +33,15 @@ private func pr(head: String = "a", state: String = "OPEN", comments: Int = 0, r
     #expect(Updates.advance(&upgraded, with: [pr(mine: true, mergeable: "CONFLICTING")], viewer: "me").isEmpty)
 }
 
+@Test func myOwnWriteDoesNotSwallowANewConflict() {
+    var checkpoints: [String: Snapshot] = [:]
+    _ = Updates.advance(&checkpoints, with: [pr(mine: true)], viewer: "me")
+    // I comment; the re-read PR already conflicts. The comment is acknowledged, the conflict is still news.
+    Updates.acknowledgeOwnWrite(&checkpoints, pr: pr(comments: 1, mine: true, mergeable: "CONFLICTING"), viewer: "me")
+    #expect(checkpoints["PR_1"]?.commentCount == 1)
+    #expect(Updates.advance(&checkpoints, with: [pr(comments: 1, mine: true, mergeable: "CONFLICTING")], viewer: "me") == ["PR_1": [.conflicts]])
+}
+
 @Test func refetchesPullRequestsWhoseMergeabilityIsUnknown() {
     let unknown = pr(mergeable: "UNKNOWN")
     #expect(Updates.changed(["PR_1": unknown.updatedAt], cached: ["PR_1": unknown]) == ["PR_1"])

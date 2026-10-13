@@ -74,6 +74,15 @@ public enum Updates {
         return events
     }
 
+    /// Moves the checkpoint past the viewer's own write (a comment, a review), so it doesn't come back as an event.
+    /// The conflict state stays as it was: a conflict that appeared since the last poll isn't the viewer's doing,
+    /// and the next poll still notifies it.
+    public static func acknowledgeOwnWrite(_ checkpoints: inout [String: Snapshot], pr: PullRequest, viewer: String) {
+        var snapshot = Snapshot(pr, viewer: viewer, previous: checkpoints[pr.id])
+        snapshot.ownConflicts = checkpoints[pr.id]?.ownConflicts
+        checkpoints[pr.id] = snapshot
+    }
+
     /// PR ids whose cached data is missing or older than GitHub's last update: only these get the full (costly) fetch.
     /// So are PRs whose mergeability GitHub was still computing: it doesn't bump `updatedAt` when it's done.
     public static func changed(_ stamps: [String: Date], cached: [String: PullRequest]) -> [String] {
