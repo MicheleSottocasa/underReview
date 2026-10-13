@@ -118,7 +118,8 @@ private let vscodeChild = #"""
         "Apps/Cursor.app/Contents/Resources/app/extensions/theme-paper/paper.json": ##"{"colors": {"editor.background": "#FAFAFA"}}"##,
     ])
     defer { try? FileManager.default.removeItem(at: home) }
-    let sources = VSCodeTheme.installed(home: home, applications: home.appendingPathComponent("Apps"))
+    // The app is only in the second folder, as ~/Applications is after /Applications.
+    let sources = VSCodeTheme.installed(home: home, applications: [home.appendingPathComponent("Missing"), home.appendingPathComponent("Apps")])
     #expect(sources.map(\.name) == ["VS Code", "Cursor"])
 
     #expect(sources[0].themes.map(\.name) == ["Night Owl"])
@@ -256,4 +257,55 @@ private let baseScheme = """
     #expect(throws: ThemeFileError.self) { try Theme.importFile(url("broken.json")) }
     do { _ = try Theme.importFile(url("broken.json")) } catch { #expect(error.localizedDescription.contains("isn't a hex color")) }
     #expect(throws: (any Error).self) { try Theme.importFile(url("other.json")) }
+}
+
+@Test func vscodeThemeWithAMissingIncludeKeepsItsOwnColors() throws {
+    let file = ##"""
+    { "name": "Lonely", "include": "./dark_plus.json", "colors": { "editor.background": "#202020", "editor.foreground": null } }
+    """##
+    let root = try folder(["lonely.json": file])
+    defer { try? FileManager.default.removeItem(at: root) }
+    let theme = try #require(Theme.importFile(root.appendingPathComponent("lonely.json")).ide)
+    #expect(theme.colors[.background] == HexColor(0x202020)) // a null value doesn't drop the other colors
+    #expect(theme.note == "“dark_plus.json” wasn't found or couldn't be read, so only this file's colors were imported.")
+}
+
+@Test func includeAndParentCyclesEnd() throws {
+    let root = try folder([
+        "a.json": ##"{"name": "A", "include": "./b.json", "colors": {"editor.background": "#0A0A0A"}}"##,
+        "b.json": ##"{"name": "B", "include": "./a.json", "colors": {"editor.foreground": "#0B0B0B"}}"##,
+        "A.icls": #"<scheme name="A" parent_scheme="B"><colors><option name="LINE_NUMBERS_COLOR" value="aaaaaa" /></colors></scheme>"#,
+        "B.icls": #"<scheme name="B" parent_scheme="A"><colors><option name="INDENT_GUIDE" value="bbbbbb" /></colors></scheme>"#,
+    ])
+    defer { try? FileManager.default.removeItem(at: root) }
+    let vscode = try VSCodeTheme.load(root.appendingPathComponent("a.json"))
+    #expect(vscode.colors[.background] == HexColor(0x0A0A0A))
+    #expect(vscode.colors[.text] == HexColor(0x0B0B0B))
+    let jetbrains = try JetBrainsScheme.load(file: root.appendingPathComponent("A.icls"))
+    #expect(jetbrains.colors[.lineNumber] == HexColor(0xAAAAAA))
+    #expect(jetbrains.colors[.separator] == HexColor(0xBBBBBB))
+}
+
+@Test func includeOfANonRegularFileIsSkipped() throws {
+    let root = try folder(["t.json": ##"{"name": "T", "include": "../../../../../../../../../../dev/zero", "colors": {"editor.background": "#101010"}}"##])
+    defer { try? FileManager.default.removeItem(at: root) }
+    let theme = try VSCodeTheme.load(root.appendingPathComponent("t.json"))
+    #expect(theme.colors[.background] == HexColor(0x101010))
+    #expect(theme.note?.contains("“zero”") == true)
+}
+
+@Test func followingTheSystemWithTwoDarkThemesKeepsOne() throws {
+    let home = try folder([
+        "Library/Application Support/Code/User/settings.json": """
+        { "window.autoDetectColorScheme": true, "workbench.preferredLightColorTheme": "Owl", "workbench.preferredDarkColorTheme": "Night" }
+        """,
+        ".vscode/extensions/t/package.json": #"""
+        {"contributes": {"themes": [{"label": "Owl", "uiTheme": "vs-dark", "path": "./owl.json"}, {"label": "Night", "uiTheme": "vs-dark", "path": "./night.json"}]}}
+        """#,
+        ".vscode/extensions/t/owl.json": ##"{"colors": {"editor.background": "#011627"}}"##,
+        ".vscode/extensions/t/night.json": ##"{"colors": {"editor.background": "#000000"}}"##,
+    ])
+    defer { try? FileManager.default.removeItem(at: home) }
+    let source = try #require(VSCodeTheme.installed(home: home, applications: []).first)
+    #expect(source.themes.map(\.name) == ["Night"]) // the dark slot's theme
 }
