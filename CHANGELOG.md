@@ -5,6 +5,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+- **To Review shows what waits for you:** pull requests whose review is requested (again, too), that changed since your review or that you haven't reviewed yet stay on top; the ones you're done with move to a collapsed *Reviewed* group that remembers whether you opened it. A stack stays in To Review while any of its pull requests waits.
 - **Linked commits and pull requests say what they are:** hovering a paragraph names the commits of the pull request and the pull requests ReviewDesk follows that it links to (headline, or title and state), the header's short SHA shows the head commit's headline, and right-clicking it or a listed commit copies the full SHA.
 - **A clearer pull request header:** the repository, number and author stand apart, the branches are chips you click to copy, and the stack position steps to the pull request below or above (or jumps to any of them from its menu). Status badges and reviewers share their own line.
 - **Merge conflicts show up:** a red triangle marks a pull request (and its stack) that conflicts with its base, the header shows *Conflicts* (click to resolve them on GitHub) or *Behind <base>*, and you're notified when one of your own pull requests starts to conflict.
