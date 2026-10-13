@@ -5,6 +5,8 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+## 0.7.2
+
 - Switching pull request or tab while something loads no longer shows "The operation couldn't be completed (Swift.CancellationError error 1)": cancelled work isn't reported as an error anymore.
 ## 0.7.1
 
