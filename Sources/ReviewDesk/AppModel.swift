@@ -129,8 +129,8 @@ final class AppModel {
     /// Comment id → AI explanation. In memory only: a fresh one is a click away.
     var explanations: [String: Explanation] = [:]
     var aiTasks: [String: Task<Void, Never>] = [:]
-    /// "oldHead...newHead" → commits pushed in between, for the stale-analysis banner. In memory only.
-    var commitsSince: [String: Int] = [:]
+    /// "oldHead..newHead" → commits pushed in between (nil: unknown), for the stale-analysis banner. In memory only.
+    var commitsSince: [String: Int?] = [:]
     /// A PR whose AI tab should prepare the context as soon as it shows (Re-run with Codex or Ollama).
     var contextRequest: ContextRequest?
     /// PR id → the Claude Code session linked to it in AI Review.
