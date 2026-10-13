@@ -249,8 +249,9 @@ public struct PRDetail: Sendable {
     public var reviewDecision: String?
     /// Each reviewer's latest review; their latest approval or change request when they have one.
     public var latestReviews: [Review] = []
-    /// The latest 100 commits, oldest first.
+    /// The latest 100 commits, oldest first, and how many there are in all.
     public var commits: [PRCommit] = []
+    public var commitCount = 0
 
     /// Like GitHub's Reviewers box, without the viewer (shown apart) and the author: requested reviewers wait,
     /// everyone else shows their latest review.
@@ -278,8 +279,6 @@ public struct PRCommit: Hashable, Identifiable, Sendable {
     /// GitHub login, or the git author name when the email isn't linked to an account.
     public var author: String
     public var date: Date?
-    /// The first parent: what a selection starting at this commit is compared against.
-    public var parent: String?
 
     public var id: String { oid }
 }
@@ -416,8 +415,8 @@ public struct GitHub: Sendable {
           \(Self.pendingField)
           reviewDecision latestReviews(first: 20) { nodes { ...LatestReview } }
           latestOpinionatedReviews(first: 20) { nodes { ...LatestReview } }
-          commits(last: 100) { nodes { commit { oid abbreviatedOid messageHeadline committedDate
-            author { name user { login } } parents(first: 1) { nodes { oid } } } } }
+          commitCount: commits { totalCount }
+          commits(last: 100) { nodes { commit { oid abbreviatedOid messageHeadline committedDate author { name user { login } } } } }
         } } }
         fragment LatestReview on PullRequestReview { id author { login } state body submittedAt commit { oid } }
         fragment CommentFields on Comment {
@@ -454,8 +453,9 @@ public struct GitHub: Sendable {
                 return PRCommit(oid: $0["oid"] as? String ?? "", abbreviatedOid: $0["abbreviatedOid"] as? String ?? "",
                                 headline: $0["messageHeadline"] as? String ?? "",
                                 author: ((author?["user"] as? [String: Any])?["login"] ?? author?["name"]) as? String ?? "ghost",
-                                date: Self.date($0["committedDate"]), parent: Self.nodes($0["parents"]).first?["oid"] as? String)
-            }
+                                date: Self.date($0["committedDate"]))
+            },
+            commitCount: Self.total(pr["commitCount"])
         )
     }
 

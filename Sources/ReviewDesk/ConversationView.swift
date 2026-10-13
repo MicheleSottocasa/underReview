@@ -65,7 +65,7 @@ struct ConversationView: View {
                             .font(.callout).foregroundStyle(.secondary).padding(.leading, 44)
                     }
                     if !detail.commits.isEmpty {
-                        CommitList(pr: pr, commits: detail.commits).padding(.leading, 44)
+                        CommitList(pr: pr, commits: detail.commits, total: detail.commitCount).padding(.leading, 44)
                     }
                 }
                 .padding(20)
@@ -112,9 +112,11 @@ struct CommitList: View {
     @Environment(AppModel.self) private var model
     let pr: PullRequest
     let commits: [PRCommit]
+    let total: Int
 
     var body: some View {
-        DisclosureGroup("\(commits.count) commit\(commits.count == 1 ? "" : "s")\(commits.count == 100 ? " (the latest 100)" : "")") {
+        let count = max(total, commits.count)
+        DisclosureGroup("\(count) commit\(count == 1 ? "" : "s")\(count > commits.count ? " (the latest \(commits.count) are listed)" : "")") {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(commits) { commit in
                     Button { model.openCommit(commit.oid, pr: pr) } label: {
