@@ -196,8 +196,11 @@ struct ContentView: View {
             .toolbar {
                 ToolbarItem { NotificationsButton() }
                 ToolbarItem {
-                    Button { model.refreshNow() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
-                        .disabled(model.isRefreshing)
+                    if model.isLoading {
+                        ProgressView().controlSize(.small).help("Loading pull requests…")
+                    } else {
+                        Button { model.refreshNow() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
+                    }
                 }
             }
             .safeAreaInset(edge: .bottom) {
