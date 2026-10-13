@@ -12,7 +12,7 @@ struct ConversationView: View {
 
     var body: some View {
         if let detail {
-            let items = Conversation.timeline(detail, viewer: model.viewer, filter: filter)
+            let items = Conversation.timeline(detail, viewer: pr.isDemo ? Demo.viewer : model.viewer, filter: filter)
             let ids = ["description"] + items.map(\.id)
             // Comments synced from local drafts are hidden, as in Changes, which shows them once as drafts.
             let hidden = Set(model.drafts(for: pr.id).compactMap(\.remoteID))
