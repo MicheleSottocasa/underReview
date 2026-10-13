@@ -97,7 +97,8 @@ extension EnvironmentValues {
     }
 }
 
-/// Opens the PRs the app follows in the app, and other links (other PRs, commits) in the browser.
+/// Opens the PRs the app follows in the app, a commit of this PR in Changes, and other links (other PRs, commits)
+/// in the browser.
 /// The demo never opens GitHub. Comments are untrusted: only web and mail links leave the app, never `file://`
 /// or another app's scheme.
 struct LinkHandler: ViewModifier {
@@ -109,6 +110,10 @@ struct LinkHandler: ViewModifier {
             .environment(\.markdownRepo, pr.repo)
             .environment(\.openURL, OpenURLAction { url in
                 guard Markdown.opensOutside(url) else { return .discarded }
+                if let commit = PRCommit.linked(by: url, repo: pr.repo, in: model.details[pr.id]?.commits ?? []) {
+                    model.openCommit(commit.oid, pr: pr)
+                    return .handled
+                }
                 let ref = PRRef(url.absoluteString)
                 if let ref, let target = model.prs.values.first(where: { $0.repo.lowercased() == ref.nameWithOwner.lowercased() && $0.number == ref.number }) {
                     model.selection = [.pr(target.id)]
