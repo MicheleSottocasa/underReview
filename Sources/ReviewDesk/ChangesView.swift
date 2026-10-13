@@ -981,7 +981,8 @@ struct FileDiffView: View {
     private func selectionChat(_ diff: RenderedDiff) -> some View {
         if let selection {
             let lines = diff.lines[selection].filter { $0.kind != .hunk }
-            let key = "\(pr.id) \(file.filename) \(selection)"
+            // The head commit too: after a push the same range is other code, so an old chat mustn't come back.
+            let key = "\(pr.id) \(pr.headRefOid) \(file.filename) \(selection)"
             let engine = model.preferredEngine(for: pr)
             let sends = engine.isLocal ? "" : " Sends the PR description, this file's diff and the selected lines to \(engine.name)'s provider."
             VStack(alignment: .leading, spacing: 8) {
