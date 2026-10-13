@@ -55,7 +55,7 @@ struct ChangesView: View {
                             let areas = commitView?.endsAtHead == false ? [] : keyAreas(file.filename)
                             // An added or deleted file has one empty side: show it full width.
                             FileDiffView(pr: pr, file: file, mode: ["added", "removed"].contains(file.status) ? .unified : mode, target: target?.path == file.filename ? target : nil,
-                                         keyAreas: areas, selectedArea: selectedArea(in: areas),
+                                         keyAreas: areas, selectedAreaIndex: selectedArea(in: areas),
                                          keyAreasOutdated: analysis?.isOutdated(for: pr) == true,
                                          commitView: commitView, fileStep: fileStep(files, current: file),
                                          selectArea: { selection = .area(file.filename, $0) })
@@ -119,9 +119,9 @@ struct ChangesView: View {
                            go: { selection = .file(order()[$0]) })
     }
 
-    private func selectedArea(in areas: [KeyArea]) -> KeyArea? {
+    private func selectedArea(in areas: [KeyArea]) -> Int? {
         guard case .area(_, let index)? = selection, areas.indices.contains(index) else { return nil }
-        return areas[index]
+        return index
     }
 }
 
@@ -614,8 +614,8 @@ struct FileDiffView: View {
     var target: LineTarget?
     /// Sections the AI asked the reviewer to read, marked in the gutter.
     var keyAreas: [KeyArea] = []
-    /// The key area picked in the file list, marked more strongly than the others.
-    var selectedArea: KeyArea?
+    /// The index in `keyAreas` of the area picked in the file list, marked more strongly than the others.
+    var selectedAreaIndex: Int?
     /// The key areas come from an older head: their lines may have moved, so they're marked dimmed.
     var keyAreasOutdated = false
     /// Set when Changes shows some commits: comments go only where they map onto the whole PR's diff.
@@ -670,8 +670,17 @@ struct FileDiffView: View {
                     }
                 }
                 if areaRowsNow.contains(where: { $0 != nil }) {
-                    StepControl(noun: "key area", modifiers: [.command, .control], state: { (areaRowsNow.compactMap { $0 }, cursor) }) { row in
-                        if let index = areaRowsNow.firstIndex(of: row) { selectArea(index) }
+                    // Positions carry the area's index too, so areas starting on the same row are separate steps.
+                    let count = keyAreas.count
+                    let positions = areaRowsNow.indices.compactMap { index in
+                        areaRowsNow[index].map { Navigation.position(row: $0, item: index, count: count) }
+                    }
+                    StepControl(noun: "key area", modifiers: [.command, .control], state: {
+                        let onArea = selectedAreaIndex.flatMap { areaRowsNow[$0] } == cursor ? selectedAreaIndex : nil
+                        return (positions, cursor.map { Navigation.position(row: $0, item: onArea, count: count) })
+                    }) { position in
+                        let (row, index) = Navigation.item(at: position, count: count)
+                        selectArea(index)
                         jump = Jump(row: row) // also when that area is already selected, after a jump elsewhere
                     }
                 }
@@ -767,6 +776,10 @@ struct FileDiffView: View {
     /// show until `onChange` renders again.
     private var currentDiff: RenderedDiff? {
         rendered?.key.patch == file.patch && rendered?.key.mode == mode ? rendered : nil
+    }
+
+    private var selectedArea: KeyArea? {
+        selectedAreaIndex.flatMap { keyAreas.indices.contains($0) ? keyAreas[$0] : nil }
     }
 
     /// The diff row of each key area, index-aligned with `keyAreas`; nil for whole-file areas and lines not in the diff.
