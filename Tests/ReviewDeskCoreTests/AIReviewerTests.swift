@@ -215,6 +215,10 @@ private final class Steps: @unchecked Sendable {
     #expect(args[args.firstIndex(of: "--tools")! + 1] == "Read,Grep,Glob,Bash,Agent")
     #expect(args[args.firstIndex(of: "--allowedTools")! + 1] == AIReviewer.codeReviewAllowed)
     #expect(args[args.firstIndex(of: "--append-system-prompt")! + 1].hasSuffix("/docs/api, /src/lib"))
+    // Hidden files in them stay denied (checked live: Read is refused, Grep and Glob don't list them).
+    let deny = try #require(args.firstIndex(of: "--disallowedTools"))
+    #expect(Array(args[(deny + 1)...].prefix(4)) == ["Read(//docs/api/**/.*)", "Read(//docs/api/**/.*/**)",
+                                                     "Read(//src/lib/**/.*)", "Read(//src/lib/**/.*/**)"])
     // The tool-less structuring pass never gets the folders.
     #expect(!(runner.calls.first { $0.args.contains("--json-schema") }?.args.contains("--add-dir") ?? true))
 }
