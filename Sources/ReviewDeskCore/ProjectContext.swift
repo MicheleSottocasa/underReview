@@ -1,7 +1,9 @@
 import Foundation
 
 /// Reference material a project (a top-level sidebar folder) sends to the AI with its pull requests: local docs or
-/// folders, or files from another GitHub repository. It reaches the AI provider, so it's always listed before a review.
+/// folders, or files from another GitHub repository. Codex and Ollama reviews list every file in Prepare Context, and
+/// Ask lists them in the chat, before anything is sent. `/code-review` gets only the folders, whose non-hidden files it
+/// may read without listing them first (its log shows each read). One-click Explain and stack reviews leave it out.
 public struct ContextSource: Codable, Hashable, Identifiable, Sendable {
     public enum Kind: String, Codable, Sendable { case local, repository }
 

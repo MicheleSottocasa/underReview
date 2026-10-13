@@ -349,7 +349,8 @@ extension AppModel {
         explanations[comment.id] = Explanation(engine: engine)
         Task {
             do {
-                let prompt = try await chatContext(comment, thread: thread, pr: pr)
+                // One click sends at once, so nothing the reviewer hasn't seen listed: no project context here.
+                let prompt = try await chatContext(comment, thread: thread, pr: pr, projectContext: false)
                 explanations[comment.id]?.prompt = prompt
                 let answer = try await reviewer.ask(engine, prompt: prompt)
                 explanations[comment.id]?.messages.append(ChatMessage(.assistant, answer))
@@ -370,7 +371,8 @@ extension AppModel {
         explanations[comment.id] = Explanation(engine: engine)
         Task {
             do {
-                explanations[comment.id]?.prompt = try await chatContext(comment, thread: thread, pr: pr)
+                // Ask sends nothing until the first question, and the chat lists the project context before that.
+                explanations[comment.id]?.prompt = try await chatContext(comment, thread: thread, pr: pr, projectContext: true)
                 explanations[comment.id]?.isAnswering = false
             } catch {
                 explanations[comment.id] = nil
@@ -381,7 +383,7 @@ extension AppModel {
 
     /// The material both chats start from: PR description, the comment's conversation and its file's diff, plus the
     /// project's extra context while it fits the token budget (the chat names what it sent and what it left out).
-    private func chatContext(_ comment: Comment, thread: ReviewThread?, pr: PullRequest) async throws -> String {
+    private func chatContext(_ comment: Comment, thread: ReviewThread?, pr: PullRequest, projectContext: Bool) async throws -> String {
         if thread != nil, files[pr.id] == nil { files[pr.id] = try await github.files(pr.ref) }
         let conversation = thread?.comments ?? Array((details[pr.id]?.comments ?? []).prefix { $0.id != comment.id }.suffix(10) + [comment])
         let prompt = { (extra: [ContextFile]) in
@@ -391,7 +393,7 @@ extension AppModel {
                 conversation: conversation, comment: comment, extra: extra, instructions: Prompts.explain)
         }
         let budget = UserDefaults.standard.object(forKey: "aiBudget") as? Int ?? 150_000
-        let extra = ProjectContext.fitting(await extraContext(for: pr), budget: budget - AIContext.estimateTokens(prompt([])))
+        let extra = projectContext ? ProjectContext.fitting(await extraContext(for: pr), budget: budget - AIContext.estimateTokens(prompt([]))) : []
         explanations[comment.id]?.extra = extra
         return prompt(extra)
     }
