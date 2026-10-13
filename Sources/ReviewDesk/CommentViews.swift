@@ -553,8 +553,6 @@ struct ExplainButton: View {
             Button { model.openChat(comment, thread: thread, pr: pr) } label: { Image(systemName: "bubble.left.and.text.bubble.right") }
                 .disabled(model.explanations[comment.id] != nil)
                 .help("Ask \(engine.name) your own question about this comment.\(sends)\(engine.isLocal ? "" : project)")
-            if let thread, thread.line != nil {
-                .help("Ask \(engine.name) your own question about this comment.\(sends)")
             // A thread on a removed line (left side) points at an old line number: no NEW-side lines to suggest on.
             if let thread, thread.line != nil, thread.side == .right {
                 Button {

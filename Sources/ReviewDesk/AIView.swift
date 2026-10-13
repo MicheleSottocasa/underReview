@@ -277,7 +277,7 @@ struct RunView: View {
     private func findingRow(_ index: Int, _ finding: Finding, changed: [FileChange]) -> some View {
         let key = "\(run.id)#\(index)"
         // From an older commit: its line number may point at other code now, so the AI isn't given it.
-        let outdated = run.headRefOid != pr.headRefOid
+        let outdated = run.isOutdated(for: pr)
         FindingCard(finding: finding, files: changed, handled: run.handled.contains(index),
                     accept: { model.accept(run.id, finding: index, includeSuggestion: $0) },
                     dismiss: { model.dismiss(run.id, finding: index) },
