@@ -104,6 +104,8 @@ struct TimelineCard: View {
     @ViewState private var showHidden = false
 
     var body: some View {
+        // A card being edited never folds: folding would drop the editor and its unsaved text.
+        let folded = collapsed && !editing
         HStack(alignment: .top, spacing: 12) {
             Avatar(login: author, size: 32)
             VStack(alignment: .leading, spacing: 0) {
@@ -117,17 +119,18 @@ struct TimelineCard: View {
                         CommentMenu(pr: pr, comment: comment, editing: $editing)
                     }
                     Button { collapsed.toggle() } label: {
-                        Image(systemName: collapsed ? "chevron.right" : "chevron.down")
+                        Image(systemName: folded ? "chevron.right" : "chevron.down")
                     }
                     .buttonStyle(.borderless)
-                    .help(collapsed ? "Expand" : "Collapse")
+                    .disabled(editing)
+                    .help(folded ? "Expand" : "Collapse")
                 }
                 .font(.callout)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background((accent ?? .secondary).opacity(0.08))
-                if !collapsed { Divider() }
-                if collapsed {
+                if !folded { Divider() }
+                if folded {
                     // Header only.
                 } else if let comment, comment.isMinimized, !showHidden {
                     HStack {
