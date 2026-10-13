@@ -2,6 +2,8 @@ import AppKit
 import ReviewDeskCore
 
 extension AppModel {
+    static let betaNotice = "ReviewDesk is a beta preview: there is no stable release yet. Expect rough edges, and report problems on GitHub."
+
     /// This build's version and build number, from the bundle; "dev" when run without one (`swift run`).
     var currentVersion: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev" }
     var currentBuild: String { Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "" }

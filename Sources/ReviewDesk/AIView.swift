@@ -60,10 +60,10 @@ struct AIView: View {
     private func toolbar(status: String?) -> some View {
         HStack(spacing: 10) {
             Picker("Engine", selection: $engineName) {
-                if let link = model.agentLinks[pr.id] { Text("Linked: \(link.name)").tag("linked") }
-                Text("Claude Code").tag("claude")
-                Text("Codex").tag("codex")
-                Text("Ollama (local)").tag("ollama")
+                if let link = model.agentLinks[pr.id] { Text("Linked: \(link.name) · beta").tag("linked") }
+                Text("Claude Code · beta").tag("claude")
+                Text("Codex · alpha").tag("codex")
+                Text("Ollama (local) · alpha").tag("ollama")
             }
             .fixedSize()
             if engineName == "ollama" {

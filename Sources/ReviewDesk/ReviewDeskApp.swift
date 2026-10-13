@@ -174,8 +174,13 @@ struct GeneralSettings: View {
 
     var body: some View {
         Form {
-            Section("Updates") {
-                LabeledContent("Version", value: model.currentBuild.isEmpty ? model.currentVersion : "\(model.currentVersion) (\(model.currentBuild))")
+            Section {
+                LabeledContent("Version") {
+                    HStack(spacing: 6) {
+                        Text(model.currentBuild.isEmpty ? model.currentVersion : "\(model.currentVersion) (\(model.currentBuild))")
+                        Badge(text: "BETA PREVIEW", color: .orange)
+                    }
+                }
                 Toggle("Check for new versions automatically", isOn: $checkForUpdates)
                 HStack {
                     Group {
@@ -200,6 +205,10 @@ struct GeneralSettings: View {
                     }
                     .disabled(checking)
                 }
+            } header: {
+                Text("Updates")
+            } footer: {
+                Text(AppModel.betaNotice)
             }
             Section {
                 seconds("While ReviewDesk is in front", $foreground)
@@ -241,13 +250,13 @@ struct AISettings: View {
         Form {
             Section {
                 Picker("Engine", selection: $engine) {
-                    Text("Claude Code").tag("claude")
-                    Text("Codex").tag("codex")
-                    Text("Ollama (local)").tag("ollama")
-                    if engine == "linked" { Text("Linked Claude session").tag("linked") }
+                    Text("Claude Code · beta").tag("claude")
+                    Text("Codex · alpha").tag("codex")
+                    Text("Ollama (local) · alpha").tag("ollama")
+                    if engine == "linked" { Text("Linked Claude session · beta").tag("linked") }
                 }
             } footer: {
-                Text("Also used by Explain on comments. The AI tab changes the same setting.")
+                Text("Also used by Explain on comments. The AI tab changes the same setting. Claude Code support is in beta; Codex and Ollama are alpha, so expect rough edges with them.")
             }
             Section("Claude Code /code-review") {
                 Picker("Model", selection: $claudeModel) {

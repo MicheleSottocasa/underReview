@@ -35,20 +35,14 @@ jobs:
       - name: Build installer
         run: make dmg VERSION="${TAG#v}"
 
+      # The description is the beta notice plus this version's CHANGELOG.md section (the step fails without one).
       - name: Publish release
         run: |
           VERSION="${TAG#v}"
           DMG="dist/ReviewDesk-${VERSION}.dmg"
-          cat > notes.md <<'EOF'
-          ## Install
-
-          1. Download `ReviewDesk-*.dmg` below, open it and drag **ReviewDesk** onto **Applications**.
-          2. The app isn't notarized, so the first launch needs **right-click → Open** in Applications
-             (or System Settings → Privacy & Security → **Open Anyway**).
-
-          Requires macOS 14 or later and the GitHub CLI (`gh auth login`). Claude Code, Codex or Ollama are optional, for AI review.
-          EOF
+          sh scripts/release-notes.sh "$VERSION" > notes.md
           if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes-file notes.md
             gh release upload "$TAG" "$DMG" --clobber
           else
             gh release create "$TAG" "$DMG" --title "ReviewDesk $VERSION" --notes-file notes.md --generate-notes

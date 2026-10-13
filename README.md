@@ -1,5 +1,7 @@
 # ReviewDesk
 
+> **Beta preview.** ReviewDesk has no stable release yet: every version is a preview build. Claude Code support is beta; Codex and Ollama are alpha.
+
 A native macOS app for reviewing GitHub pull requests: a private inbox with local projects and folders, native GitHub stacks, manual and AI-assisted review, drafts saved to your pending GitHub review, and update notifications.
 
 There is no backend. Notes, folders, drafts and AI results stay in `~/Library/Application Support/ReviewDesk/`. GitHub is reached only through the `gh` CLI. Code goes to a cloud AI provider only when you run a review or click *Explain* on a comment with Claude Code or Codex.
@@ -30,7 +32,7 @@ The app is signed ad hoc, not with an Apple Developer ID, so macOS blocks the fi
 
 ## Releasing
 
-Every push and pull request runs `.github/workflows/ci.yml`, which builds the app and runs the tests on macOS. Push a version tag: `git tag v0.2.0 && git push origin v0.2.0`. The `Release` workflow in `.github/workflows/release.yml` runs the tests on macOS, builds the universal DMG with that version, and publishes a GitHub Release with the DMG attached. To rebuild an existing tag, run the workflow manually and enter the tag. Keep `CFBundleShortVersionString` in `assets/Info.plist` in step for local builds.
+Every push and pull request runs `.github/workflows/ci.yml`, which builds the app and runs the tests on macOS. To release, rename `## Unreleased` in `CHANGELOG.md` to the version (that section becomes the release's description), then push a version tag: `git tag v0.4.0 && git push origin v0.4.0`. The `Release` workflow in `.github/workflows/release.yml` runs the tests on macOS, builds the universal DMG with that version, and publishes a GitHub Release with the DMG attached. To rebuild an existing tag, run the workflow manually and enter the tag. Keep `CFBundleShortVersionString` in `assets/Info.plist` in step for local builds.
 
 ## Layout
 

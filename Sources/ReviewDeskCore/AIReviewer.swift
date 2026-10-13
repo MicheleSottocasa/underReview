@@ -24,6 +24,14 @@ public enum AIEngine: Codable, Hashable, Sendable {
         }
     }
 
+    /// How far along support for the engine is: Claude Code is beta, Codex and Ollama are alpha.
+    public var stage: String {
+        switch self {
+        case .claudeCode, .claudeSession: "beta"
+        case .codex, .ollama: "alpha"
+        }
+    }
+
     /// Cloud engines send the code to their provider; Ollama stays on this Mac.
     public var isLocal: Bool { if case .ollama = self { true } else { false } }
 }

@@ -474,6 +474,12 @@ struct RefreshFooter: View {
                         Text("Not updated yet")
                     }
                     Spacer()
+                    Text("BETA")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 5)
+                        .foregroundStyle(.orange)
+                        .overlay(Capsule().stroke(Color.orange.opacity(0.6)))
+                        .help("\(AppModel.betaNotice) Version \(model.currentVersion).")
                     Button { model.refreshNow() } label: { Image(systemName: "arrow.clockwise") }
                         .buttonStyle(.borderless)
                         .disabled(model.isRefreshing)
