@@ -734,6 +734,7 @@ struct FileDiffView: View {
                         }
                         if diff != nil { areaCallouts(callouts[-1] ?? []) }
                         if let diff {
+                            let barRow = selectionBarRow(diff)
                             switch mode {
                             case .unified:
                                 // One view per id, so a jump lands on the line and not on its comments.
@@ -745,7 +746,7 @@ struct FileDiffView: View {
                                         if let anchor = line.anchor(path: file.filename) {
                                             annotations(anchor, threads: shownThreads).padding(.leading, Self.numberWidth * 2 + Self.markerWidth)
                                         }
-                                        if selection?.upperBound == index { selectionChat(diff) }
+                                        if barRow == index { selectionChat(diff) }
                                     }
                                 }
                             case .split:
@@ -755,9 +756,7 @@ struct FileDiffView: View {
                                         areaCallouts(callouts[index] ?? [])
                                         splitRow(row, diff: diff, commented: commented)
                                         splitAnnotations(row, commented: commented, threads: shownThreads)
-                                        if let last = selection?.upperBound, [row.left, row.right].contains(where: { $0.flatMap { diff.offsets[$0] } == last }) {
-                                            selectionChat(diff)
-                                        }
+                                        if barRow == index { selectionChat(diff) }
                                     }
                                 }
                             }
@@ -874,17 +873,20 @@ struct FileDiffView: View {
                 HoverRow { hovered in
                     HStack(spacing: 0) {
                         code(row.left, text: text).background(leftColor)
+                            .overlay { if isSelected(leftIndex) { selectedTint(bar: true) } }
                         HStack(spacing: 0) {
                             number(row.left?.oldLine, select: leftIndex).background(leftColor)
+                                .overlay { if isSelected(leftIndex) { selectedTint(bar: false) } }
                             number(row.right?.newLine, select: rightIndex).background(rightColor)
+                                .overlay { if isSelected(rightIndex) { selectedTint(bar: false) } }
                             marker(right ?? left, hovered: hovered, commented: commented).background(rightColor)
                         }
                         .overlay(alignment: .leading) { Rectangle().fill(DiffColors.separator).frame(width: 1) }
                         .overlay(alignment: .trailing) { Rectangle().fill(DiffColors.separator).frame(width: 1) }
                         code(row.right, text: text).background(rightColor)
                             .overlay(alignment: .leading) { keyMark(row.right) }
+                            .overlay { if isSelected(rightIndex) { selectedTint(bar: true) } }
                     }
-                    .overlay { if isSelected(leftIndex) || isSelected(rightIndex) { selectedTint } }
                 }
             }
         }
@@ -907,7 +909,7 @@ struct FileDiffView: View {
                             .overlay(alignment: .leading) { keyMark(line) }
                     }
                     .background(color)
-                    .overlay { if isSelected(index) { selectedTint } }
+                    .overlay { if isSelected(index) { selectedTint(bar: true) } }
                 }
             }
         }
@@ -953,9 +955,17 @@ struct FileDiffView: View {
 
     private func isSelected(_ index: Int?) -> Bool { index.map { selection?.contains($0) == true } ?? false }
 
-    /// A tint plus a bar on the leading edge, so a selection inside a changed block still stands out.
-    private var selectedTint: some View {
-        Color.accentColor.opacity(0.16).overlay(alignment: .leading) { Color.accentColor.frame(width: 3) }.allowsHitTesting(false)
+    /// A tint, plus a bar on the leading edge of code, so a selection inside a changed block still stands out.
+    /// Side by side, each half is tinted on its own: exactly the lines that are sent.
+    private func selectedTint(bar: Bool) -> some View {
+        Color.accentColor.opacity(0.16).overlay(alignment: .leading) { if bar { Color.accentColor.frame(width: 3) } }.allowsHitTesting(false)
+    }
+
+    /// The row the Explain/Ask bar goes under: the last one showing a selected line.
+    private func selectionBarRow(_ diff: RenderedDiff) -> Int? {
+        guard let selection else { return nil }
+        guard mode == .split else { return selection.upperBound }
+        return diff.rows.lastIndex { row in [row.left, row.right].contains { isSelected($0.flatMap { diff.offsets[$0] }) } }
     }
 
     private func select(_ index: Int) {
