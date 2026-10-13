@@ -772,15 +772,25 @@ final class HorizontalScroll {
     private func clamp() { if x > limit { x = limit } }
     @ObservationIgnored var hovering = false
     @ObservationIgnored private var monitor: Any?
+    /// Whether the current trackpad gesture scrolls sideways, decided by its first movement: a mostly vertical
+    /// swipe never drifts sideways, and a diagonal one doesn't flip between the two.
+    @ObservationIgnored private var sideways: Bool?
 
     // ponytail: trackpad and (shift-)wheel only, no visible scroller, and dragging a selection past the edge
-    // doesn't scroll; add an NSScroller if people miss it.
+    // doesn't scroll; add an NSScroller if people miss it. The event is passed on, so a horizontally scrolling
+    // code block inside an inline comment under the pointer scrolls with the diff.
     func start() {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
             let (dx, dy, precise) = (event.scrollingDeltaX, event.scrollingDeltaY, event.hasPreciseScrollingDeltas)
+            let (phase, momentum) = (event.phase, event.momentumPhase)
             MainActor.assumeIsolated {
-                guard let self, self.hovering, abs(dx) > abs(dy) else { return }
+                guard let self, self.hovering else { return }
+                if phase.contains(.began) || phase.contains(.mayBegin) { self.sideways = nil }
+                // A mouse wheel has no phases: each of its events decides alone.
+                let inGesture = !phase.isEmpty || !momentum.isEmpty
+                if !inGesture || self.sideways == nil, dx != 0 || dy != 0 { self.sideways = abs(dx) > abs(dy) }
+                guard self.sideways == true else { return }
                 self.x = min(max(0, self.x - (precise ? dx : dx * Self.charWidth * 3)), self.limit)
             }
             return event
