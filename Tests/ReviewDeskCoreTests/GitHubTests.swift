@@ -81,7 +81,7 @@ import Testing
           "comments":{"nodes":[{"id":"IC_1","author":null,"body":"hi","createdAt":"2026-10-01T00:00:00Z"}]},
           "reviews":{"nodes":[{"id":"R_1","author":{"login":"bob"},"state":"APPROVED","body":"","submittedAt":"2026-10-01T00:00:00Z"},
                               {"id":"R_2","author":{"login":"me"},"state":"PENDING","body":"","submittedAt":null}]},
-          "reviewThreads":{"nodes":[{"id":"T_1","path":"a.swift","line":3,"diffSide":"LEFT","isResolved":false,"isOutdated":true,
+          "reviewThreads":{"nodes":[{"id":"T_1","path":"a.swift","line":3,"diffSide":"LEFT","isResolved":false,"isOutdated":true,"resolvedBy":{"login":"bob"},
             "comments":{"nodes":[{"id":"C_9","author":{"login":"me"},"body":"web comment","createdAt":"2026-10-01T00:00:00Z","state":"PENDING"}]}}]},
           "pending":{"nodes":[{"id":"R_2","commit":{"oid":"abc"},"comments":{"nodes":[{"id":"C_9","path":"a.swift","line":4,"body":"web comment"}]}}]}}}
         """#)
@@ -91,6 +91,7 @@ import Testing
     #expect(detail.reviews.map(\.id) == ["R_1"])
     #expect(detail.threads.first?.isOutdated == true)
     #expect(detail.threads.first?.side == .left)
+    #expect(detail.threads.first?.resolvedBy == "bob")
     #expect(detail.threads.first?.comments.first?.isPending == true)
     #expect(detail.comments.first?.isPending == false)
     #expect(detail.pendingReview == PendingReview(id: "R_2", commitOID: "abc", comments: [PendingComment(id: "C_9", path: "a.swift", line: 4, body: "web comment")]))
@@ -248,4 +249,18 @@ import Testing
     let prs = try await GitHub(runner: runner).pullRequests(ids: ["x"])
     #expect(prs.first?.viewerReviewedOid == "aaa")
     #expect(prs.filter(\.needsReReview).map(\.id) == ["MOVED", "DISMISSED"])
+}
+
+@Test func summarizesThreadParticipantsAndTopic() {
+    let comment = { (author: String, body: String) in Comment(id: author, author: author, body: body, createdAt: .now) }
+    var thread = ReviewThread(id: "T", path: "a", line: 1, side: .right, isResolved: true, isOutdated: false, comments: [
+        comment("alice", "\n  Why a loop here?  \nIt's slow."), comment("me", "ok"), comment("alice", "thanks"),
+    ])
+    #expect(thread.participants == ["alice", "me"])
+    #expect(thread.participantList(viewer: "me") == "alice, you")
+    #expect(thread.topic == "Why a loop here?")
+    thread.comments += ["bob", "carol", "dan"].map { comment($0, "") }
+    #expect(thread.participantList(viewer: "me") == "alice, you, bob +2")
+    thread.comments = []
+    #expect(thread.topic == "")
 }

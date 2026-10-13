@@ -8,6 +8,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 - Pull requests inside a stack show their number under the title in the sidebar, like standalone ones.
 - The Conversation tab uses the whole width of the window instead of stopping at 900 points, so long descriptions and comments wrap less.
 - The **Add reaction** button opens the 8 reactions in one row, as on GitHub, with the ones you gave highlighted and each one named on hover. Arrow keys move between them, Return picks, Esc closes.
+- A folded resolved thread tells you what it's about without opening it: who resolved it, who took part (up to 3, then +N, you as "you"), how many comments, and the first line of the first comment (hover for all of it).
 
 ## 0.8.1
 
