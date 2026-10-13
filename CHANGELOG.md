@@ -5,6 +5,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+- **Mark files Viewed as you read:** an option in Settings › General, off by default, marks a file as Viewed on GitHub once you've marked all its key areas as read.
 - **One reading list for Risk and Focus:** key areas are numbered in the same reading order in both, show which ones you've read, and can be marked as read from Risk too. Clicking one in Risk opens that exact area in *Changes › Focus*.
 - **Key areas across files:** ⌃⌘] past a file's last key area opens the first one of the next file that has some, in the Focus list's order, and ⌃⌘[ past the first goes back to the previous file's last one.
 - **To Review shows what waits for you:** pull requests whose review is requested (again, too), that changed since your review or that you haven't reviewed yet stay on top; the ones you're done with move to a collapsed *Reviewed* group that remembers whether you opened it. A stack stays in To Review while any of its pull requests waits.

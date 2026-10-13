@@ -71,6 +71,19 @@ import Testing
     #expect(Focus.readMarks(marks, setting: "a:1-2:", read: true, head: "newer") == ["a:1-2:": "newer"])
 }
 
+@Test func aFileIsMarkedViewedOnlyOnceAllItsAreasAreRead() {
+    let a1 = KeyArea(path: "a", startLine: 1, reason: ""), a2 = KeyArea(path: "a", startLine: 9, reason: "")
+    let c = KeyArea(path: "c", reason: "not in the list")
+    let files = [FocusFile(path: "a", areas: [a1, a2], pendingComments: 0), FocusFile(path: "b", areas: [], pendingComments: 1)]
+    func file(after area: KeyArea, read: [KeyArea], viewed: Set<String> = []) -> String? {
+        Focus.fileToMarkViewed(after: area, in: files, viewed: viewed, isRead: read.contains)
+    }
+    #expect(file(after: a1, read: [a1]) == nil) // a2 is still unread
+    #expect(file(after: a2, read: [a1, a2]) == "a")
+    #expect(file(after: a2, read: [a1, a2], viewed: ["a"]) == nil) // already Viewed: nothing to write
+    #expect(file(after: c, read: [c]) == nil)
+}
+
 @Test func keyAreaRangesCoverTheirLinesOnly() {
     #expect(KeyArea(path: "a", startLine: 10, endLine: 12, reason: "").contains(line: 12))
     #expect(!KeyArea(path: "a", startLine: 10, endLine: 12, reason: "").contains(line: 13))

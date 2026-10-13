@@ -264,6 +264,7 @@ struct GeneralSettings: View {
     @AppStorage("pollBackground") private var background = Updates.defaultBackground
     @AppStorage("diffMode") private var diffMode = DiffMode.split
     @AppStorage("wrapLines") private var wrap = false
+    @AppStorage(AppModel.autoMarkViewedKey) private var autoMarkViewed = false
 
     var body: some View {
         Form {
@@ -323,6 +324,13 @@ struct GeneralSettings: View {
                     Text("Unified").tag(DiffMode.unified)
                 }
                 Toggle("Wrap long lines", isOn: $wrap)
+            }
+            Section {
+                Toggle("Mark a file as Viewed on GitHub when all its key areas are read", isOn: $autoMarkViewed)
+            } header: {
+                Text("Focus")
+            } footer: {
+                Text("Off by default: it checks the file's Viewed box on GitHub for you, without a click. Marking an area unread again leaves the box as it is.")
             }
         }
         .formStyle(.grouped)
