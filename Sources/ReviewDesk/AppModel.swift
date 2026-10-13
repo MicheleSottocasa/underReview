@@ -73,6 +73,8 @@ final class AppModel {
     var missingComparisons: [String: String] = [:]
     /// PR id → risk question → head commit it was checked at. Kept locally, never sent anywhere.
     var riskChecks: [String: [String: String]] { didSet { save(riskChecksFile, riskChecks.filter { !Demo.owns($0.key) }) } }
+    /// PR id → key area (`KeyArea.readKey`) → head commit it was read at. Kept locally, like `riskChecks`.
+    var readAreas: [String: [String: String]] { didSet { save(readAreasFile, readAreas.filter { !Demo.owns($0.key) }) } }
 
     /// Sidebar multi-selection. The detail follows the last single-selected PR and stays put otherwise.
     var selection: Set<SidebarID> = [] {
@@ -171,6 +173,7 @@ final class AppModel {
     private let aiRunsFile = JSONFile<[AIRun]>.appSupport("ai-runs.json")
     private let agentLinksFile = JSONFile<[String: AgentLink]>.appSupport("agent-links.json")
     private let riskChecksFile = JSONFile<[String: [String: String]]>.appSupport("risk-checks.json")
+    private let readAreasFile = JSONFile<[String: [String: String]]>.appSupport("read-areas.json")
     private let followUpsFile = JSONFile<[FollowUpRun]>.appSupport("follow-ups.json")
     private let prsFile = JSONFile<PRCache>.appSupport("prs.json")
     private let localClonesFile = JSONFile<[String: String]>.appSupport("local-clones.json")
@@ -202,6 +205,7 @@ final class AppModel {
         clones = LocalClone(runner: runner)
         agentLinks = agentLinksFile.load(default: [:])
         riskChecks = riskChecksFile.load(default: [:])
+        readAreas = readAreasFile.load(default: [:])
         followUps = followUpsFile.load(default: [])
         localClones = localClonesFile.load(default: [:])
         projectContext = projectContextFile.load(default: [:])

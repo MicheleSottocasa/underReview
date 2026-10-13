@@ -70,6 +70,16 @@ extension AppModel {
         if riskChecks[pr.id]?.isEmpty == true { riskChecks[pr.id] = nil }
     }
 
+    /// Read at the current head; a push makes every area unread again, since its lines may have changed.
+    func isRead(_ area: KeyArea, pr: PullRequest) -> Bool {
+        readAreas[pr.id]?[area.readKey] == pr.headRefOid
+    }
+
+    func setRead(_ area: KeyArea, read: Bool, pr: PullRequest) {
+        readAreas[pr.id, default: [:]][area.readKey] = read ? pr.headRefOid : nil
+        if readAreas[pr.id]?.isEmpty == true { readAreas[pr.id] = nil }
+    }
+
     /// Question 5 as a line in the review summary, so it's posted with the review.
     static let explainRequest = "Could you explain the approach in two or three sentences?"
 
