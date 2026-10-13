@@ -531,9 +531,10 @@ public struct GitHub: Sendable {
         return try JSONDecoder().decode(Int?.self, from: data)
     }
 
-    /// GitHub's page for the changes between two commits.
+    /// GitHub's page for exactly the commits between two heads (two dots: after a rebase, three dots would show the
+    /// whole pull request plus the base branch's changes).
     public static func compareURL(repo: String, from base: String, to head: String) -> URL? {
-        URL(string: "https://github.com/\(repo)/compare/\(base)...\(head)")
+        URL(string: "https://github.com/\(repo)/compare/\(base)..\(head)")
     }
 
     // MARK: Decoding

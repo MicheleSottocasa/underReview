@@ -6,7 +6,7 @@ import Testing
     let runner = FakeRunner { _ in ok("3\n") }
     #expect(try await GitHub(runner: runner).commitsAhead(repo: "o/r", from: "old", to: "new") == 3)
     #expect(runner.calls.first?.args == ["api", "repos/o/r/compare/old...new", "--jq", #"if .status == "ahead" then .ahead_by else null end"#])
-    #expect(GitHub.compareURL(repo: "o/r", from: "old", to: "new")?.absoluteString == "https://github.com/o/r/compare/old...new")
+    #expect(GitHub.compareURL(repo: "o/r", from: "old", to: "new")?.absoluteString == "https://github.com/o/r/compare/old..new")
 }
 
 @Test func aRebasedHeadHasNoCommitCount() async throws {
