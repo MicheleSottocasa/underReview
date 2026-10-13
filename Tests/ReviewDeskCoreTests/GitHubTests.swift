@@ -259,6 +259,8 @@ import Testing
     #expect(thread.participants == ["alice", "me"])
     #expect(thread.participantList(viewer: "me") == "alice, you")
     #expect(thread.topic == "Why a loop here?")
+    thread.comments[0].body = "```suggestion\nreturn x\n```"
+    #expect(thread.topic == "return x")
     thread.comments += ["bob", "carol", "dan"].map { comment($0, "") }
     #expect(thread.participantList(viewer: "me") == "alice, you, bob +2")
     thread.comments = []

@@ -171,10 +171,10 @@ public struct ReviewThread: Hashable, Identifiable, Sendable {
         return names.count > limit ? "\(shown) +\(names.count - limit)" : shown
     }
 
-    /// The first non-blank line of the first comment: what the thread is about, at a glance.
+    /// The first non-blank line of the first comment, code fences skipped: what the thread is about, at a glance.
     public var topic: String {
         let lines = (comments.first?.body ?? "").split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
-        return lines.first { !$0.isEmpty } ?? ""
+        return lines.first { !$0.isEmpty && !$0.hasPrefix("```") } ?? ""
     }
 }
 
