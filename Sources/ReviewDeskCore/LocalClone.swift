@@ -77,9 +77,11 @@ public struct LocalClone: Sendable {
         }
         _ = try await runner.output("git", ["-C", dir, "fetch", remote, "refs/pull/\(pr.number)/head"], timeout: .seconds(180))
         // `--no-renames`: a rename or copy onto an ignored path (`git mv config.example .env`) is an addition too.
-        let added = try await text("git", ["-C", dir, "diff", "--name-only", "--no-renames", "--diff-filter=A", "HEAD", "FETCH_HEAD"])
+        // `-z`: otherwise git C-quotes non-ASCII paths (`"caf\303\251.txt"`) and none would be found on disk.
+        let added = try await runner.output("git", ["-C", dir, "diff", "--name-only", "-z", "--no-renames", "--diff-filter=A",
+                                                    "HEAD", "FETCH_HEAD"])
         // The tree is clean, so a file the PR adds that is already on disk is untracked or ignored.
-        let inTheWay = added.split(separator: "\n").map(String.init).filter {
+        let inTheWay = String(decoding: added, as: UTF8.self).split(separator: "\0").map(String.init).filter {
             (try? FileManager.default.attributesOfItem(atPath: top.appendingPathComponent($0).path)) != nil
         }
         guard inTheWay.isEmpty else { throw Failure.untrackedFilesInTheWay(folder: dir, paths: inTheWay) }
