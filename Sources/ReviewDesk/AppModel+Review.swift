@@ -152,30 +152,16 @@ extension AppModel {
     }
 
     func publish(_ pr: PullRequest, event: ReviewEvent) async -> Bool {
-        guard !blockDemo(pr) else { return false }
-        defer { Task { await afterOwnWrite(pr) } }
-        do {
+        await commentWrite(pr) {
             try await reviewSync.publish(pr: pr, event: event, body: reviewDrafts.bodies[pr.id] ?? "", viewer: viewer)
             // Saved drafts are now published comments; local-only ones stay for later.
             reviewDrafts.drafts.removeAll { $0.prID == pr.id && $0.remoteID != nil }
             reviewDrafts.bodies[pr.id] = nil
-            return true
-        } catch {
-            report(error)
-            return false
         }
     }
 
     func reply(to threadID: String, body: String, pr: PullRequest) async -> Bool {
-        guard !blockDemo(pr) else { return false }
-        defer { Task { await afterOwnWrite(pr) } }
-        do {
-            try await reviewSync.reply(threadID: threadID, body: body, viewer: viewer)
-            return true
-        } catch {
-            report(error)
-            return false
-        }
+        await commentWrite(pr) { try await reviewSync.reply(threadID: threadID, body: body, viewer: viewer) }
     }
 
     func editComment(_ comment: Comment, body: String, pr: PullRequest) async -> Bool {
@@ -200,17 +186,20 @@ extension AppModel {
         await commentWrite(pr) { try await github.setHiddenAsResolved(commentID: comment.id, hidden: hidden) }
     }
 
+    /// Writes, then waits for the PR to reload (even after a failure), so callers' progress lasts until the new state shows.
     @discardableResult
     private func commentWrite(_ pr: PullRequest, _ write: () async throws -> Void) async -> Bool {
         guard !blockDemo(pr) else { return false }
-        defer { Task { await afterOwnWrite(pr) } }
+        let succeeded: Bool
         do {
             try await write()
-            return true
+            succeeded = true
         } catch {
             report(error)
-            return false
+            succeeded = false
         }
+        await afterOwnWrite(pr)
+        return succeeded
     }
 
     /// Our own writes shouldn't come back as notifications: re-read the PR and move its checkpoint.
