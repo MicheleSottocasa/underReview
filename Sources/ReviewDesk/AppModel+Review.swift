@@ -109,6 +109,32 @@ extension AppModel {
         }
     }
 
+    func editComment(_ comment: Comment, body: String, pr: PullRequest) async -> Bool {
+        await commentWrite(pr) { try await github.editComment(comment, body: body) }
+    }
+
+    func deleteComment(_ comment: Comment, pr: PullRequest) async {
+        await commentWrite(pr) { try await github.deleteComment(comment) }
+    }
+
+    /// Adds the reaction, or removes it if the viewer already gave it.
+    func toggleReaction(_ content: ReactionContent, on comment: Comment, pr: PullRequest) async {
+        let reacted = comment.reactions.contains { $0.content == content && $0.viewerHasReacted }
+        await commentWrite(pr) { try await github.setReaction(content, on: comment.id, reacted: !reacted) }
+    }
+
+    @discardableResult
+    private func commentWrite(_ pr: PullRequest, _ write: () async throws -> Void) async -> Bool {
+        defer { Task { await afterOwnWrite(pr) } }
+        do {
+            try await write()
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
     /// Our own writes shouldn't come back as notifications: re-read the PR and move its checkpoint.
     func afterOwnWrite(_ pr: PullRequest) async {
         if let fresh = try? await github.pullRequests(ids: [pr.id]).first {

@@ -15,7 +15,8 @@ struct ConversationView: View {
                     ForEach(entries(detail)) { entry in
                         switch entry.kind {
                         case .comment(let comment):
-                            TimelineCard(author: comment.author, action: "commented", date: comment.createdAt, text: comment.body)
+                            TimelineCard(author: comment.author, action: "commented", date: comment.createdAt, text: comment.body,
+                                         comment: comment, pr: pr)
                         case .review(let review):
                             if review.body.isEmpty {
                                 TimelineEvent(review: review)
@@ -78,6 +79,10 @@ struct TimelineCard: View {
     let date: Date?
     let text: String
     var accent: Color?
+    /// Set for conversation comments, which can be edited, deleted and reacted to.
+    var comment: Comment?
+    var pr: PullRequest?
+    @ViewState private var editing = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -88,13 +93,22 @@ struct TimelineCard: View {
                     Text(action).foregroundStyle(accent ?? .secondary)
                     if let date { Text(date.formatted(.relative(presentation: .named))).foregroundStyle(.secondary) }
                     Spacer()
+                    if let comment, let pr { CommentMenu(pr: pr, comment: comment, editing: $editing) }
                 }
                 .font(.callout)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background((accent ?? .secondary).opacity(0.08))
                 Divider()
-                MarkdownText(text).padding(12)
+                if let comment, let pr {
+                    VStack(alignment: .leading, spacing: 8) {
+                        EditableCommentBody(pr: pr, comment: comment, editing: $editing)
+                        ReactionBar(pr: pr, comment: comment)
+                    }
+                    .padding(12)
+                } else {
+                    MarkdownText(text).padding(12)
+                }
             }
             .background(.background)
             .clipShape(RoundedRectangle(cornerRadius: 8))

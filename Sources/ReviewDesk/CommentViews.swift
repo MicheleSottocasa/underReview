@@ -152,7 +152,7 @@ struct ThreadView: View {
                     .padding(10)
                 } else {
                     ForEach(comments) { comment in
-                        CommentView(author: comment.author, date: comment.createdAt, text: comment.body) {
+                        GitHubCommentView(pr: pr, comment: comment) {
                             if comment.isPending { Badge(text: "Pending") }
                             if thread.isOutdated && comment.id == comments.first?.id { Badge(text: "Outdated", color: .orange) }
                         }
@@ -248,5 +248,127 @@ struct ThreadBox: ViewModifier {
             .padding(.vertical, 6)
             .padding(.horizontal, 12)
             .frame(maxWidth: 820, alignment: .leading)
+    }
+}
+
+// MARK: - GitHub comment actions
+
+/// Edit and Delete for a comment on GitHub, shown only when GitHub allows them.
+struct CommentMenu: View {
+    @Environment(AppModel.self) private var model
+    let pr: PullRequest
+    let comment: Comment
+    @Binding var editing: Bool
+    @ViewState private var confirmingDelete = false
+
+    var body: some View {
+        if comment.viewerCanUpdate || comment.viewerCanDelete {
+            Menu {
+                if comment.viewerCanUpdate { Button("Edit") { editing = true } }
+                if comment.viewerCanDelete { Button("Delete…", role: .destructive) { confirmingDelete = true } }
+            } label: { Image(systemName: "ellipsis") }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .confirmationDialog("Delete this comment?", isPresented: $confirmingDelete) {
+                    Button("Delete", role: .destructive) { Task { await model.deleteComment(comment, pr: pr) } }
+                } message: {
+                    Text("It is deleted on GitHub for everyone. This can't be undone.")
+                }
+        }
+    }
+}
+
+/// The comment text, or an editor in its place while editing.
+struct EditableCommentBody: View {
+    @Environment(AppModel.self) private var model
+    let pr: PullRequest
+    let comment: Comment
+    @Binding var editing: Bool
+    @ViewState private var text = ""
+    @ViewState private var saving = false
+
+    var body: some View {
+        if editing {
+            CommentComposer(text: $text, submitTitle: saving ? "Saving…" : "Update", onCancel: { editing = false }) {
+                saving = true
+                Task {
+                    if await model.editComment(comment, body: text, pr: pr) { editing = false }
+                    saving = false
+                }
+            }
+            .disabled(saving)
+            .onAppear { text = comment.body }
+        } else {
+            MarkdownText(comment.body)
+        }
+    }
+}
+
+/// GitHub's reaction pills, plus a picker to add one. Clicking a pill you gave removes it.
+struct ReactionBar: View {
+    @Environment(AppModel.self) private var model
+    let pr: PullRequest
+    let comment: Comment
+
+    var body: some View {
+        if comment.viewerCanReact || !comment.reactions.isEmpty {
+            HStack(spacing: 4) {
+                ForEach(comment.reactions, id: \.content) { reaction in
+                    Button { toggle(reaction.content) } label: {
+                        Text("\(reaction.content.emoji) \(reaction.count)")
+                            .font(.caption.monospacedDigit())
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2)
+                            .background(reaction.viewerHasReacted ? Color.accentColor.opacity(0.15) : Color.secondary.opacity(0.08), in: Capsule())
+                            .overlay(Capsule().stroke(reaction.viewerHasReacted ? Color.accentColor.opacity(0.7) : Color.secondary.opacity(0.25)))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!comment.viewerCanReact)
+                    .help(reaction.viewerHasReacted ? "Remove your reaction" : "React")
+                }
+                if comment.viewerCanReact {
+                    Menu {
+                        ForEach(ReactionContent.allCases, id: \.self) { content in
+                            Button(content.emoji) { toggle(content) }
+                        }
+                    } label: { Image(systemName: "face.smiling") }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
+                        .help("Add reaction")
+                }
+            }
+        }
+    }
+
+    private func toggle(_ content: ReactionContent) {
+        Task { await model.toggleReaction(content, on: comment, pr: pr) }
+    }
+}
+
+/// A comment from GitHub inside a diff thread: menu, editable text and reactions.
+struct GitHubCommentView<Badges: View>: View {
+    let pr: PullRequest
+    let comment: Comment
+    @ViewBuilder var badges: Badges
+    @ViewState private var editing = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Avatar(login: comment.author)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(comment.author).font(.callout.bold())
+                    Text(commentDateFormatter.string(from: comment.createdAt)).font(.caption).foregroundStyle(.secondary)
+                    badges
+                    Spacer()
+                    CommentMenu(pr: pr, comment: comment, editing: $editing)
+                }
+                EditableCommentBody(pr: pr, comment: comment, editing: $editing).font(.callout)
+                ReactionBar(pr: pr, comment: comment).padding(.top, 2)
+            }
+        }
+        .padding(10)
     }
 }

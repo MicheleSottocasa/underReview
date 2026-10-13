@@ -144,3 +144,36 @@ import Testing
     #expect(runner.calls.map { $0.query.contains("unmarkFileAsViewed") } == [false, true])
     #expect(runner.calls.first?.variables["path"] as? String == "a.swift")
 }
+
+@Test func decodesCommentPermissionsAndReactions() {
+    let comment = GitHub.decodeComment([
+        "__typename": "PullRequestReviewComment", "id": "C_1", "author": ["login": "me"], "body": "x", "createdAt": "2026-10-01T00:00:00Z",
+        "viewerCanUpdate": true, "viewerCanDelete": true, "viewerCanReact": true,
+        "reactionGroups": [
+            ["content": "HEART", "viewerHasReacted": true, "reactors": ["totalCount": 2]],
+            ["content": "EYES", "viewerHasReacted": false, "reactors": ["totalCount": 0]],
+        ],
+    ])
+    #expect(comment.kind == .review)
+    #expect(comment.viewerCanUpdate && comment.viewerCanDelete && comment.viewerCanReact)
+    #expect(comment.reactions == [Reaction(content: .heart, count: 2, viewerHasReacted: true)])
+    #expect(GitHub.decodeComment(["id": "IC_1"]).kind == .issue)
+}
+
+@Test func editsDeletesAndReactsWithTheRightMutation() async throws {
+    let runner = FakeRunner { _ in data(#"{"x":{"clientMutationId":null}}"#) }
+    let github = GitHub(runner: runner)
+    let issue = Comment(id: "IC_1", author: "me", body: "a", createdAt: .now)
+    var review = issue
+    review.kind = .review
+    try await github.editComment(issue, body: "b")
+    try await github.editComment(review, body: "b")
+    try await github.deleteComment(issue)
+    try await github.deleteComment(review)
+    try await github.setReaction(.rocket, on: "IC_1", reacted: true)
+    try await github.setReaction(.rocket, on: "IC_1", reacted: false)
+    let mutations = runner.calls.map { $0.query.split(separator: "{")[1].split(separator: "(")[0].trimmingCharacters(in: .whitespaces) }
+    #expect(mutations == ["updateIssueComment", "updatePullRequestReviewComment", "deleteIssueComment",
+                          "deletePullRequestReviewComment", "addReaction", "removeReaction"])
+    #expect(runner.calls.last?.variables["content"] as? String == "ROCKET")
+}

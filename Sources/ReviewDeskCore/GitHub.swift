@@ -74,12 +74,44 @@ public struct PullRequest: Codable, Hashable, Identifiable, Sendable {
 }
 
 public struct Comment: Hashable, Identifiable, Sendable {
+    /// GitHub edits and deletes the two kinds through different mutations.
+    public enum Kind: Hashable, Sendable { case issue, review }
+
     public var id: String
     public var author: String
     public var body: String
     public var createdAt: Date
     /// Part of the viewer's unsubmitted review (only the viewer sees it).
     public var isPending = false
+    public var kind = Kind.issue
+    public var viewerCanUpdate = false
+    public var viewerCanDelete = false
+    public var viewerCanReact = false
+    public var reactions: [Reaction] = []
+}
+
+public enum ReactionContent: String, CaseIterable, Hashable, Sendable {
+    case thumbsUp = "THUMBS_UP", thumbsDown = "THUMBS_DOWN", laugh = "LAUGH", hooray = "HOORAY"
+    case confused = "CONFUSED", heart = "HEART", rocket = "ROCKET", eyes = "EYES"
+
+    public var emoji: String {
+        switch self {
+        case .thumbsUp: "👍"
+        case .thumbsDown: "👎"
+        case .laugh: "😄"
+        case .hooray: "🎉"
+        case .confused: "😕"
+        case .heart: "❤️"
+        case .rocket: "🚀"
+        case .eyes: "👀"
+        }
+    }
+}
+
+public struct Reaction: Hashable, Sendable {
+    public var content: ReactionContent
+    public var count: Int
+    public var viewerHasReacted: Bool
 }
 
 public struct Review: Hashable, Identifiable, Sendable {
@@ -224,13 +256,19 @@ public struct GitHub: Sendable {
         let query = """
         query($id: ID!) { node(id: $id) { ... on PullRequest {
           body
-          comments(last: 100) { nodes { id author { login } body createdAt } }
+          comments(last: 100) { nodes { ...CommentFields } }
           reviews(last: 50) { nodes { id author { login } state body submittedAt } }
           reviewThreads(first: 100) { nodes { id path line diffSide isResolved isOutdated
-            comments(first: 100) { nodes { id author { login } body createdAt state } } } }
+            comments(first: 100) { nodes { ...CommentFields state } } } }
           pending: reviews(states: PENDING, first: 1) { nodes { id commit { oid }
             comments(first: 100) { nodes { id path line body } } } }
         } } }
+        fragment CommentFields on Comment {
+          __typename id author { login } body createdAt
+          ... on Updatable { viewerCanUpdate }
+          ... on Deletable { viewerCanDelete }
+          ... on Reactable { viewerCanReact reactionGroups { content viewerHasReacted reactors { totalCount } } }
+        }
         """
         let data = try await graphql(query, ["id": id])
         guard let pr = data["node"] as? [String: Any] else { throw GitHubError.notFound("Pull request") }
@@ -291,6 +329,26 @@ public struct GitHub: Sendable {
         try await graphql("""
         mutation($id: ID!, $path: String!) { \(mutation)(input: {pullRequestId: $id, path: $path}) { clientMutationId } }
         """, ["id": prID, "path": path])
+    }
+
+    public func editComment(_ comment: Comment, body: String) async throws {
+        let mutation = switch comment.kind {
+        case .issue: "updateIssueComment(input: {id: $id, body: $body}) { clientMutationId }"
+        case .review: "updatePullRequestReviewComment(input: {pullRequestReviewCommentId: $id, body: $body}) { clientMutationId }"
+        }
+        try await graphql("mutation($id: ID!, $body: String!) { \(mutation) }", ["id": comment.id, "body": body])
+    }
+
+    public func deleteComment(_ comment: Comment) async throws {
+        let mutation = comment.kind == .issue ? "deleteIssueComment" : "deletePullRequestReviewComment"
+        try await graphql("mutation($id: ID!) { \(mutation)(input: {id: $id}) { clientMutationId } }", ["id": comment.id])
+    }
+
+    public func setReaction(_ content: ReactionContent, on subjectID: String, reacted: Bool) async throws {
+        let mutation = reacted ? "addReaction" : "removeReaction"
+        try await graphql("""
+        mutation($id: ID!, $content: ReactionContent!) { \(mutation)(input: {subjectId: $id, content: $content}) { clientMutationId } }
+        """, ["id": subjectID, "content": content.rawValue])
     }
 
     public func fileContent(repo: String, path: String, ref: String) async throws -> String {
@@ -371,7 +429,16 @@ public struct GitHub: Sendable {
 
     static func decodeComment(_ node: [String: Any]) -> Comment {
         Comment(id: node["id"] as? String ?? "", author: login(node), body: node["body"] as? String ?? "",
-                createdAt: date(node["createdAt"]) ?? .distantPast, isPending: node["state"] as? String == "PENDING")
+                createdAt: date(node["createdAt"]) ?? .distantPast, isPending: node["state"] as? String == "PENDING",
+                kind: node["__typename"] as? String == "PullRequestReviewComment" ? .review : .issue,
+                viewerCanUpdate: node["viewerCanUpdate"] as? Bool ?? false,
+                viewerCanDelete: node["viewerCanDelete"] as? Bool ?? false,
+                viewerCanReact: node["viewerCanReact"] as? Bool ?? false,
+                reactions: (node["reactionGroups"] as? [[String: Any]] ?? []).compactMap { group in
+                    let count = total(group["reactors"])
+                    guard count > 0, let content = ReactionContent(rawValue: group["content"] as? String ?? "") else { return nil }
+                    return Reaction(content: content, count: count, viewerHasReacted: group["viewerHasReacted"] as? Bool ?? false)
+                })
     }
 
     static func nodes(_ connection: Any?) -> [[String: Any]] {
