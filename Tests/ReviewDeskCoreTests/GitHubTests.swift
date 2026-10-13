@@ -22,6 +22,7 @@ import Testing
     #expect(pr.requestedReviewers == ["me"])
     #expect(pr.stack?.entries.map(\.id) == ["PR_1", "PR_2"])
     #expect(pr.stackPosition == 1)
+    #expect((pr.additions, pr.deletions, pr.changedFiles) == (120, 7, 3))
     #expect(runner.calls.first?.args == ["api", "graphql", "--input", "-"])
     #expect(runner.calls.first?.variables["ids"] as? [String] == ["PR_1", "PR_gone"])
 }

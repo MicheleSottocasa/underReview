@@ -70,6 +70,14 @@ struct DetailView: View {
                 if let position = pr.stackPosition, let stack = pr.stack {
                     Text(verbatim: "Stack #\(stack.number): \(position) of \(stack.entries.count)")
                 }
+                if pr.changedFiles > 0 {
+                    HStack(spacing: 4) {
+                        Text("+\(pr.additions)").foregroundStyle(.green)
+                        Text("−\(pr.deletions)").foregroundStyle(.red)
+                    }
+                    .monospacedDigit()
+                    .help("\(pr.additions) lines added and \(pr.deletions) removed in \(pr.changedFiles) file\(pr.changedFiles == 1 ? "" : "s")")
+                }
             }
             .font(.callout)
             .foregroundStyle(.secondary)

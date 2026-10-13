@@ -70,6 +70,10 @@ public struct PullRequest: Codable, Hashable, Identifiable, Sendable {
     public var pendingReviewComments: Int?
     /// Unresolved threads the viewer is part of (their PR, or a thread they started) where someone else spoke last.
     public var threadsAwaitingReply = 0
+    /// Lines added and removed across the whole PR, and how many files it touches.
+    public var additions = 0
+    public var deletions = 0
+    public var changedFiles = 0
 
     public var ref: PRRef { PRRef(nameWithOwner: repo, number: number) }
     public var stackPosition: Int? { stack?.entries.first { $0.id == id }?.position }
@@ -447,7 +451,7 @@ public struct GitHub: Sendable {
     static let prFragment = """
 
     fragment PR on PullRequest {
-      id number title url state isDraft updatedAt headRefOid headRefName baseRefName
+      id number title url state isDraft updatedAt headRefOid headRefName baseRefName additions deletions changedFiles
       author { login } repository { nameWithOwner }
       comments { totalCount } reviews { totalCount }
       viewerDidAuthor viewerLatestReview { state commit { oid } }
@@ -495,7 +499,10 @@ public struct GitHub: Sendable {
             viewerReviewState: (node["viewerLatestReview"] as? [String: Any])?["state"] as? String,
             viewerReviewedOid: ((node["viewerLatestReview"] as? [String: Any])?["commit"] as? [String: Any])?["oid"] as? String,
             pendingReviewComments: nodes(node["pendingReview"]).first.map { total($0["comments"]) },
-            threadsAwaitingReply: awaitingReply(nodes(node["reviewThreads"]), viewerIsAuthor: node["viewerDidAuthor"] as? Bool ?? false)
+            threadsAwaitingReply: awaitingReply(nodes(node["reviewThreads"]), viewerIsAuthor: node["viewerDidAuthor"] as? Bool ?? false),
+            additions: node["additions"] as? Int ?? 0,
+            deletions: node["deletions"] as? Int ?? 0,
+            changedFiles: node["changedFiles"] as? Int ?? 0
         )
     }
 

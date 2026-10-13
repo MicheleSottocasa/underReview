@@ -5,6 +5,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+- The pull request header shows how many lines the whole pull request adds and removes; hover for the number of files.
 - Scrolling large diffs is smooth again: the diff is parsed and highlighted once instead of on every pointer move.
 - **AI findings go straight into your pending review:** a finding about code becomes an inline comment on your pending GitHub review (on its line, or the nearest line GitHub accepts, naming the one it meant) instead of landing in the review summary. Only general remarks still go to the summary.
 - A Claude Code review that couldn't read the pull request's diff now fails with an error saying so, instead of looking like a clean pull request with no findings.

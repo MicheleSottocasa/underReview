@@ -39,6 +39,12 @@ public enum Demo {
             updatedAt: ago(1), headRefOid: head, headRefName: "invite-members", baseRefName: "invites-table", author: "marco.demo",
             repo: repo, commentCount: 1, reviewCount: 1, threadCommentCount: 4, requestedReviewers: [], stack: stack)
         main.threadsAwaitingReply = 1
+        // Totals match the demo files, as GitHub's would.
+        for index in [0, 1] {
+            let changes = files[[baseID, mainID][index]] ?? []
+            let totals = (changes.reduce(0) { $0 + $1.additions }, changes.reduce(0) { $0 + $1.deletions }, changes.count)
+            if index == 0 { (base.additions, base.deletions, base.changedFiles) = totals } else { (main.additions, main.deletions, main.changedFiles) = totals }
+        }
         return [base, main]
     }
 
