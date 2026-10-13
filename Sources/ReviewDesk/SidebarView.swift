@@ -363,16 +363,19 @@ struct StackHeader: View {
     }
 }
 
-/// Compact: repo and author are the same across a stack, so they live in the tooltip.
+/// Position, title and `#n`: repo and author are the same across a stack, so they live in the tooltip.
 struct StackChildRow: View {
     let pr: PullRequest
     var review = ReviewStatus()
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(verbatim: "\(pr.stackPosition ?? 0)").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 18, alignment: .trailing)
             StateIcon(pr: pr)
-            Text(pr.title).lineLimit(1).truncationMode(.tail)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(pr.title).lineLimit(1).truncationMode(.tail)
+                Text(verbatim: "#\(pr.number)").font(.caption).foregroundStyle(.secondary)
+            }
             Spacer(minLength: 0)
             AgentSpinner(ids: [pr.id])
             ReviewIndicator(status: review)
