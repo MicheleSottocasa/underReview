@@ -6,6 +6,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 ## Unreleased
 
 - **Color themes:** Settings › Appearance picks, edits and previews the diff, syntax and accent colors (light and dark, your threads' and others' colors included), and imports or exports them as a JSON theme file. Colors a file leaves out keep the default.
+- **Import a theme from your editor:** *Import from IDE…* finds VS Code, Cursor and JetBrains IDEs (IntelliJ IDEA, PyCharm, WebStorm, Android Studio, …), shows the theme each one uses and previews what it gives before saving. *Import…* also reads a VS Code theme file or a JetBrains `.icls` scheme.
 - Pull requests inside a stack show their number under the title in the sidebar, like standalone ones.
 - The Conversation tab uses the whole width of the window instead of stopping at 900 points, so long descriptions and comments wrap less.
 - The **Add reaction** button opens the 8 reactions in one row, as on GitHub, with the ones you gave highlighted and each one named on hover. Arrow keys move between them, Return picks, Esc closes.
