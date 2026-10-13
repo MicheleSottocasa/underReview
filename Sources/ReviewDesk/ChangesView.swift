@@ -76,16 +76,17 @@ struct ChangesView: View {
         .onChange(of: model.changesTarget?.id, initial: true) {
             // Sent here from another tab (e.g. Risk): open the file and, when there's a line, scroll to it.
             guard let next = model.changesTarget else { return }
-            let area = keyAreas(next.path).firstIndex { next.line > 0 && next.side == .right && $0.startLine == next.line }
+            let areas = keyAreas(next.path)
+            let area = areas.firstIndex { next.line > 0 && next.side == .right && $0.startLine == next.line }
             selection = area.map { .area(next.path, $0) } ?? .file(next.path)
-            target = next.line > 0 ? next : nil
+            target = next.line > 0 ? LineTarget(path: next.path, line: next.line, endLine: area.flatMap { areas[$0].endLine }, side: next.side) : nil
             model.changesTarget = nil
         }
         .onChange(of: selection) {
             switch selection {
             case .area(let path, let index)?:
                 guard !linesMoved else { target = nil; break }
-                target = keyAreas(path).dropFirst(index).first?.startLine.map { LineTarget(path: path, line: $0) }
+                target = keyAreas(path).dropFirst(index).first.map { LineTarget(path: path, line: $0.startLine ?? 0, endLine: $0.endLine) }
             case .file(let path)?:
                 // A jump left over from an earlier visit would otherwise replay when the file is shown again.
                 if target?.path != path { target = nil }
@@ -121,7 +122,10 @@ enum ChangesItem: Hashable {
 /// A line to scroll to; a fresh id lets the same section be revisited.
 struct LineTarget: Equatable {
     var path: String
+    /// 0 for the top of the file.
     var line: Int
+    /// The last line of a key area; the jump lands on the first of `line...endLine` that's in the diff.
+    var endLine: Int?
     /// Left: `line` is in the old file, as for comments on removed lines.
     var side = DiffSide.right
     var id = UUID()
@@ -570,8 +574,10 @@ struct FileDiffView: View {
                 Text("+\(file.additions)").foregroundStyle(.green).font(.callout.monospacedDigit())
                 Text("−\(file.deletions)").foregroundStyle(.red).font(.callout.monospacedDigit())
                 Spacer()
-                if let target, let rendered, rendered.key.patch == file.patch, rendered.row(for: target.line, side: target.side) == nil {
-                    Label("Line \(target.line) isn't in this diff", systemImage: "exclamationmark.triangle")
+                if let target, target.line > 0, let rendered, rendered.key.patch == file.patch, rendered.row(for: target) == nil {
+                    let end = max(target.line, target.endLine ?? target.line)
+                    Label(end > target.line ? "Lines \(target.line)–\(end) aren't in this diff" : "Line \(target.line) isn't in this diff",
+                          systemImage: "exclamationmark.triangle")
                         .font(.callout).foregroundStyle(.orange)
                         .help("The key area starts after the last changed lines, or comes from an older commit")
                 }
@@ -635,7 +641,7 @@ struct FileDiffView: View {
                     rendered = RenderedDiff(key, path: file.filename)
                 }
                 .task(id: Pair(target?.id, diff != nil)) {
-                    guard let target, let diff, let row = diff.row(for: target.line, side: target.side) else { return }
+                    guard let target, let diff, let row = diff.row(for: target) else { return }
                     // ponytail: the lazy stack guesses the height of rows it hasn't drawn (threads, drafts), so jump,
                     // let it lay them out and jump again. Doing better needs scroll-offset tracking.
                     for _ in 0..<3 {
@@ -926,13 +932,15 @@ struct RenderedDiff {
             .map { NSAttributedString(string: $0.0, attributes: [.font: font]).size().width }.max() ?? 0
     }
 
-    /// Offset of the first diff row at or after a line of `side`, matching the ForEach ids.
-    func row(for line: Int, side: DiffSide) -> Int? {
-        switch (mode, side) {
-        case (.unified, .right): Diff.index(ofNewLine: line, in: lines)
-        case (.unified, .left): lines.firstIndex { $0.kind != .added && ($0.oldLine ?? 0) >= line }
-        case (.split, .right): Diff.index(ofNewLine: line, in: rows)
-        case (.split, .left): rows.firstIndex { ($0.left?.oldLine ?? 0) >= line }
+    /// Offset of the target's first diff row, matching the ForEach ids; nil when its new-side lines aren't in the diff.
+    /// An old-file target (a thread on a removed line) lands on the first row at or after its line.
+    func row(for target: LineTarget) -> Int? {
+        let range = target.line...max(target.line, target.endLine ?? target.line)
+        return switch (mode, target.side) {
+        case (.unified, .right): Diff.index(ofNewLines: range, in: lines)
+        case (.split, .right): Diff.index(ofNewLines: range, in: rows)
+        case (.unified, .left): lines.firstIndex { $0.kind != .added && ($0.oldLine ?? 0) >= target.line }
+        case (.split, .left): rows.firstIndex { ($0.left?.oldLine ?? 0) >= target.line }
         }
     }
 }

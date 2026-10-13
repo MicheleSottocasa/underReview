@@ -170,13 +170,14 @@ extension DiffRow {
 }
 
 extension Diff {
-    /// Index of the first line at or after new-side `line`, to scroll there; nil when the diff ends before it.
-    public static func index(ofNewLine line: Int, in lines: [DiffLine]) -> Int? {
-        lines.firstIndex { $0.kind != .removed && ($0.newLine ?? 0) >= line }
+    /// Index of the first new-side line within `range`, to scroll there; nil when none of them is in the diff
+    /// (they sit in unchanged code between hunks, or past the last one).
+    public static func index(ofNewLines range: ClosedRange<Int>, in lines: [DiffLine]) -> Int? {
+        lines.firstIndex { $0.kind != .removed && $0.newLine.map(range.contains) == true }
     }
 
     /// The same for side-by-side rows.
-    public static func index(ofNewLine line: Int, in rows: [DiffRow]) -> Int? {
-        rows.firstIndex { ($0.right?.newLine ?? 0) >= line }
+    public static func index(ofNewLines range: ClosedRange<Int>, in rows: [DiffRow]) -> Int? {
+        rows.firstIndex { $0.right?.newLine.map(range.contains) == true }
     }
 }
