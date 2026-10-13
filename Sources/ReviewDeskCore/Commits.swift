@@ -15,8 +15,10 @@ public enum CommitSelection: Hashable, Sendable {
             guard let reviewed = pr.viewerReviewedOid, reviewed != pr.headRefOid else { return nil }
             return (reviewed, pr.headRefOid)
         case .range(let first, let last):
-            guard let base = commits.first(where: { $0.oid == first })?.parent, commits.contains(where: { $0.oid == last }) else { return nil }
-            return (base, last)
+            // From the first commit's parent: GitHub's compare takes `sha^`, so the parent needn't be fetched with
+            // every commit (that doubled the detail query's cost). A root commit has none: compare fails, whole diff.
+            guard commits.contains(where: { $0.oid == first }), commits.contains(where: { $0.oid == last }) else { return nil }
+            return (first + "^", last)
         }
     }
 
