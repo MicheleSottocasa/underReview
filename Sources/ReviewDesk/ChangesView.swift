@@ -96,6 +96,7 @@ struct ReviewBar: View {
             Toggle(isOn: $involvedOnly) { Label("Involving Me", systemImage: "person.crop.circle") }
                 .toggleStyle(.button)
                 .help("Show only the review threads you started, replied in or are @mentioned in, and, when there are some, only the files that have one")
+            MyReviewStatus(pr: pr, compact: true)
             Spacer()
             if stale > 0 {
                 Label("\(stale) outdated", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.callout)

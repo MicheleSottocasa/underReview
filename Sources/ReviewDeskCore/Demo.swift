@@ -34,11 +34,11 @@ public enum Demo {
         // Reviewed earlier, then the author pushed and replied: shows "changed since your review" and the follow-up check.
         base.viewerReviewState = "CHANGES_REQUESTED"
         base.viewerReviewedOid = baseReviewed
+        base.threadsAwaitingReply = 2 // the author answered both of the viewer's threads
         var main = PullRequest(
             id: mainID, number: 42, title: "Let organisation admins invite members", url: "", state: "OPEN", isDraft: false,
             updatedAt: ago(1), headRefOid: head, headRefName: "invite-members", baseRefName: "invites-table", author: "marco.demo",
-            repo: repo, commentCount: 1, reviewCount: 1, threadCommentCount: 4, requestedReviewers: [], stack: stack)
-        main.threadsAwaitingReply = 1
+            repo: repo, commentCount: 1, reviewCount: 1, threadCommentCount: 4, requestedReviewers: [viewer], stack: stack)
         // Totals match the demo files, as GitHub's would.
         for index in [0, 1] {
             let changes = files[[baseID, mainID][index]] ?? []
@@ -67,7 +67,9 @@ public enum Demo {
                         Comment(id: "DEMO_C_8", author: "lena.demo", body: "I'd rather leave it: a later PR moves `mark_sent` into the task anyway.", createdAt: ago(5), kind: .review),
                     ], viewerCanResolve: true, diffHunk: hunk(baseID, "app/invites/models.py", 13)),
                 ],
-                pendingReview: nil),
+                pendingReview: nil,
+                reviewDecision: "CHANGES_REQUESTED",
+                latestReviews: [Review(id: "DEMO_R_1", author: viewer, state: "CHANGES_REQUESTED", body: "", submittedAt: ago(8), commitOID: baseReviewed)]),
             mainID: PRDetail(
                 body: """
                 Lets organisation admins invite members by email. Builds on #41 (the invites table).
@@ -91,7 +93,9 @@ public enum Demo {
                         Comment(id: "DEMO_C_4", author: "marco.demo", body: "Not anymore: it returns early once `sent_at` is set.", createdAt: ago(2), kind: .review),
                     ], resolvedBy: "lena.demo", diffHunk: hunk(mainID, "app/invites/tasks.py", 11)),
                 ],
-                pendingReview: nil),
+                pendingReview: nil,
+                reviewDecision: "REVIEW_REQUIRED",
+                latestReviews: [Review(id: "DEMO_R_2", author: "lena.demo", state: "COMMENTED", body: "", submittedAt: ago(3), commitOID: oldHead)]),
         ]
     }
 
