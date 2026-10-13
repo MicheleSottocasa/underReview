@@ -90,3 +90,17 @@ import Testing
     #expect(KeyArea(path: "a", startLine: 7, reason: "").contains(line: 7))
     #expect(!KeyArea(path: "a", reason: "").contains(line: 1)) // whole-file areas don't tint every line
 }
+
+@Test func focusedDiffFoldsTheHunksWithoutKeyAreasOrComments() {
+    // Four hunks: rows 0-2, 3-5, 6-8, 9-10 (headers at 0, 3, 6, 9).
+    let headers: Set = [0, 3, 6, 9]
+    func folds(keeping kept: Set<Int>) -> [Range<Int>] {
+        Focus.folds(rows: 11, isHunk: headers.contains, keeps: kept.contains)
+    }
+    #expect(folds(keeping: [4]) == [0..<3, 6..<11]) // the hunks after the kept one fold as one run
+    #expect(folds(keeping: [1, 10]) == [3..<9])
+    #expect(folds(keeping: [1, 4, 7, 10]) == [])
+    #expect(folds(keeping: []) == []) // nothing kept: the file shows in full rather than vanish
+    #expect(Focus.folds(rows: 4, isHunk: { $0 == 2 }, keeps: { $0 == 3 }) == [0..<2]) // rows before the first header
+    #expect(Focus.folds(rows: 0, isHunk: { _ in true }, keeps: { _ in true }) == [])
+}

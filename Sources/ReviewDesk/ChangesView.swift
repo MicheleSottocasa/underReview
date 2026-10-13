@@ -229,6 +229,7 @@ struct ReviewBar: View {
     var nextUnread: () -> Void = {}
     @AppStorage("wrapLines") private var wrap = false
     @AppStorage("involvedFilter") private var involvedOnly = false
+    @AppStorage("focusedDiff") private var focusedDiff = false
     @ViewState private var finishing = false
     @ViewState private var saving = false
 
@@ -258,6 +259,9 @@ struct ReviewBar: View {
             let areas = model.focus(for: pr).flatMap(\.areas)
             if !areas.isEmpty {
                 let read = areas.filter { model.isRead($0, pr: pr) }.count
+                Toggle(isOn: $focusedDiff) { Label("Key Areas Only", systemImage: "scope") }
+                    .toggleStyle(.button)
+                    .help("Show only the hunks with key areas or comments, folding the others behind an expander. Files without key areas in the diff show in full.")
                 Text("\(read) of \(areas.count) key areas read").font(.callout).foregroundStyle(.secondary)
                 Button("Next Unread", action: nextUnread)
                     .keyboardShortcut("u", modifiers: [.command, .control])
@@ -686,6 +690,10 @@ struct FileDiffView: View {
     var areaBeyond: (_ forward: Bool) -> (() -> Void)? = { _ in nil }
     @AppStorage("wrapLines") private var wrap = false
     @AppStorage("involvedFilter") private var involvedOnly = false
+    /// Key Areas Only: hunks without key areas or comments fold behind an expander.
+    @AppStorage("focusedDiff") private var focusedDiff = false
+    /// Folds the user opened, by their first row.
+    @ViewState private var unfolded: Set<Int> = []
     @AppStorage(AppModel.autoMarkViewedKey) private var autoMarkViewed = false
     @ViewState private var composing: ReviewDeskCore.Anchor?
     @ViewState private var draftText = ""
@@ -772,28 +780,38 @@ struct FileDiffView: View {
                         if diff != nil { areaCallouts(callouts[-1] ?? []) }
                         if let diff {
                             let barRow = selectionBarRow(diff)
+                            // Hidden row → its fold; the fold's first row shows the expander instead.
+                            let folded = Dictionary(uniqueKeysWithValues: folds(diff, commented: commented).flatMap { fold in fold.map { ($0, fold) } })
                             switch mode {
                             case .unified:
                                 // One view per id, so a jump lands on the line and not on its comments.
                                 ForEach(diff.lines.indices, id: \.self) { index in
                                     let line = diff.lines[index]
-                                    VStack(alignment: .leading, spacing: 0) {
-                                        areaCallouts(callouts[index] ?? [])
-                                        unifiedRow(line, index: index, change: diff.changes[index], text: diff.text, commented: commented)
-                                        if let anchor = line.anchor(path: file.filename) {
-                                            annotations(anchor, threads: shownThreads).padding(.leading, Self.numberWidth * 2 + Self.markerWidth)
+                                    if let fold = folded[index] {
+                                        if index == fold.lowerBound { foldRow(fold, diff: diff) }
+                                    } else {
+                                        VStack(alignment: .leading, spacing: 0) {
+                                            areaCallouts(callouts[index] ?? [])
+                                            unifiedRow(line, index: index, change: diff.changes[index], text: diff.text, commented: commented)
+                                            if let anchor = line.anchor(path: file.filename) {
+                                                annotations(anchor, threads: shownThreads).padding(.leading, Self.numberWidth * 2 + Self.markerWidth)
+                                            }
+                                            if barRow == index { selectionChat(diff) }
                                         }
-                                        if barRow == index { selectionChat(diff) }
                                     }
                                 }
                             case .split:
                                 ForEach(diff.rows.indices, id: \.self) { index in
                                     let row = diff.rows[index]
-                                    VStack(alignment: .leading, spacing: 0) {
-                                        areaCallouts(callouts[index] ?? [])
-                                        splitRow(row, diff: diff, commented: commented)
-                                        splitAnnotations(row, commented: commented, threads: shownThreads)
-                                        if barRow == index { selectionChat(diff) }
+                                    if let fold = folded[index] {
+                                        if index == fold.lowerBound { foldRow(fold, diff: diff) }
+                                    } else {
+                                        VStack(alignment: .leading, spacing: 0) {
+                                            areaCallouts(callouts[index] ?? [])
+                                            splitRow(row, diff: diff, commented: commented)
+                                            splitAnnotations(row, commented: commented, threads: shownThreads)
+                                            if barRow == index { selectionChat(diff) }
+                                        }
                                     }
                                 }
                             }
@@ -813,6 +831,7 @@ struct FileDiffView: View {
                     if let old = rendered, old.key.patch != key.patch { selection = nil } // indexes only hold for the same patch
                     rendered = RenderedDiff(key, path: file.filename)
                     cursor = nil // rows differ between the two layouts
+                    unfolded = []
                 }
                 .task(id: Pair(target?.id, diff != nil)) {
                     // Each target jumps once: switching layout re-renders the diff but mustn't pull you back to it.
@@ -824,6 +843,10 @@ struct FileDiffView: View {
                 .task(id: jump?.id) {
                     guard let row = jump?.row else { return }
                     cursor = row
+                    // A jump into folded code (e.g. a thread opened from Conversation) opens that fold.
+                    if let diff = currentDiff, let fold = folds(diff, commented: commentedAnchors).first(where: { $0.contains(row) }) {
+                        unfolded.insert(fold.lowerBound)
+                    }
                     // ponytail: the lazy stack guesses the height of rows it hasn't drawn (threads, drafts), so jump,
                     // let it lay them out and jump again. Doing better needs scroll-offset tracking.
                     proxy.scrollTo(row, anchor: .top)
@@ -1117,6 +1140,40 @@ struct FileDiffView: View {
         return result
     }
 
+    /// With Key Areas Only on, the runs of hunks that have no key area and no comment, minus the ones opened. Files
+    /// without key areas in the diff fold nothing.
+    private func folds(_ diff: RenderedDiff, commented: Set<ReviewDeskCore.Anchor>) -> [Range<Int>] {
+        let ranges = keyAreas.compactMap(\.lines)
+        guard focusedDiff, !ranges.isEmpty else { return [] }
+        return Focus.folds(rows: diff.rowCount, isHunk: diff.isHunk) { row in
+            diff.lines(at: row).contains { line in
+                line.kind != .removed && line.newLine.map { number in ranges.contains { $0.contains(number) } } == true
+                    || line.anchor(path: file.filename).map(commented.contains) == true
+            }
+        }
+        .filter { !unfolded.contains($0.lowerBound) }
+    }
+
+    /// Stands in for folded hunks; a click shows them.
+    private func foldRow(_ fold: Range<Int>, diff: RenderedDiff) -> some View {
+        let count = fold.filter { !diff.isHunk($0) }.count
+        return Button { unfolded.insert(fold.lowerBound) } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.up.and.down.text.horizontal").foregroundStyle(DiffColors.lineNumber)
+                Text("\(count) line\(count == 1 ? "" : "s") hidden: no key area or comment").foregroundStyle(DiffColors.lineNumber)
+                Text("Show").foregroundStyle(Color.accentColor)
+            }
+            .font(.system(size: 11, design: .monospaced))
+            .padding(.vertical, 6)
+            .padding(.leading, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(DiffColors.fold)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Key Areas Only folds these hunks. Click to show them, or turn Key Areas Only off for every file.")
+    }
+
     /// Unchanged lines between hunks are skipped, like PyCharm's folded regions.
     private func hunk(_ text: String) -> some View {
         HStack(spacing: 8) {
@@ -1286,6 +1343,14 @@ struct RenderedDiff {
     func row(for anchor: ReviewDeskCore.Anchor) -> Int? {
         index.row(of: anchor)
     }
+
+    /// The rows of this layout, matching the ForEach ids: unified lines or side-by-side rows.
+    var rowCount: Int { mode == .split ? rows.count : lines.count }
+
+    func isHunk(_ row: Int) -> Bool { mode == .split ? rows[row].hunk != nil : lines[row].kind == .hunk }
+
+    /// The diff lines shown on a row: one, or up to two side by side.
+    func lines(at row: Int) -> [DiffLine] { mode == .split ? [rows[row].left, rows[row].right].compactMap { $0 } : [lines[row]] }
 }
 
 /// Keeps the pointer's hover state inside one row, so moving over the diff redraws that row only.

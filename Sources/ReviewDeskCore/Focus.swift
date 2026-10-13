@@ -70,6 +70,28 @@ extension Focus {
     }
 }
 
+extension Focus {
+    /// A diff focused on key areas: the rows to fold away, as runs of whole hunks none of whose rows `keeps` wants.
+    /// A hunk runs from one header row to the next. Nothing folds when no hunk is kept, so a file is never hidden whole.
+    public static func folds(rows count: Int, isHunk: (Int) -> Bool, keeps: (Int) -> Bool) -> [Range<Int>] {
+        guard count > 0 else { return [] }
+        var starts = (0..<count).filter(isHunk)
+        if starts.first != 0 { starts.insert(0, at: 0) }
+        let hunks = zip(starts, starts.dropFirst() + [count]).map { $0..<$1 }
+        let kept = hunks.map { $0.contains(where: keeps) }
+        guard kept.contains(true) else { return [] }
+        var folds: [Range<Int>] = []
+        for (hunk, kept) in zip(hunks, kept) where !kept {
+            if let last = folds.last, last.upperBound == hunk.lowerBound {
+                folds[folds.count - 1] = last.lowerBound..<hunk.upperBound // neighbouring hunks fold together
+            } else {
+                folds.append(hunk)
+            }
+        }
+        return folds
+    }
+}
+
 extension KeyArea {
     /// Names the area in the saved read state: its file and lines, which a reworded reason doesn't change.
     public var readKey: String {
