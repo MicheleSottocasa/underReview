@@ -5,6 +5,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+- **A clearer pull request header:** the repository, number and author stand apart, the branches are chips you click to copy, and the stack position steps to the pull request below or above (or jumps to any of them from its menu). Status badges and reviewers share their own line.
 - **Merge conflicts show up:** a red triangle marks a pull request (and its stack) that conflicts with its base, the header shows *Conflicts* (click to resolve them on GitHub) or *Behind <base>*, and you're notified when one of your own pull requests starts to conflict.
 - **Color themes:** Settings › Appearance picks, edits and previews the diff and syntax colors (light and dark), and imports or exports them as a JSON theme file. Colors a file leaves out keep the default.
 - **Color themes:** Settings › Appearance picks, edits and previews the diff, syntax and accent colors (light and dark, your threads' and others' colors included), and imports or exports them as a JSON theme file. Colors a file leaves out keep the default.
