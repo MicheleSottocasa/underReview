@@ -29,7 +29,7 @@ extension AppModel {
         guard let path = localClones[pr.repo], checkingOut.insert(path).inserted else { return nil }
         defer { checkingOut.remove(path) }
         do {
-            return try await clones.checkout(pr.ref, in: URL(fileURLWithPath: path))
+            return try await clones.checkout(pr.ref, head: pr.headRefName, in: URL(fileURLWithPath: path))
         } catch {
             report(error, "Couldn't check out \(pr.repo)#\(pr.number)")
             return nil
