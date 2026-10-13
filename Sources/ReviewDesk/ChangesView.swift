@@ -401,8 +401,9 @@ struct FileDiffView: View {
             .background(.bar)
             Divider()
             if let patch = file.patch {
-                let key = RenderedDiff.Key(patch: patch, mode: mode, theme: ThemeStore.shared.current)
-                let diff = rendered?.key == key ? rendered : nil
+                let key = RenderedDiff.Key(patch: patch, mode: mode, ink: ThemeStore.shared.ink)
+                // Colors don't invalidate the cache: the old ones show until `onChange` renders again.
+                let diff = rendered?.key.patch == patch && rendered?.key.mode == mode ? rendered : nil
                 let commented = commentedAnchors
                 let shownThreads = threads // once per redraw: `involves` runs a regex per thread
                 ScrollViewReader { proxy in
@@ -660,8 +661,8 @@ struct RenderedDiff {
     struct Key: Equatable {
         var patch: String
         var mode: DiffMode
-        /// Colors are baked into `text`, so a theme change renders again.
-        var theme: Theme
+        /// The theme colors baked into `text`, so changing one renders again.
+        var ink: [HexColor?]
     }
 
     var key: Key
