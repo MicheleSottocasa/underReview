@@ -35,6 +35,7 @@ private let listing = """
     #expect(ClaudeAgents.repo(fromRemote: "ssh://git@ssh.github.com:443/o/r.git") == "o/r")
     #expect(ClaudeAgents.repo(fromRemote: "https://github.com/o/r/") == "o/r")
     #expect(ClaudeAgents.repo(fromRemote: "git@github-work:o/r.git") == nil)
+    #expect(ClaudeAgents.repo(fromRemote: "git@github.com:/o/r.git") == "o/r")
     #expect(ClaudeAgents.repo(fromRemote: "ssh://git@github.com/o/r.git") == "o/r")
     #expect(ClaudeAgents.repo(fromRemote: "https://evil.example/github.com/o/r.git") == nil)
     #expect(ClaudeAgents.repo(fromRemote: "https://github.com.evil.example/o/r.git") == nil)
