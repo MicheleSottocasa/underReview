@@ -13,6 +13,14 @@ struct SymbolText: View {
     @ViewState private var hovered: Range<Int>?
     @ViewState private var symbol: Symbol?
     @ViewState private var width: CGFloat = 0
+    @ViewState private var pointer = Pointer()
+
+    /// The pointer while it's over the line, and the ⌘ key monitor installed meanwhile. A class, so following
+    /// the pointer doesn't redraw the row; only the underline does.
+    private final class Pointer {
+        var location: CGPoint?
+        var monitor: Any?
+    }
 
     private struct Symbol: Identifiable {
         let name: String
@@ -26,16 +34,40 @@ struct SymbolText: View {
             .textSelection(.enabled)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             .onContinuousHover { phase in
-                var range: Range<Int>?
-                if case .active(let point) = phase, NSEvent.modifierFlags.contains(.command) { range = word(at: point)?.range }
-                if range != hovered { hovered = range }
+                switch phase {
+                case .active(let point):
+                    pointer.location = point
+                    if pointer.monitor == nil {
+                        // Pressing or releasing ⌘ without moving updates the underline too.
+                        pointer.monitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
+                            underline(command: event.modifierFlags.contains(.command))
+                            return event
+                        }
+                    }
+                    underline(command: NSEvent.modifierFlags.contains(.command))
+                case .ended:
+                    stopFollowing()
+                }
             }
+            .onDisappear(perform: stopFollowing)
             .gesture(SpatialTapGesture().modifiers(.command).onEnded { value in
                 if let word = word(at: value.location) { symbol = Symbol(name: word.name) }
             })
             .popover(item: $symbol, arrowEdge: .bottom) { item in
                 DefinitionPopover(pr: pr, name: item.name, path: path) { symbol = nil }
             }
+    }
+
+    private func underline(command: Bool) {
+        let range = command ? pointer.location.flatMap { word(at: $0)?.range } : nil
+        if range != hovered { hovered = range }
+    }
+
+    private func stopFollowing() {
+        if let monitor = pointer.monitor { NSEvent.removeMonitor(monitor) }
+        pointer.monitor = nil
+        pointer.location = nil
+        if hovered != nil { hovered = nil }
     }
 
     private var underlined: AttributedString {
@@ -48,12 +80,14 @@ struct SymbolText: View {
     }
 
     // ponytail: lays the line out again with TextKit in the diff's font to find the character under the pointer.
-    // It matches SwiftUI's own layout for monospaced code; if they ever drift, the wrong name gets picked.
+    // It matches SwiftUI's own layout for monospaced code; if they ever drift, the wrong name gets picked. Tabs use
+    // TextKit's default stops (every 28 pt), assumed to be Text's too; expand tabs in both if Go code mis-picks.
+    // The wrap width gets 1 pt extra so a line SwiftUI just fits doesn't wrap one word early here.
     /// The name under a point of the line, unless it's a keyword or the file's language isn't covered.
     private func word(at point: CGPoint) -> (name: String, range: Range<Int>)? {
         guard Definitions.isCovered(path), !line.isEmpty else { return nil }
         let storage = NSTextStorage(string: line, attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12.5, weight: .regular)])
-        let container = NSTextContainer(size: CGSize(width: wrap ? max(width, 1) : .greatestFiniteMagnitude, height: .greatestFiniteMagnitude))
+        let container = NSTextContainer(size: CGSize(width: wrap ? max(width, 1) + 1 : .greatestFiniteMagnitude, height: .greatestFiniteMagnitude))
         container.lineFragmentPadding = 0
         let layout = NSLayoutManager()
         layout.addTextContainer(container)
