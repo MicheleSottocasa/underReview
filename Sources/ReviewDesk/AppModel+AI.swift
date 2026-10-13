@@ -24,11 +24,25 @@ extension AppModel {
         }
     }
 
-    /// One review per PR, bottom of the stack first, each with its full default context.
-    func startStackReview(_ prs: [PullRequest], engine: AIEngine, budget: Int, from current: String) {
+    /// Claude Code's `/code-review` on the PR, with the chosen model and effort.
+    func startCodeReview(_ pr: PullRequest, engine: AIEngine, options: CodeReviewOptions) {
+        aiTasks[pr.id]?.cancel()
+        aiTasks[pr.id] = Task {
+            await codeReview(pr, engine: engine, options: options)
+            aiTasks[pr.id] = nil
+        }
+    }
+
+    /// One review per PR, bottom of the stack first: `/code-review` for Claude Code, otherwise the full default context.
+    func startStackReview(_ prs: [PullRequest], engine: AIEngine, budget: Int, options: CodeReviewOptions, from current: String) {
         aiTasks[current]?.cancel()
         aiTasks[current] = Task {
             for pr in prs where !Task.isCancelled {
+                if engine.tool == "claude" {
+                    aiStatus[current] = "Running /code-review on #\(pr.number)…"
+                    await codeReview(pr, engine: engine, options: options)
+                    continue
+                }
                 do {
                     aiStatus[current] = "Preparing #\(pr.number)…"
                     let context = try await prepareContext(pr, budget: budget)
@@ -51,6 +65,25 @@ extension AppModel {
         aiTasks[prID]?.cancel()
         aiTasks[prID] = nil
         aiStatus[prID] = nil
+    }
+
+    private func codeReview(_ pr: PullRequest, engine: AIEngine, options: CodeReviewOptions) async {
+        aiStatus[pr.id] = "Running /code-review (\(options.effort)) with \(engine.name)…"
+        defer { aiStatus[pr.id] = nil }
+        do {
+            if files[pr.id] == nil { files[pr.id] = try await github.files(pr.ref) }
+            if details[pr.id] == nil { await loadDetail(pr.id) }
+            // Diffs only: they let the second pass pick key areas; /code-review fetches the PR itself.
+            let context = AIContext.build(pr: pr, body: details[pr.id]?.body ?? "", files: files[pr.id] ?? [], contents: [:],
+                                          budget: UserDefaults.standard.object(forKey: "aiBudget") as? Int ?? 150_000)
+            let result = try await reviewer.codeReview(engine, prURL: pr.url, context: context, options: options)
+            var run = AIRun(prID: pr.id, engine: engine, headRefOid: pr.headRefOid, result: result)
+            run.options = options
+            aiRuns.append(run)
+        } catch is CancellationError {
+        } catch {
+            if !Task.isCancelled { lastError = "\(engine.name): \(error.localizedDescription)" }
+        }
     }
 
     private func review(_ pr: PullRequest, engine: AIEngine, context: ReviewContext) async {

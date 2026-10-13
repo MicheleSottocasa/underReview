@@ -44,6 +44,18 @@ public enum AIError: Error, LocalizedError, Equatable {
     }
 }
 
+/// How Claude Code runs `/code-review`: the model ("" keeps the CLI default) and the effort level.
+public struct CodeReviewOptions: Codable, Hashable, Sendable {
+    public static let efforts = ["low", "medium", "high", "xhigh", "max"]
+
+    public var model: String
+    public var effort: String
+
+    public init(model: String = "", effort: String = "high") {
+        (self.model, self.effort) = (model, effort)
+    }
+}
+
 /// A stored AI review. Findings stay local until the user accepts them as drafts.
 public struct AIRun: Codable, Hashable, Identifiable, Sendable {
     public var id = UUID()
@@ -53,6 +65,8 @@ public struct AIRun: Codable, Hashable, Identifiable, Sendable {
     public var headRefOid: String
     public var date = Date()
     public var result: ReviewResult
+    /// Set when Claude Code ran `/code-review`.
+    public var options: CodeReviewOptions?
     /// Indexes of findings already turned into drafts or dismissed.
     public var handled: Set<Int> = []
 
@@ -91,6 +105,43 @@ public struct AIReviewer: Sendable {
         try Self.decode(try await run(engine, prompt: prompt, schema: AIContext.schema, timeout: timeout))
     }
 
+    /// Claude Code's own `/code-review` on the PR, then a quick tool-less pass that turns its report into findings
+    /// and key areas (the command runs in its own agent, so it can't return the app's JSON itself).
+    /// The review gets read-only tools only: file reading in its working directory and `gh pr diff` / `gh pr view`.
+    /// Anything else, including every write, is denied without asking, and `instructions` forbid posting to GitHub.
+    /// `context` holds the PR's diffs (no full files) for picking key areas.
+    public func codeReview(_ engine: AIEngine, prURL: String, context: ReviewContext, options: CodeReviewOptions,
+                           instructions: String = AIContext.defaultCodeReviewInstructions,
+                           structureInstructions: String = AIContext.defaultStructureInstructions,
+                           timeout: Duration = .seconds(1800)) async throws -> ReviewResult {
+        try await checkAuth(engine)
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("reviewdesk-ai-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var args = ["-p", "--output-format", "json", "--append-system-prompt", instructions, "--effort", options.effort,
+                    "--restricted", "--strict-mcp-config", "--permission-prompts", "none", "--no-session-persistence",
+                    "--tools", Self.codeReviewTools, "--allowedTools", Self.codeReviewAllowed]
+        if !options.model.isEmpty { args += ["--model", options.model] }
+        var cwd = dir
+        switch engine {
+        case .claudeCode: break
+        case .claudeSession(let id, _, let path):
+            // Forked and not saved, like `review`: the session's context helps, its history stays untouched.
+            args += ["--resume", id, "--fork-session"]
+            cwd = URL(fileURLWithPath: path)
+        case .codex, .ollama:
+            throw AIError.failed("/code-review is a Claude Code command")
+        }
+        let result = try await runner.run("claude", args, stdin: Data("/code-review \(options.effort) \(prURL)".utf8), cwd: cwd, timeout: timeout)
+        let report = String(decoding: try Self.parseClaude(result), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !report.isEmpty, report != "Command completed" else { throw AIError.invalidOutput("/code-review returned no report") }
+        let prompt = AIContext.structurePrompt(report: report, context: context.fittingBudget(), instructions: structureInstructions)
+        return try Self.decode(try await run(.claudeCode, prompt: prompt, schema: AIContext.schema, model: options.model, timeout: .seconds(300)))
+    }
+
+    static let codeReviewTools = "Read,Grep,Glob,Bash,Agent"
+    static let codeReviewAllowed = "Read,Grep,Glob,Agent,Bash(gh pr diff:*),Bash(gh pr view:*)"
+
     /// A free-text answer in Markdown, under the same restrictions as a review.
     public func ask(_ engine: AIEngine, prompt: String, timeout: Duration = .seconds(300)) async throws -> String {
         let answer = String(decoding: try await run(engine, prompt: prompt, schema: nil, timeout: timeout), as: UTF8.self)
@@ -100,7 +151,7 @@ public struct AIReviewer: Sendable {
     }
 
     /// Runs the CLI and returns its answer: JSON matching `schema` when one is given, otherwise text.
-    private func run(_ engine: AIEngine, prompt: String, schema: String?, timeout: Duration) async throws -> Data {
+    private func run(_ engine: AIEngine, prompt: String, schema: String?, model: String = "", timeout: Duration) async throws -> Data {
         try await checkAuth(engine)
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("reviewdesk-ai-\(UUID().uuidString)")
         let workdir = dir.appendingPathComponent("empty")
@@ -114,7 +165,7 @@ public struct AIReviewer: Sendable {
                 "-p", "--output-format", "json",
                 "--tools", "", "--strict-mcp-config", "--setting-sources", "",
                 "--disable-slash-commands", "--no-session-persistence",
-            ] + Self.claudeSchema(schema), stdin: input, cwd: workdir, timeout: timeout)
+            ] + Self.claudeSchema(schema) + (model.isEmpty ? [] : ["--model", model]), stdin: input, cwd: workdir, timeout: timeout)
             return try Self.parseClaude(result)
 
         case .claudeSession(let id, _, let cwd):

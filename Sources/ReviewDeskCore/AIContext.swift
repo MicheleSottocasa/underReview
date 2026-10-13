@@ -18,13 +18,41 @@ public struct Finding: Codable, Hashable, Sendable {
     }
 }
 
+/// A part of the change the reviewer should read personally before submitting.
+public struct KeyArea: Codable, Hashable, Sendable {
+    public var path: String
+    /// Line range on the new side; nil for the whole file.
+    public var startLine: Int?
+    public var endLine: Int?
+    public var reason: String
+
+    public init(path: String, startLine: Int? = nil, endLine: Int? = nil, reason: String) {
+        (self.path, self.startLine, self.endLine, self.reason) = (path, startLine, endLine, reason)
+    }
+
+    public func contains(line: Int) -> Bool {
+        guard let startLine else { return false }
+        return (startLine...max(startLine, endLine ?? startLine)).contains(line)
+    }
+}
+
 public struct ReviewResult: Codable, Hashable, Sendable {
     public var summary: String
     public var findings: [Finding]
+    public var keyAreas: [KeyArea]
 
-    public init(summary: String, findings: [Finding]) {
+    public init(summary: String, findings: [Finding], keyAreas: [KeyArea] = []) {
         self.summary = summary
         self.findings = findings
+        self.keyAreas = keyAreas
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        summary = try container.decode(String.self, forKey: .summary)
+        findings = try container.decode([Finding].self, forKey: .findings)
+        // Reviews saved before key areas existed have none.
+        keyAreas = try container.decodeIfPresent([KeyArea].self, forKey: .keyAreas) ?? []
     }
 }
 
@@ -48,6 +76,16 @@ public struct ReviewContext: Sendable {
     public var budget: Int
 
     public var tokens: Int { files.filter(\.included).reduce(AIContext.estimateTokens(title + body)) { $0 + $1.tokens } }
+
+    /// Keeps files in order while they fit the budget; the rest are left out and named in the prompt.
+    public func fittingBudget() -> ReviewContext {
+        var context = self
+        var used = AIContext.estimateTokens(title + body)
+        for index in context.files.indices where context.files[index].included {
+            if used + context.files[index].tokens > budget { context.files[index].included = false } else { used += context.files[index].tokens }
+        }
+        return context
+    }
     /// Over budget means the user must deselect files: we never truncate silently.
     public var fitsBudget: Bool { tokens <= budget }
 }
@@ -55,8 +93,14 @@ public struct ReviewContext: Sendable {
 public enum AIContext {
     /// Strict-mode friendly (Codex requires every property listed and no extras).
     public static let schema = """
-    {"type":"object","additionalProperties":false,"required":["summary","findings"],"properties":{
+    {"type":"object","additionalProperties":false,"required":["summary","findings","keyAreas"],"properties":{
       "summary":{"type":"string"},
+      "keyAreas":{"type":"array","items":{"type":"object","additionalProperties":false,
+        "required":["path","startLine","endLine","reason"],"properties":{
+          "path":{"type":"string"},
+          "startLine":{"type":["integer","null"]},
+          "endLine":{"type":["integer","null"]},
+          "reason":{"type":"string"}}}},
       "findings":{"type":"array","items":{"type":"object","additionalProperties":false,
         "required":["severity","title","rationale","path","line","comment"],"properties":{
           "severity":{"type":"string","enum":["critical","high","medium","low"]},
@@ -79,12 +123,68 @@ public enum AIContext {
         return ReviewContext(title: pr.title, body: body, files: contextFiles, budget: budget)
     }
 
-    public static func prompt(_ context: ReviewContext) -> String {
+    /// How key areas are asked for, shared by every review prompt.
+    static let keyAreasInstructions = """
+    In `keyAreas`, list the files and sections the reviewer must read personally before submitting the review: the
+    riskiest, most central or hardest-to-verify changes, most important first (usually 3 to 8). Give line ranges on the
+    NEW side of the diff; use null lines for a whole file. `reason` says in one sentence what to check there.
+    """
+
+    /// Editable in Settings. The JSON schema is always appended, so a custom prompt can't break parsing.
+    public static let defaultReviewInstructions = """
+    You are reviewing a GitHub pull request. Use only the material below; do not run tools or commands.
+    Report real problems (bugs, security, data loss, concurrency, missing error handling, unclear code) as findings.
+    For inline findings set `path` and `line` to a line number on the NEW side of the diff that appears in a hunk.
+    Use null path/line for general remarks. `comment` is the text to post on GitHub, in Markdown.
+    \(keyAreasInstructions)
+    """
+
+    /// Appended to Claude Code's system prompt when it runs `/code-review` for the app. Editable in Settings.
+    public static let defaultCodeReviewInstructions = """
+    You are running inside ReviewDesk, a pull request review app. Never post anything to GitHub (no comments,
+    reviews or reactions) and never modify files. Run gh commands on their own, without pipes or redirections.
+    """
+
+    /// Turns the `/code-review` report into the app's findings and key areas. Editable in Settings;
+    /// the JSON schema, the report and the diff are always appended.
+    public static let defaultStructureInstructions = """
+    Below is a code review of a GitHub pull request, written by Claude Code's /code-review, followed by the PR's diff.
+    Turn the review into findings: one per issue it reports, never adding issues it doesn't contain. For each, keep
+    the review's substance in `comment` (the text to post on GitHub, in Markdown), pick a severity (critical, high,
+    medium or low), write a short title and the rationale, and set `path` and `line` to a line on the NEW side of the
+    diff that appears in a hunk, or null for general remarks. `summary` is the review's verdict in two or three
+    sentences. If the review found nothing, return no findings and say so in the summary.
+    \(keyAreasInstructions)
+    """
+
+    public static func structurePrompt(report: String, context: ReviewContext, instructions: String = defaultStructureInstructions) -> String {
         var text = """
-        You are reviewing a GitHub pull request. Use only the material below; do not run tools or commands.
-        Report real problems (bugs, security, data loss, concurrency, missing error handling, unclear code) as findings.
-        For inline findings set `path` and `line` to a line number on the NEW side of the diff that appears in a hunk.
-        Use null path/line for general remarks. `comment` is the text to post on GitHub, in Markdown.
+        \(instructions)
+        Reply only with JSON matching this schema:
+        \(schema)
+
+        # \(context.title)
+
+        \(context.body)
+
+        ## Review from /code-review
+
+        \(report)
+
+        """
+        for file in context.files where file.included {
+            text += "\n## Diff: \(file.path)\n```diff\n\(file.patch ?? "")\n```\n"
+        }
+        let skipped = context.files.filter { !$0.included }.map(\.path)
+        if !skipped.isEmpty {
+            text += "\nThe diffs of these changed files were not provided: \(skipped.joined(separator: ", ")).\n"
+        }
+        return text
+    }
+
+    public static func prompt(_ context: ReviewContext, instructions: String = defaultReviewInstructions) -> String {
+        var text = """
+        \(instructions)
         Reply only with JSON matching this schema:
         \(schema)
 
@@ -107,13 +207,19 @@ public enum AIContext {
     }
 
     /// Asks for a plain-language explanation of one comment, with the code and conversation around it.
+    /// Editable in Settings.
+    public static let defaultExplainInstructions = """
+    You are helping someone review a GitHub pull request. Explain the comment marked **[EXPLAIN THIS]** below
+    in plain language: what the commenter means, why it matters, and what change (if any) they are asking for.
+    If the comment looks wrong or unclear, say so. Use only the material below; do not run tools or commands.
+    Reply briefly, in Markdown.
+    """
+
     public static func explainPrompt(title: String, body: String, path: String?, line: Int?, patch: String?,
-                                     conversation: [Comment], comment: Comment) -> String {
+                                     conversation: [Comment], comment: Comment,
+                                     instructions: String = defaultExplainInstructions) -> String {
         var text = """
-        You are helping someone review a GitHub pull request. Explain the comment marked **[EXPLAIN THIS]** below
-        in plain language: what the commenter means, why it matters, and what change (if any) they are asking for.
-        If the comment looks wrong or unclear, say so. Use only the material below; do not run tools or commands.
-        Reply briefly, in Markdown.
+        \(instructions)
 
         # \(title)
 

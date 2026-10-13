@@ -11,6 +11,7 @@ struct ChangesView: View {
     let pr: PullRequest
     @AppStorage("diffMode") private var mode = DiffMode.split
     @ViewState private var selectedPath: String?
+    @ViewState private var target: LineTarget?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,11 +19,16 @@ struct ChangesView: View {
             Divider()
             if let files = model.files[pr.id] {
                 HSplitView {
-                    FileTree(pr: pr, files: files, selection: $selectedPath)
+                    FileTree(pr: pr, files: files, selection: $selectedPath) { path, line in
+                        selectedPath = path
+                        target = line.map { LineTarget(path: path, line: $0) }
+                    }
                         .frame(minWidth: 180, idealWidth: 240, maxWidth: 300)
                     Group {
                         if let file = files.first(where: { $0.filename == selectedPath }) ?? files.first {
-                            FileDiffView(pr: pr, file: file, mode: mode).id(file.filename)
+                            FileDiffView(pr: pr, file: file, mode: mode, target: target?.path == file.filename ? target : nil,
+                                         keyAreas: model.keyAreasRun(for: pr)?.result.keyAreas.filter { $0.path == file.filename } ?? [])
+                                .id(file.filename)
                         } else {
                             ContentUnavailableView("No changed files", systemImage: "doc")
                         }
@@ -35,6 +41,13 @@ struct ChangesView: View {
         }
         .task { if model.files[pr.id] == nil { await model.loadFiles(pr) } }
     }
+}
+
+/// A line to scroll to; a fresh id lets the same section be revisited.
+struct LineTarget: Equatable {
+    var path: String
+    var line: Int
+    var id = UUID()
 }
 
 // MARK: - Review bar
@@ -190,23 +203,76 @@ struct FileTree: View {
     let pr: PullRequest
     let files: [FileChange]
     @Binding var selection: String?
+    /// A key area was clicked: open the file and, when it has lines, scroll there.
+    let openArea: (String, Int?) -> Void
     @ViewState private var collapsed: Set<String> = []
+    @AppStorage("focusFilter") private var focusOnly = false
 
     var body: some View {
-        List(selection: $selection) {
-            ForEach(rows(FileNode.tree(files), depth: 0), id: \.node.id) { row in
-                if let file = row.node.file {
-                    fileRow(file, name: row.node.name)
-                        .padding(.leading, CGFloat(row.depth) * 14 + 16)
-                        .tag(file.filename)
+        let focus = model.focus(for: pr)
+        VStack(spacing: 0) {
+            Picker("", selection: $focusOnly) {
+                Text("All").tag(false)
+                Text("Focus (\(focus.count))").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(8)
+            .help("Focus: the key files and sections from the latest AI review, plus every file with comments you haven't submitted")
+            List(selection: $selection) {
+                if focusOnly {
+                    focusRows(focus)
                 } else {
-                    folderRow(row.node)
-                        .padding(.leading, CGFloat(row.depth) * 14)
+                    ForEach(rows(FileNode.tree(files), depth: 0), id: \.node.id) { row in
+                        if let file = row.node.file {
+                            fileRow(file, name: row.node.name)
+                                .padding(.leading, CGFloat(row.depth) * 14 + 16)
+                                .tag(file.filename)
+                        } else {
+                            folderRow(row.node)
+                                .padding(.leading, CGFloat(row.depth) * 14)
+                        }
+                    }
+                }
+            }
+            .listStyle(.sidebar)
+        }
+        .onAppear { if selection == nil { selection = files.first?.filename } }
+    }
+
+    @ViewBuilder
+    private func focusRows(_ focus: [FocusFile]) -> some View {
+        if focus.isEmpty {
+            Text("Run an AI review to list the key files to read. Files with comments you haven't submitted show here too.")
+                .font(.caption).foregroundStyle(.secondary)
+        } else if let run = model.keyAreasRun(for: pr), run.headRefOid != pr.headRefOid {
+            Label("Key areas are from an older commit; lines may have moved.", systemImage: "exclamationmark.triangle")
+                .font(.caption).foregroundStyle(.orange)
+        }
+        ForEach(focus, id: \.path) { item in
+            if let file = files.first(where: { $0.filename == item.path }) {
+                fileRow(file, name: item.path).tag(file.filename)
+                ForEach(Array(item.areas.enumerated()), id: \.offset) { _, area in
+                    Button { openArea(item.path, area.startLine) } label: {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(Self.lines(area)).font(.caption.monospaced()).foregroundStyle(.secondary)
+                            Text(area.reason).font(.caption).lineLimit(3).multilineTextAlignment(.leading)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.leading, 22)
+                    .help(area.startLine == nil ? "Open the file" : "Jump to these lines")
                 }
             }
         }
-        .listStyle(.sidebar)
-        .onAppear { if selection == nil { selection = files.first?.filename } }
+    }
+
+    static func lines(_ area: KeyArea) -> String {
+        guard let start = area.startLine else { return "Whole file" }
+        let end = max(start, area.endLine ?? start)
+        return end == start ? "Line \(start)" : "Lines \(start)–\(end)"
     }
 
     private func rows(_ nodes: [FileNode], depth: Int) -> [(node: FileNode, depth: Int)] {
@@ -282,6 +348,9 @@ struct FileDiffView: View {
     let pr: PullRequest
     let file: FileChange
     let mode: DiffMode
+    var target: LineTarget?
+    /// Sections the AI asked the reviewer to read, marked in the gutter.
+    var keyAreas: [KeyArea] = []
     @AppStorage("wrapLines") private var wrap = false
     @ViewState private var hovered: ReviewDeskCore.Anchor?
     @ViewState private var composing: ReviewDeskCore.Anchor?
@@ -305,6 +374,7 @@ struct FileDiffView: View {
             .background(.bar)
             Divider()
             if let patch = file.patch {
+                ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         let detached = threads.filter { $0.line == nil }
@@ -332,11 +402,31 @@ struct FileDiffView: View {
                     .font(.system(size: 12.5, design: .monospaced))
                 }
                 .background(DiffColors.editor)
+                .task(id: target?.id) {
+                    guard let line = target?.line, let row = row(for: line, patch: patch) else { return }
+                    await Task.yield() // let the lazy stack lay out before jumping
+                    withAnimation { proxy.scrollTo(row, anchor: .top) }
+                }
+                }
             } else {
                 ContentUnavailableView("No diff available", systemImage: "doc.questionmark",
                                        description: Text("GitHub doesn't provide a diff for binary or very large files."))
             }
         }
+    }
+
+    /// Offset of the first diff row at or after a new-side line, matching the ForEach ids below.
+    private func row(for line: Int, patch: String) -> Int? {
+        let lines = Diff.parse(patch)
+        switch mode {
+        case .unified: return lines.firstIndex { $0.kind != .removed && ($0.newLine ?? 0) >= line }
+        case .split: return Diff.sideBySide(lines).firstIndex { ($0.right?.newLine ?? 0) >= line }
+        }
+    }
+
+    private func isKey(_ line: DiffLine?) -> Bool {
+        guard let line, line.kind != .removed, let number = line.newLine else { return false }
+        return keyAreas.contains { $0.contains(line: number) }
     }
 
     private var threads: [ReviewThread] { model.details[pr.id]?.threads.filter { $0.path == file.filename } ?? [] }
@@ -364,6 +454,7 @@ struct FileDiffView: View {
                     .overlay(alignment: .leading) { Rectangle().fill(DiffColors.separator).frame(width: 1) }
                     .overlay(alignment: .trailing) { Rectangle().fill(DiffColors.separator).frame(width: 1) }
                     code(row.right, language: language).background(rightColor)
+                        .overlay(alignment: .leading) { if isKey(row.right) { keyBar } }
                 }
                 .onHover { track(right ?? left, $0) }
             }
@@ -382,6 +473,7 @@ struct FileDiffView: View {
                     number(line.newLine)
                     marker(anchor)
                     code(line, language: language)
+                        .overlay(alignment: .leading) { if isKey(line) { keyBar } }
                 }
                 .background(color)
                 .onHover { track(anchor, $0) }
@@ -394,6 +486,11 @@ struct FileDiffView: View {
         guard let line else { return nil }
         if left { return line.kind == .removed ? line.anchor(path: file.filename) : nil }
         return line.kind == .removed ? nil : line.anchor(path: file.filename)
+    }
+
+    /// Marks lines inside the AI's key areas.
+    private var keyBar: some View {
+        Rectangle().fill(Color.yellow.opacity(0.85)).frame(width: 3).help("Key area: read this before submitting")
     }
 
     private func number(_ value: Int?) -> some View {

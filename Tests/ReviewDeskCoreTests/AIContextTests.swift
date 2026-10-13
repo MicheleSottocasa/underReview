@@ -44,7 +44,7 @@ private func finding(_ path: String?, _ line: Int?) -> Finding {
 
 @Test func schemaIsValidJSON() throws {
     let schema = try JSONSerialization.jsonObject(with: Data(AIContext.schema.utf8)) as? [String: Any]
-    #expect(schema?["required"] as? [String] == ["summary", "findings"])
+    #expect(schema?["required"] as? [String] == ["summary", "findings", "keyAreas"])
 }
 
 @Test func explainPromptMarksTheCommentAndIncludesTheDiff() {

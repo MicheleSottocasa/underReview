@@ -110,3 +110,75 @@ private let subscribed = ok(#"{"loggedIn":true,"authMethod":"claude.ai"}"#)
     #expect(try await AIReviewer(runner: runner).ask(.ollama(model: "m"), prompt: "p") == "Plain answer")
     #expect(runner.calls.last?.args == ["run", "m", "--hidethinking"])
 }
+
+private let context = ReviewContext(title: "T", body: "B", files: [
+    ContextFile(path: "a.py", patch: "@@ -1 +1,9 @@\n+x", content: nil, included: true),
+], budget: 10_000)
+
+/// First call: `/code-review` returns its text report. Second: the structuring pass returns JSON.
+private func codeReviewRunner(report: String = "1. a.py:3 off by one") -> FakeRunner {
+    FakeRunner { call in
+        if call.args.first == "auth" { return subscribed }
+        if call.args.contains("--json-schema") {
+            return ok(#"{"type":"result","is_error":false,"structured_output":{"summary":"ok","findings":[],"keyAreas":[{"path":"a.py","startLine":3,"endLine":9,"reason":"r"}]}}"#)
+        }
+        return ok(#"{"type":"result","is_error":false,"result":"\#(report)"}"#)
+    }
+}
+
+@Test func codeReviewRunsTheCommandWithModelEffortAndReadOnlyTools() async throws {
+    let runner = codeReviewRunner()
+    let review = try await AIReviewer(runner: runner).codeReview(
+        .claudeCode, prURL: "https://github.com/o/r/pull/1", context: context,
+        options: CodeReviewOptions(model: "opus", effort: "xhigh"), instructions: "be kind")
+
+    #expect(review.keyAreas == [KeyArea(path: "a.py", startLine: 3, endLine: 9, reason: "r")])
+    let reviews = runner.calls.filter { $0.args.first == "-p" }
+    #expect(reviews.count == 2)
+    let command = reviews[0]
+    #expect(command.stdin == Data("/code-review xhigh https://github.com/o/r/pull/1".utf8))
+    func value(_ call: FakeRunner.Call, _ flag: String) -> String? { call.args.firstIndex(of: flag).map { call.args[$0 + 1] } }
+    #expect(value(command, "--model") == "opus")
+    #expect(value(command, "--effort") == "xhigh")
+    #expect(value(command, "--append-system-prompt") == "be kind")
+    #expect(value(command, "--permission-prompts") == "none")
+    #expect(value(command, "--allowedTools") == "Read,Grep,Glob,Agent,Bash(gh pr diff:*),Bash(gh pr view:*)")
+    for flag in ["--restricted", "--strict-mcp-config", "--no-session-persistence"] { #expect(command.args.contains(flag)) }
+    // A schema makes print mode skip the command's report, so only the second pass uses one.
+    #expect(!command.args.contains("--json-schema"))
+    #expect(!command.args.contains("--disable-slash-commands"))
+
+    let structure = reviews[1]
+    #expect(value(structure, "--tools") == "")
+    #expect(value(structure, "--model") == "opus")
+    let prompt = String(decoding: structure.stdin ?? Data(), as: UTF8.self)
+    #expect(prompt.contains("1. a.py:3 off by one"))
+    #expect(prompt.contains("## Diff: a.py"))
+}
+
+@Test func codeReviewKeepsTheCLIDefaultModelWhenNoneIsChosen() async throws {
+    let runner = codeReviewRunner()
+    _ = try await AIReviewer(runner: runner).codeReview(.claudeCode, prURL: "u", context: context, options: CodeReviewOptions())
+    #expect(!runner.calls.contains { $0.args.contains("--model") })
+}
+
+@Test func codeReviewFailsWhenTheCommandProducesNoReport() async {
+    let runner = codeReviewRunner(report: "Command completed")
+    await #expect(throws: AIError.invalidOutput("/code-review returned no report")) {
+        try await AIReviewer(runner: runner).codeReview(.claudeCode, prURL: "u", context: context, options: CodeReviewOptions())
+    }
+}
+
+@Test func structuringPassLeavesOverBudgetDiffsOutByName() {
+    var big = context
+    big.budget = big.tokens // exactly a.py; b.py won't fit
+    big.files.append(ContextFile(path: "b.py", patch: String(repeating: "+y\n", count: 50), content: nil, included: true))
+    let fitted = big.fittingBudget()
+    #expect(fitted.files.map(\.included) == [true, false])
+    #expect(AIContext.structurePrompt(report: "r", context: fitted).contains("not provided: b.py"))
+}
+
+@Test func reviewsSavedBeforeKeyAreasStillLoad() throws {
+    let old = try JSONDecoder().decode(ReviewResult.self, from: Data(#"{"summary":"s","findings":[]}"#.utf8))
+    #expect(old.keyAreas.isEmpty)
+}

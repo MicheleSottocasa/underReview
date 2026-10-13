@@ -36,4 +36,4 @@ Use one scope per commit, with a concise imperative subject (`Add diff parser an
 
 ## Security & Configuration
 
-Never commit credentials. `.envrc` and `.env` are ignored. GitHub auth belongs to `gh`. The AI CLIs must use their subscription login: never pass API keys to them, and keep `ProcessRunner.strippedEnvironment` up to date.
+Never commit credentials. `.envrc` and `.env` are ignored. GitHub auth belongs to `gh`. The AI CLIs must use their subscription login: never pass API keys to them, and keep `ProcessRunner.strippedEnvironment` up to date. Only `/code-review` gets tools, and only read-only ones (`AIReviewer.codeReviewAllowed`); never add write-capable tools or commands to that list.

@@ -13,6 +13,20 @@ extension AppModel {
         reviewDrafts.drafts.filter { $0.prID == prID }.sorted { ($0.anchor.path, $0.anchor.line) < ($1.anchor.path, $1.anchor.line) }
     }
 
+    /// The latest AI review that named key areas; its line numbers may predate the current head.
+    func keyAreasRun(for pr: PullRequest) -> AIRun? {
+        runs(for: pr.id).first { !$0.result.keyAreas.isEmpty }
+    }
+
+    /// What to read before submitting: the AI's key areas, then files with comments not submitted yet.
+    func focus(for pr: PullRequest) -> [FocusFile] {
+        let drafts = drafts(for: pr.id)
+        let synced = Set(drafts.compactMap(\.remoteID))
+        let pendingOnGitHub = details[pr.id]?.pendingReview?.comments.filter { !synced.contains($0.id) }.map(\.path) ?? []
+        return Focus.files(keyAreas: keyAreasRun(for: pr)?.result.keyAreas ?? [], pendingPaths: drafts.map(\.anchor.path) + pendingOnGitHub,
+                           changed: files[pr.id]?.map(\.filename) ?? [])
+    }
+
     func loadFiles(_ pr: PullRequest) async {
         do {
             async let viewed = github.viewedFiles(prID: pr.id)

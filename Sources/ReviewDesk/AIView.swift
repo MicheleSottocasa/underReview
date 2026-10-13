@@ -7,10 +7,15 @@ struct AIView: View {
     @AppStorage("aiEngine") private var engineName = "claude"
     @AppStorage("ollamaModel") private var ollamaModel = "qwen2.5-coder"
     @AppStorage("aiBudget") private var budget = 150_000
+    /// Last used model and effort for `/code-review`; "" keeps the CLI's default model.
+    @AppStorage("claudeModel") private var claudeModel = ""
+    @AppStorage("reviewEffort") private var effort = "high"
     @ViewState private var context: ReviewContext?
     @ViewState private var preparing = false
 
     private var engine: AIEngine { model.engine(named: engineName, ollamaModel: ollamaModel, for: pr) }
+    private var usesCodeReview: Bool { engine.tool == "claude" }
+    private var options: CodeReviewOptions { CodeReviewOptions(model: claudeModel, effort: effort) }
 
     var body: some View {
         let status = model.aiStatus[pr.id]
@@ -22,7 +27,7 @@ struct AIView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     LinkedAgentCard(pr: pr) {
                         engineName = "linked"
-                        prepare()
+                        start()
                     }
                     if let status {
                         HStack(spacing: 8) {
@@ -45,7 +50,9 @@ struct AIView: View {
                         ContentUnavailableView {
                             Label("No AI reviews yet", systemImage: "sparkles")
                         } description: {
-                            Text("Prepare the context to see exactly what will be sent, then run the review. Findings stay here until you add them to your review.")
+                            Text(usesCodeReview
+                                 ? "Run Claude Code's /code-review on this PR. Findings stay here until you add them to your review."
+                                 : "Prepare the context to see exactly what will be sent, then run the review. Findings stay here until you add them to your review.")
                         }
                         .padding(.top, 40)
                     }
@@ -71,28 +78,55 @@ struct AIView: View {
             if engineName == "ollama" {
                 TextField("Model", text: $ollamaModel).frame(width: 140)
             }
-            LabeledContent("Budget") {
-                TextField("", value: $budget, format: .number).frame(width: 80).multilineTextAlignment(.trailing)
+            if usesCodeReview {
+                Picker("Model", selection: $claudeModel) {
+                    Text("Default").tag("")
+                    Text("Fable").tag("fable")
+                    Text("Opus").tag("opus")
+                    Text("Sonnet").tag("sonnet")
+                    Text("Haiku").tag("haiku")
+                }
+                .fixedSize()
+                Picker("Effort", selection: $effort) {
+                    ForEach(CodeReviewOptions.efforts, id: \.self) { Text($0.capitalized).tag($0) }
+                }
+                .fixedSize()
+            } else {
+                LabeledContent("Budget") {
+                    TextField("", value: $budget, format: .number).frame(width: 80).multilineTextAlignment(.trailing)
+                }
+                .fixedSize()
             }
-            .fixedSize()
             if !engine.isLocal {
                 Image(systemName: "icloud.and.arrow.up").foregroundStyle(.orange)
-                    .help("The selected code is sent to \(engine.name)'s provider using your CLI login.")
+                    .help(usesCodeReview
+                          ? "Claude Code reads the PR through `gh pr diff` / `gh pr view` (read-only) and sends it to \(engine.name)'s provider using your CLI login."
+                          : "The selected code is sent to \(engine.name)'s provider using your CLI login.")
             }
             Spacer()
             if let stack = model.allItems.first(where: { $0.key == pr.itemKey && $0.isStack }) {
                 Button("Review Stack (\(stack.pullRequests.count))") {
-                    model.startStackReview(stack.pullRequests.filter { $0.state == "OPEN" }, engine: engine, budget: budget, from: pr.id)
+                    model.startStackReview(stack.pullRequests.filter { $0.state == "OPEN" }, engine: engine, budget: budget, options: options, from: pr.id)
                 }
                 .disabled(status != nil)
                 .help("One review per open PR, bottom of the stack first")
             }
-            Button(preparing ? "Preparing…" : "Prepare Context") { prepare() }
+            Button(usesCodeReview ? "Run /code-review" : preparing ? "Preparing…" : "Prepare Context") { start() }
                 .buttonStyle(.borderedProminent)
                 .disabled(preparing || status != nil)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
+    }
+
+    /// Claude engines run `/code-review` straight away; the others show the context first.
+    private func start() {
+        if usesCodeReview {
+            context = nil
+            model.startCodeReview(pr, engine: engine, options: options)
+        } else {
+            prepare()
+        }
     }
 
     private func prepare() {
@@ -165,6 +199,10 @@ struct RunView: View {
             HStack(spacing: 8) {
                 Image(systemName: "sparkles").foregroundStyle(.purple)
                 Text(run.engine.name).bold()
+                if let options = run.options {
+                    Text("/code-review · \(options.model.isEmpty ? "default model" : options.model.capitalized) · \(options.effort)")
+                        .font(.caption.monospaced()).foregroundStyle(.secondary)
+                }
                 Text(run.date.formatted(.relative(presentation: .named))).foregroundStyle(.secondary)
                 if outdated { Badge(text: "Outdated by push", color: .orange) }
                 Spacer()
@@ -172,6 +210,17 @@ struct RunView: View {
             }
             .font(.callout)
             MarkdownText(run.result.summary)
+            if !run.result.keyAreas.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Read before submitting (Changes › Focus)", systemImage: "scope").font(.callout.bold())
+                    ForEach(Array(run.result.keyAreas.enumerated()), id: \.offset) { _, area in
+                        (Text(verbatim: "\(area.path) · \(FileTree.lines(area))  ").font(.caption.monospaced()).foregroundColor(.secondary)
+                            + Text(area.reason).font(.caption))
+                    }
+                }
+                .padding(10)
+                .background(Color.yellow.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+            }
             ForEach(Array(run.result.findings.enumerated()), id: \.offset) { index, finding in
                 FindingCard(finding: finding, isInline: !outdated && inline.contains(finding), handled: run.handled.contains(index)) {
                     model.accept(run.id, finding: index)
