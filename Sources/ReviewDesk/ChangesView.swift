@@ -352,6 +352,10 @@ struct FileTree: View {
             }
         }
         .help("\(file.filename)  +\(file.additions) −\(file.deletions)")
+        .contextMenu {
+            Button("Open in Editor") { Task { await model.openInEditor(pr, file: file) } }
+                .disabled(file.status == "removed")
+        }
     }
 
     private func commentCount(_ path: String) -> Int {
@@ -410,6 +414,10 @@ struct FileDiffView: View {
                 Text("+\(file.additions)").foregroundStyle(.green).font(.callout.monospacedDigit())
                 Text("−\(file.deletions)").foregroundStyle(.red).font(.callout.monospacedDigit())
                 Spacer()
+                Button("Open in Editor") { Task { await model.openInEditor(pr, file: file, line: target?.line) } }
+                    .controlSize(.small)
+                    .disabled(file.status == "removed")
+                    .help("Open this file from the local clone in your editor, at the line shown or else at the first change")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)

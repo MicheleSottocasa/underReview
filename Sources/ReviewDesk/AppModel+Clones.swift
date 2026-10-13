@@ -36,6 +36,34 @@ extension AppModel {
         }
     }
 
+    /// The editor link template chosen in Settings › Repositories; empty opens the file in its default app.
+    static let editorKey = "editorURL"
+
+    /// Opens a changed file from the repo's clone in the user's editor, at `line` or else at its first change.
+    /// Asks for the clone first when none is linked.
+    func openInEditor(_ pr: PullRequest, file: FileChange, line: Int? = nil) async {
+        guard !blockDemo(pr) else { return }
+        if localClones[pr.repo] == nil, await !chooseClone(for: pr.repo) { return }
+        guard let clone = localClones[pr.repo] else { return }
+        let url = URL(fileURLWithPath: clone).appendingPathComponent(file.filename)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            lastError = "\(file.filename) isn't in \(clone). Check out the pull request first."
+            return
+        }
+        let template = UserDefaults.standard.string(forKey: Self.editorKey) ?? ""
+        guard !template.isEmpty else {
+            NSWorkspace.shared.open(url)
+            return
+        }
+        let line = line ?? EditorLink.firstChange(in: file.patch ?? "")
+        guard let link = EditorLink.url(template: template, path: url.path, line: line),
+              NSWorkspace.shared.urlForApplication(toOpen: link) != nil else {
+            lastError = "No app opens “\(template)” links. Pick another editor in Settings › Repositories."
+            return
+        }
+        NSWorkspace.shared.open(link)
+    }
+
     /// Repos of the tracked PRs plus any already linked, for Settings.
     var knownRepos: [String] {
         Set(prs.values.filter { !$0.isDemo }.map(\.repo)).union(localClones.keys)

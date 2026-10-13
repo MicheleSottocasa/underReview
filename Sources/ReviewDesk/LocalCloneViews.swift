@@ -42,6 +42,7 @@ struct CheckOutButton: View {
 /// Settings › Repositories: the local clone of each repo.
 struct CloneSettings: View {
     @Environment(AppModel.self) private var model
+    @AppStorage(AppModel.editorKey) private var editor = ""
 
     var body: some View {
         Form {
@@ -69,6 +70,21 @@ struct CloneSettings: View {
                 Text("Local clones")
             } footer: {
                 Text("Check Out runs gh pr checkout in the clone. It refuses when it could lose or mix up work: uncommitted changes, an unfinished merge, rebase or bisect, detached commits, or untracked and ignored files the pull request would overwrite.")
+            }
+            Section {
+                Picker("Open files in", selection: $editor) {
+                    Text("Default app for the file").tag("")
+                    ForEach(EditorLink.presets, id: \.template) { Text($0.name).tag($0.template) }
+                    if !editor.isEmpty, !EditorLink.presets.contains(where: { $0.template == editor }) {
+                        Text("Custom").tag(editor)
+                    }
+                }
+                TextField("Link", text: $editor, prompt: Text("myeditor://open?file={path}&line={line}"))
+                    .font(.callout.monospaced())
+            } header: {
+                Text("Editor")
+            } footer: {
+                Text("Open in Editor in the Changes tab opens the file from the local clone through this link, with {path} and {line} filled in. The default app opens the file without a line. Lines match once the pull request is checked out.")
             }
         }
         .formStyle(.grouped)
