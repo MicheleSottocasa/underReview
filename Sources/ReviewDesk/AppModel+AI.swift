@@ -300,17 +300,52 @@ extension AppModel {
         guard !blockDemo(pr) else { return }
         let finding = aiRuns[runIndex].result.findings[index]
         aiRuns[runIndex].handled.insert(index)
+        Task { await post(finding, pr: pr, includeSuggestion: includeSuggestion) }
+    }
+
+    /// Puts a finding (or an accepted fix) into the pending review, placed by `AIContext.placement`.
+    private func post(_ finding: Finding, pr: PullRequest, includeSuggestion: Bool = true) async {
+        if files[pr.id] == nil { await loadFiles(pr) }
+        switch AIContext.placement(finding, files: files[pr.id] ?? [], includeSuggestion: includeSuggestion) {
+        case .inline(let anchor, let startLine, let body):
+            let id = addDraft(pr, anchor: anchor, body: body, startLine: startLine)
+            await saveDrafts([id], pr: pr)
+        case .summary(let text):
+            let body = reviewDrafts.bodies[pr.id].map { $0 + "\n\n" } ?? ""
+            reviewDrafts.bodies[pr.id] = body + text
+        }
+    }
+
+    /// Asks the AI for a fix to `problem` in `path`, tool-less, with the PR description and the file's diff (the same
+    /// material as Explain). The proposal waits in `fixes[key]` for the reviewer to edit, accept or discard.
+    func suggestFix(key: String, problem: String, path: String, pr: PullRequest) {
+        guard !blockDemo(pr) else { return }
+        let engine = preferredEngine(for: pr)
+        fixes[key] = Fix(engine: engine, path: path)
         Task {
-            if files[pr.id] == nil { await loadFiles(pr) }
-            switch AIContext.placement(finding, files: files[pr.id] ?? [], includeSuggestion: includeSuggestion) {
-            case .inline(let anchor, let startLine, let body):
-                let id = addDraft(pr, anchor: anchor, body: body, startLine: startLine)
-                await saveDrafts([id], pr: pr)
-            case .summary(let text):
-                let body = reviewDrafts.bodies[pr.id].map { $0 + "\n\n" } ?? ""
-                reviewDrafts.bodies[pr.id] = body + text
+            do {
+                if files[pr.id] == nil { files[pr.id] = try await github.files(pr.ref) }
+                guard let patch = files[pr.id]?.first(where: { $0.filename == path })?.patch else {
+                    throw AIError.failed("\(path) has no diff on GitHub, so there are no lines a suggested change could replace")
+                }
+                let prompt = AIContext.fixPrompt(title: pr.title, body: details[pr.id]?.body ?? "", path: path, patch: patch,
+                                                 problem: problem, instructions: Prompts.fix)
+                let proposal = try await reviewer.structured(engine, prompt: prompt, schema: AIContext.fixSchema, as: FixProposal.self)
+                fixes[key]?.patch = patch
+                fixes[key]?.proposal = proposal
+            } catch {
+                fixes[key] = nil
+                report(error, engine.name)
             }
         }
+    }
+
+    /// Posts the reviewer's (possibly edited) fix to the pending review as a suggested change on its lines.
+    func acceptFix(_ key: String, suggestion: String, comment: String, pr: PullRequest) {
+        guard !blockDemo(pr), let fix = fixes[key], var proposal = fix.proposal else { return }
+        (proposal.suggestion, proposal.comment) = (suggestion, comment)
+        fixes[key] = nil
+        Task { await post(proposal.finding(path: fix.path), pr: pr) }
     }
 
     func dismiss(_ runID: UUID, finding index: Int) {
@@ -426,10 +461,21 @@ struct Explanation {
     var extra: [ContextFile] = []
 }
 
+/// A fix the AI is proposing for a finding or a comment, until the reviewer accepts or discards it. In memory only.
+struct Fix {
+    var engine: AIEngine
+    var path: String
+    /// The file's diff the fix was asked on, to show the lines it replaces.
+    var patch: String?
+    /// Nil while the AI is working.
+    var proposal: FixProposal?
+}
+
 /// The AI prompts, as customized in Settings. An empty override means the built-in default.
 enum Prompts {
     static let reviewKey = "prompt.review", codeReviewKey = "prompt.codeReview", structureKey = "prompt.structure"
-    static let explainKey = "prompt.explain", followUpKey = "prompt.followUp"
+    static let explainKey = "prompt.explain", followUpKey = "prompt.followUp", fixKey = "prompt.fix"
+    static var fix: String { value(fixKey, AIContext.defaultFixInstructions) }
 
     static var review: String { value(reviewKey, AIContext.defaultReviewInstructions) }
     static var codeReview: String { value(codeReviewKey, AIContext.defaultCodeReviewInstructions) }

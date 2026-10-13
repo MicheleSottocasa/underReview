@@ -524,6 +524,7 @@ struct GitHubCommentView<Badges: View>: View {
                 EditableCommentBody(pr: pr, comment: comment, editing: $editing).font(.callout)
                 ReactionBar(pr: pr, comment: comment).padding(.top, 2)
                 ExplanationView(comment: comment).padding(.top, 4)
+                FixPreview(key: comment.id, pr: pr).padding(.top, 4)
             }
         }
         .padding(10)
@@ -552,6 +553,14 @@ struct ExplainButton: View {
             Button { model.openChat(comment, thread: thread, pr: pr) } label: { Image(systemName: "bubble.left.and.text.bubble.right") }
                 .disabled(model.explanations[comment.id] != nil)
                 .help("Ask \(engine.name) your own question about this comment.\(sends)\(engine.isLocal ? "" : project)")
+            if let thread, thread.line != nil {
+                Button {
+                    model.suggestFix(key: comment.id, problem: AIContext.fixProblem(thread: thread.comments, comment: comment, line: thread.line),
+                                     path: thread.path, pr: pr)
+                } label: { Image(systemName: "wand.and.stars") }
+                    .disabled(model.fixes[comment.id] != nil)
+                    .help("Ask \(engine.name) to fix what this comment asks for, as replacement code you can edit, then add as a GitHub suggested change.\(engine.isLocal ? "" : " Sends the PR description, the conversation and the file's diff to \(engine.name)'s provider.")")
+            }
         }
         .buttonStyle(.borderless)
     }

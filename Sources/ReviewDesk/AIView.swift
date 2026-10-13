@@ -263,17 +263,26 @@ struct RunView: View {
                 .background(Color.yellow.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
             }
             ForEach(Array(run.result.findings.enumerated()), id: \.offset) { index, finding in
-                FindingCard(finding: finding, files: changed, handled: run.handled.contains(index)) { includeSuggestion in
-                    model.accept(run.id, finding: index, includeSuggestion: includeSuggestion)
-                } dismiss: {
-                    model.dismiss(run.id, finding: index)
-                }
+                findingRow(index, finding, changed: changed)
             }
         }
         .padding(14)
         .background(Color.purple.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.purple.opacity(0.25)))
         .task { if model.files[pr.id] == nil { await model.loadFiles(pr) } }
+    }
+
+    /// A finding, then the fix the AI proposes for it, if asked.
+    @ViewBuilder
+    private func findingRow(_ index: Int, _ finding: Finding, changed: [FileChange]) -> some View {
+        let key = "\(run.id)#\(index)"
+        FindingCard(finding: finding, files: changed, handled: run.handled.contains(index),
+                    accept: { model.accept(run.id, finding: index, includeSuggestion: $0) },
+                    dismiss: { model.dismiss(run.id, finding: index) },
+                    fixing: model.fixes[key] != nil) {
+            if let path = finding.path { model.suggestFix(key: key, problem: AIContext.fixProblem(finding), path: path, pr: pr) }
+        }
+        FixPreview(key: key, pr: pr) { model.dismiss(run.id, finding: index) }
     }
 }
 
@@ -284,6 +293,9 @@ struct FindingCard: View {
     let accept: (_ includeSuggestion: Bool) -> Void
     let dismiss: () -> Void
     @Environment(\.markdownRepo) private var repo
+    /// A fix is being proposed or waits in its preview.
+    var fixing = false
+    var fix: () -> Void = {}
     @ViewState private var includeSuggestion = true
 
     private var placement: AIContext.Placement { AIContext.placement(finding, files: files, includeSuggestion: includeSuggestion) }
@@ -326,6 +338,11 @@ struct FindingCard: View {
                         .help(isInline
                               ? "Adds it as an inline comment to your pending review on GitHub: only you see it until you submit the review"
                               : "Adds it to the summary of your review")
+                    if finding.path != nil {
+                        Button("Suggest Fix", action: fix)
+                            .disabled(fixing)
+                            .help("Asks the AI for replacement code you can edit, then add as a GitHub suggested change. Sends the PR description and this file's diff to the engine's provider (nothing leaves the Mac with Ollama).")
+                    }
                     Button("Dismiss", action: dismiss).buttonStyle(.link)
                 }
             }
@@ -396,6 +413,92 @@ struct OutdatedAnalysisBanner: View {
             .task(id: AppModel.headPair(run, pr)) { await model.loadCommitsSince(run, pr: pr) }
         }
     }
+}
+
+/// The AI's proposed fix for a finding or a comment: the lines it replaces and the editable replacement. Nothing is
+/// posted until *Add to Pending Review*; *Discard* drops it.
+struct FixPreview: View {
+    @Environment(AppModel.self) private var model
+    let key: String
+    let pr: PullRequest
+    var accepted: () -> Void = {}
+    @ViewState private var code = ""
+    @ViewState private var comment = ""
+
+    var body: some View {
+        if let fix = model.fixes[key] {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "wand.and.stars").foregroundStyle(.purple)
+                    Text(fix.proposal == nil ? "Asking \(fix.engine.name) for a fix…" : "Suggested fix · \(fix.engine.name)")
+                        .font(.caption.bold()).foregroundStyle(.secondary)
+                    if fix.proposal == nil { ProgressView().controlSize(.small) }
+                    Spacer()
+                    if let proposal = fix.proposal, proposal.suggestion != nil {
+                        Text(verbatim: "\(fix.path):\(lines(proposal))").font(.caption.monospaced()).foregroundStyle(.secondary)
+                    }
+                }
+                if let proposal = fix.proposal {
+                    if proposal.suggestion == nil {
+                        MarkdownText(proposal.comment).font(.callout)
+                    } else {
+                        if let current = fix.patch.flatMap({ AIContext.newSideText(patch: $0, from: proposal.startLine, to: proposal.line) }) {
+                            codeBlock(current, color: .red).help("The lines it replaces, as they are now")
+                        }
+                        TextEditor(text: $code)
+                            .font(.system(.callout, design: .monospaced))
+                            .frame(minHeight: 60, maxHeight: 220)
+                            .padding(4)
+                            .background(Color.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.green.opacity(0.35)))
+                            .help("The replacement: edit it before adding it to your review")
+                        TextField("Comment posted with it", text: $comment, axis: .vertical).textFieldStyle(.roundedBorder)
+                        Text(note(proposal, files: model.files[pr.id] ?? [])).font(.caption).foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        if proposal.suggestion != nil {
+                            Button("Add to Pending Review") {
+                                model.acceptFix(key, suggestion: code, comment: comment, pr: pr)
+                                accepted()
+                            }
+                            .help("Adds it to your pending review on GitHub as a suggested change: only you see it until you submit the review")
+                        }
+                        Button("Discard") { model.fixes[key] = nil }.buttonStyle(.link)
+                    }
+                }
+            }
+            .padding(10)
+            .background(Color.purple.opacity(0.07), in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.purple.opacity(0.3)))
+            .onChange(of: fix.proposal, initial: true) { _, proposal in
+                code = proposal?.suggestion ?? ""
+                comment = proposal?.comment ?? ""
+            }
+        }
+    }
+
+    private func lines(_ proposal: FixProposal) -> String {
+        proposal.startLine == proposal.line ? "\(proposal.line)" : "\(min(proposal.startLine, proposal.line))–\(max(proposal.startLine, proposal.line))"
+    }
+
+    private func codeBlock(_ text: String, color: Color) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            Text(text.isEmpty ? " " : text).font(.system(.callout, design: .monospaced)).textSelection(.enabled).padding(8)
+        }
+        .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(color.opacity(0.3)))
+    }
+
+    /// Whether GitHub will offer "Commit suggestion", as for a finding's suggested change.
+    private func note(_ proposal: FixProposal, files: [FileChange]) -> String {
+        if case .inline(_, _, let body) = AIContext.placement(proposal.finding(path: fixPath), files: files),
+           body.contains("```suggestion") {
+            return "GitHub suggested change: the author can apply it in one click."
+        }
+        return "Sent as plain code in a comment: its lines aren't all in the diff, so GitHub can't apply it."
+    }
+
+    private var fixPath: String { model.fixes[key]?.path ?? "" }
 }
 
 /// The Claude Code session linked to this PR, or a prompt to link one.
