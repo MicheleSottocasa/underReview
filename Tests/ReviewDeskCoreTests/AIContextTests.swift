@@ -47,6 +47,8 @@ private func finding(_ path: String?, _ line: Int?) -> Finding {
     #expect(schema?["required"] as? [String] == ["summary", "findings", "keyAreas", "risks"])
     let findingFields = (((schema?["properties"] as? [String: Any])?["findings"] as? [String: Any])?["items"] as? [String: Any])?["required"] as? [String]
     #expect(findingFields?.contains("suggestion") == true && findingFields?.contains("startLine") == true)
+    let areaFields = (((schema?["properties"] as? [String: Any])?["keyAreas"] as? [String: Any])?["items"] as? [String: Any])?["required"] as? [String]
+    #expect(areaFields?.contains("side") == true) // strict mode needs every property listed
 }
 
 @Test func explainPromptMarksTheCommentAndIncludesTheDiff() {

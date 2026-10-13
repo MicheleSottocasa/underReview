@@ -61,7 +61,7 @@ extension AppModel {
 
     /// Opens Changes on a key area, selected in the Focus list. `index` is its position in its file's areas.
     func openInChanges(_ area: KeyArea, index: Int, pr: PullRequest) {
-        openInChanges(area.path, line: area.startLine, pr: pr)
+        openInChanges(area.path, line: area.startLine, side: area.isOld ? .left : .right, pr: pr)
         changesTarget?.areaIndex = index
     }
 

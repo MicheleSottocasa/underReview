@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import ReviewDeskCore
 
@@ -62,6 +63,9 @@ import Testing
     #expect(KeyArea(path: "a.swift", startLine: 3, endLine: 9, reason: "reworded").readKey == "a.swift:3-9:")
     #expect(KeyArea(path: "a.swift", startLine: 3, endLine: 9, reason: "x", risk: "data").readKey == "a.swift:3-9:data")
     #expect(KeyArea(path: "a.swift", reason: "x").readKey == "a.swift:file-:")
+    // Old-side areas get their own key; new-side ones keep the key saved before sides existed.
+    #expect(KeyArea(path: "a.swift", startLine: 3, endLine: 9, reason: "x", side: "old").readKey == "a.swift:3-9::old")
+    #expect(KeyArea(path: "a.swift", startLine: 3, endLine: 9, reason: "x", side: "new").readKey == "a.swift:3-9:")
 }
 
 @Test func readMarksDropOlderHeads() {
@@ -89,6 +93,26 @@ import Testing
     #expect(!KeyArea(path: "a", startLine: 10, endLine: 12, reason: "").contains(line: 13))
     #expect(KeyArea(path: "a", startLine: 7, reason: "").contains(line: 7))
     #expect(!KeyArea(path: "a", reason: "").contains(line: 1)) // whole-file areas don't tint every line
+}
+
+@Test func keyAreasCoverDiffLinesOnTheirSide() {
+    let removed = DiffLine(kind: .removed, text: "check()", oldLine: 11)
+    let added = DiffLine(kind: .added, text: "x", newLine: 11)
+    let context = DiffLine(kind: .context, text: "y", oldLine: 12, newLine: 13)
+    let new = KeyArea(path: "a", startLine: 11, endLine: 12, reason: "")
+    let old = KeyArea(path: "a", startLine: 11, endLine: 12, reason: "", side: "old")
+    #expect(new.covers(added) && !new.covers(removed) && !new.covers(context)) // context is new line 13
+    #expect(old.covers(removed) && !old.covers(added) && old.covers(context)) // context is old line 12
+    #expect(!old.covers(DiffLine(kind: .hunk, text: "@@")))
+    #expect(!KeyArea(path: "a", reason: "", side: "old").covers(removed)) // whole file
+    #expect(!KeyArea(path: "a", startLine: 11, reason: "", side: "sideways").isOld) // unknown sides read as new
+}
+
+@Test func keyAreasSavedBeforeSidesDecodeAsNewSide() throws {
+    let saved = try JSONDecoder().decode(KeyArea.self, from: Data(#"{"path":"a","startLine":3,"endLine":4,"reason":"r","risk":"data"}"#.utf8))
+    #expect(saved.side == nil && !saved.isOld)
+    let old = try JSONDecoder().decode(KeyArea.self, from: Data(#"{"path":"a","startLine":3,"endLine":null,"reason":"r","risk":"data","side":"old"}"#.utf8))
+    #expect(old.isOld)
 }
 
 @Test func focusedDiffFoldsTheHunksWithoutKeyAreasOrComments() {

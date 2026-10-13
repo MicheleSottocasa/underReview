@@ -95,6 +95,6 @@ extension Focus {
 extension KeyArea {
     /// Names the area in the saved read state: its file and lines, which a reworded reason doesn't change.
     public var readKey: String {
-        "\(path):\(startLine.map(String.init) ?? "file")-\(endLine.map(String.init) ?? ""):\(risk ?? "")"
+        "\(path):\(startLine.map(String.init) ?? "file")-\(endLine.map(String.init) ?? ""):\(risk ?? "")" + (isOld ? ":old" : "")
     }
 }

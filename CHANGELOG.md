@@ -5,6 +5,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+- **Key areas on removed code:** the AI can now point at code a pull request deletes (a dropped check, say), by its old line numbers. The diff marks those lines on the removed side, and Focus and Risk label them "Removed code, old lines …".
 - **Key Areas Only:** a toggle in Changes shows only the hunks with key areas or comments, folding the rest of each file behind an "N lines hidden" row you can click to open.
 - **Mark files Viewed as you read:** an option in Settings › General, off by default, marks a file as Viewed on GitHub once you've marked all its key areas as read.
 - **One reading list for Risk and Focus:** key areas are numbered in the same reading order in both, show which ones you've read, and can be marked as read from Risk too. Clicking one in Risk opens that exact area in *Changes › Focus*.
