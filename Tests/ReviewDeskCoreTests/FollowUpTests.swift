@@ -66,6 +66,11 @@ private func pr(head: String = "new", reviewed: String? = "old") -> PullRequest 
     // After a rebase GitHub still answers, from the merge base: the diff would include the base branch's changes.
     let runner = FakeRunner { _ in ok(#"{"status":"diverged","files":[{"filename":"upstream.py","status":"modified","additions":9,"deletions":0}]}"#) }
     await #expect(throws: GitHubError.rewritten) { try await GitHub(runner: runner).compareFiles(repo: "o/r", from: "old", to: "new") }
+    let gone = FakeRunner { _ in CommandResult(status: 1, stdout: Data(), stderr: "gh: No commit found for SHA: old (HTTP 422)") }
+    await #expect(throws: GitHubError.notFound("Commit old")) { try await GitHub(runner: gone).compareFiles(repo: "o/r", from: "old", to: "new") }
+    // Anything else (offline, rate limit) isn't about the commits: the caller reports it and can retry.
+    let offline = FakeRunner { _ in CommandResult(status: 1, stdout: Data(), stderr: "error connecting to api.github.com") }
+    await #expect(throws: CommandError.self) { try await GitHub(runner: offline).compareFiles(repo: "o/r", from: "old", to: "new") }
     let same = FakeRunner { _ in ok(#"{"status":"identical","files":[]}"#) }
     #expect(try await GitHub(runner: same).compareFiles(repo: "o/r", from: "a", to: "a").isEmpty)
 }

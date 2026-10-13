@@ -29,8 +29,12 @@ extension AppModel {
         } catch is CancellationError {
         } catch GitHubError.rewritten {
             missingComparisons[key] = "Those commits were rebased or rewritten since, so the whole pull request is shown."
-        } catch {
+        } catch GitHubError.notFound {
             missingComparisons[key] = "Those commits aren't on GitHub anymore (force-pushed?), so the whole pull request is shown."
+        } catch {
+            // Not about the commits (offline, rate limit): back to the whole diff, and picking them again retries.
+            commitSelections[pr.id] = nil
+            report(error)
         }
     }
 }

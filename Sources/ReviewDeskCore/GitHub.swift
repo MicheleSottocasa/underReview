@@ -621,7 +621,12 @@ public struct GitHub: Sendable {
             var status: String
             var files: [FileChange]?
         }
-        let data = try await runner.output("gh", ["api", "repos/\(repo)/compare/\(base)...\(head)", "--jq", "{status, files}"])
+        let data: Data
+        do {
+            data = try await runner.output("gh", ["api", "repos/\(repo)/compare/\(base)...\(head)", "--jq", "{status, files}"])
+        } catch CommandError.failed(_, _, let stderr) where stderr.contains("HTTP 404") || stderr.contains("HTTP 422") {
+            throw GitHubError.notFound("Commit \(base.prefix(7))") // gone, or a root commit's missing parent
+        }
         let comparison = try JSONDecoder().decode(Comparison.self, from: data)
         guard ["ahead", "identical"].contains(comparison.status) else { throw GitHubError.rewritten }
         return comparison.files ?? []
