@@ -98,3 +98,15 @@ import Testing
     try Data(#"{"name": "Small"}"#.utf8).write(to: url)
     #expect(try Theme.decode(Theme.fileData(url)).name == "Small")
 }
+
+@Test func importRefusesSymlinksToLargeFilesAndNonRegularFiles() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("theme-links-\(UUID())")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let big = dir.appendingPathComponent("big.json"), link = dir.appendingPathComponent("link.json")
+    try Data(count: Theme.maxFileSize + 1).write(to: big)
+    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: big)
+    #expect(throws: ThemeFileError("This file is too large to be a theme.")) { try Theme.fileData(link) }
+    #expect(throws: ThemeFileError("This isn't a regular file.")) { try Theme.fileData(URL(fileURLWithPath: "/dev/zero")) }
+    #expect(throws: ThemeFileError("This isn't a regular file.")) { try Theme.fileData(dir) }
+}
