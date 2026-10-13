@@ -664,6 +664,8 @@ struct FileDiffView: View {
     @ViewState private var jumpedTarget: UUID?
     /// Scroll id of the top of the file, above comments on lines no longer in the diff.
     private static let top = -1
+    /// Lines picked by clicking line numbers (Shift-click extends), as indexes into the parsed diff, to ask the AI about.
+    @ViewState private var selection: ClosedRange<Int>?
     private static let numberWidth: CGFloat = 42
     private static let markerWidth: CGFloat = 20
 
@@ -739,18 +741,23 @@ struct FileDiffView: View {
                                     let line = diff.lines[index]
                                     VStack(alignment: .leading, spacing: 0) {
                                         areaCallouts(callouts[index] ?? [])
-                                        unifiedRow(line, change: diff.changes[index], text: diff.text, commented: commented)
+                                        unifiedRow(line, index: index, change: diff.changes[index], text: diff.text, commented: commented)
                                         if let anchor = line.anchor(path: file.filename) {
                                             annotations(anchor, threads: shownThreads).padding(.leading, Self.numberWidth * 2 + Self.markerWidth)
                                         }
+                                        if selection?.upperBound == index { selectionChat(diff) }
                                     }
                                 }
                             case .split:
                                 ForEach(diff.rows.indices, id: \.self) { index in
+                                    let row = diff.rows[index]
                                     VStack(alignment: .leading, spacing: 0) {
                                         areaCallouts(callouts[index] ?? [])
-                                        splitRow(diff.rows[index], text: diff.text, commented: commented)
-                                        splitAnnotations(diff.rows[index], commented: commented, threads: shownThreads)
+                                        splitRow(row, diff: diff, commented: commented)
+                                        splitAnnotations(row, commented: commented, threads: shownThreads)
+                                        if let last = selection?.upperBound, [row.left, row.right].contains(where: { $0.flatMap { diff.offsets[$0] } == last }) {
+                                            selectionChat(diff)
+                                        }
                                     }
                                 }
                             }
@@ -767,6 +774,7 @@ struct FileDiffView: View {
                 .onAppear { hScroll.start() }
                 .onDisappear { hScroll.stop() }
                 .onChange(of: key, initial: true) { _, key in
+                    if let old = rendered, old.key.patch != key.patch { selection = nil } // indexes only hold for the same patch
                     rendered = RenderedDiff(key, path: file.filename)
                     cursor = nil // rows differ between the two layouts
                 }
@@ -853,8 +861,10 @@ struct FileDiffView: View {
     // MARK: Rows
 
     /// PyCharm layout: old code | old and new line numbers | new code.
-    private func splitRow(_ row: DiffRow, text: [DiffLine: AttributedString], commented: Set<ReviewDeskCore.Anchor>) -> some View {
+    private func splitRow(_ row: DiffRow, diff: RenderedDiff, commented: Set<ReviewDeskCore.Anchor>) -> some View {
         let left = side(row.left, left: true), right = side(row.right, left: false)
+        let text = diff.text
+        let leftIndex = row.left.flatMap { diff.offsets[$0] }, rightIndex = row.right.flatMap { diff.offsets[$0] }
         let leftColor = row.left == nil ? DiffColors.filler(row.change) : DiffColors.block(row.change, side: .left)
         let rightColor = row.right == nil ? DiffColors.filler(row.change) : DiffColors.block(row.change, side: .right)
         return Group {
@@ -865,8 +875,8 @@ struct FileDiffView: View {
                     HStack(spacing: 0) {
                         code(row.left, text: text).background(leftColor)
                         HStack(spacing: 0) {
-                            number(row.left?.oldLine).background(leftColor)
-                            number(row.right?.newLine).background(rightColor)
+                            number(row.left?.oldLine, select: leftIndex).background(leftColor)
+                            number(row.right?.newLine, select: rightIndex).background(rightColor)
                             marker(right ?? left, hovered: hovered, commented: commented).background(rightColor)
                         }
                         .overlay(alignment: .leading) { Rectangle().fill(DiffColors.separator).frame(width: 1) }
@@ -874,12 +884,13 @@ struct FileDiffView: View {
                         code(row.right, text: text).background(rightColor)
                             .overlay(alignment: .leading) { keyMark(row.right) }
                     }
+                    .overlay { if isSelected(leftIndex) || isSelected(rightIndex) { selectedTint } }
                 }
             }
         }
     }
 
-    private func unifiedRow(_ line: DiffLine, change: DiffChange?, text: [DiffLine: AttributedString],
+    private func unifiedRow(_ line: DiffLine, index: Int, change: DiffChange?, text: [DiffLine: AttributedString],
                             commented: Set<ReviewDeskCore.Anchor>) -> some View {
         let anchor = line.anchor(path: file.filename)
         let color = DiffColors.block(change, side: line.kind == .removed ? .left : .right)
@@ -889,13 +900,14 @@ struct FileDiffView: View {
             } else {
                 HoverRow { hovered in
                     HStack(spacing: 0) {
-                        number(line.oldLine)
-                        number(line.newLine)
+                        number(line.oldLine, select: index)
+                        number(line.newLine, select: index)
                         marker(anchor, hovered: hovered, commented: commented)
                         code(line, text: text)
                             .overlay(alignment: .leading) { keyMark(line) }
                     }
                     .background(color)
+                    .overlay { if isSelected(index) { selectedTint } }
                 }
             }
         }
@@ -926,12 +938,67 @@ struct FileDiffView: View {
         }
     }
 
-    private func number(_ value: Int?) -> some View {
+    /// A line number; clicking it selects the line at `select` (Shift-click extends the selection).
+    private func number(_ value: Int?, select index: Int?) -> some View {
         Text(value.map(String.init) ?? "")
             .foregroundStyle(DiffColors.lineNumber)
             .padding(.trailing, 6)
             .frame(width: Self.numberWidth, alignment: .trailing)
             .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .onTapGesture { if let index, value != nil { select(index) } }
+    }
+
+    // MARK: Selection
+
+    private func isSelected(_ index: Int?) -> Bool { index.map { selection?.contains($0) == true } ?? false }
+
+    /// A tint plus a bar on the leading edge, so a selection inside a changed block still stands out.
+    private var selectedTint: some View {
+        Color.accentColor.opacity(0.16).overlay(alignment: .leading) { Color.accentColor.frame(width: 3) }.allowsHitTesting(false)
+    }
+
+    private func select(_ index: Int) {
+        if NSEvent.modifierFlags.contains(.shift), let current = selection {
+            selection = min(current.lowerBound, index)...max(current.upperBound, index)
+        } else {
+            selection = selection == index...index ? nil : index...index
+        }
+    }
+
+    /// Under the last selected line: Explain and Ask about the selection, then the same chat as for a comment.
+    @ViewBuilder
+    private func selectionChat(_ diff: RenderedDiff) -> some View {
+        if let selection {
+            let lines = diff.lines[selection].filter { $0.kind != .hunk }
+            let key = "\(pr.id) \(file.filename) \(selection)"
+            let engine = model.preferredEngine(for: pr)
+            let sends = engine.isLocal ? "" : " Sends the PR description, this file's diff and the selected lines to \(engine.name)'s provider."
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
+                    Text("Selected \(AIContext.linesLabel(lines))").font(.caption.bold()).foregroundStyle(.secondary)
+                    Button { model.chatAboutLines(lines, file: file, pr: pr, key: key, answerFirst: true) } label: {
+                        Label("Explain", systemImage: "sparkles")
+                    }
+                    .disabled(model.explanations[key]?.isAnswering == true)
+                    .help("Explain these lines with \(engine.name), then ask follow-ups.\(sends)")
+                    Button { model.chatAboutLines(lines, file: file, pr: pr, key: key, answerFirst: false) } label: {
+                        Label("Ask", systemImage: "bubble.left.and.text.bubble.right")
+                    }
+                    .disabled(model.explanations[key] != nil)
+                    .help("Ask \(engine.name) your own question about these lines.\(sends)")
+                    Spacer()
+                    Button { self.selection = nil } label: { Image(systemName: "xmark") }
+                        .help("Clear the selection")
+                }
+                .buttonStyle(.borderless)
+                ExplanationView(key: key, subject: "these lines")
+            }
+            .font(.body)
+            .padding(10)
+            .modifier(ThreadBox(accent: .purple))
+            .padding(.horizontal, 12)
+        }
     }
 
     /// Comment bubble when the line has comments, "+" on hover to add one.
@@ -1123,6 +1190,8 @@ struct RenderedDiff {
     var widest: CGFloat
     /// Rows by new-side line and by comment anchor, matching the ForEach ids of `mode`.
     var index: DiffIndex
+    /// Each line's offset in `lines`, so side-by-side rows can name the lines they show.
+    var offsets: [DiffLine: Int]
 
     @MainActor init(_ key: Key, path: String) {
         let lines = Diff.parse(key.patch)
@@ -1132,6 +1201,7 @@ struct RenderedDiff {
             text[line] = FileDiffView.highlighted(line.text, tokens: syntax[line] ?? [])
         }
         (self.key, self.lines, self.text) = (key, lines, text)
+        offsets = Dictionary(lines.indices.map { (lines[$0], $0) }, uniquingKeysWith: { first, _ in first })
         changes = Diff.changes(lines)
         widest = Self.widest(lines.map(\.text))
         rows = key.mode == .split ? Diff.sideBySide(lines) : []

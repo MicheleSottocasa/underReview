@@ -523,7 +523,7 @@ struct GitHubCommentView<Badges: View>: View {
                 }
                 EditableCommentBody(pr: pr, comment: comment, editing: $editing).font(.callout)
                 ReactionBar(pr: pr, comment: comment).padding(.top, 2)
-                ExplanationView(comment: comment).padding(.top, 4)
+                ExplanationView(key: comment.id).padding(.top, 4)
                 FixPreview(key: comment.id, pr: pr).padding(.top, 4)
             }
         }
@@ -567,23 +567,25 @@ struct ExplainButton: View {
     }
 }
 
-/// The Explain chat under the comment: the answer, then follow-up questions with the same context.
+/// The Explain chat under a comment (or a diff selection): the answer, then follow-up questions with the same context.
 struct ExplanationView: View {
     @Environment(AppModel.self) private var model
-    let comment: Comment
+    /// The chat's key in `model.explanations`: the comment id, or the selection's.
+    let key: String
+    var subject = "this comment"
     @ViewState private var question = ""
 
     var body: some View {
-        if let chat = model.explanations[comment.id] {
+        if let chat = model.explanations[key] {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
                     Image(systemName: "sparkles").foregroundStyle(.purple)
-                    Text(chat.isAnswering && chat.messages.isEmpty ? "Asking \(chat.engine.name)…" : "Chat about this comment · \(chat.engine.name)")
+                    Text(chat.isAnswering && chat.messages.isEmpty ? "Asking \(chat.engine.name)…" : "Chat about \(subject) · \(chat.engine.name)")
                         .font(.caption.bold()).foregroundStyle(.secondary)
                     if chat.isAnswering { ProgressView().controlSize(.small) }
                     Spacer()
                     if !chat.isAnswering {
-                        Button { model.explanations[comment.id] = nil } label: { Image(systemName: "xmark") }
+                        Button { model.explanations[key] = nil } label: { Image(systemName: "xmark") }
                             .buttonStyle(.borderless)
                             .help("Close the chat")
                     }
@@ -615,14 +617,14 @@ struct ExplanationView: View {
                 // Once the context is ready: after the explanation, or straight away for a direct chat.
                 if !chat.prompt.isEmpty && !(chat.isAnswering && chat.messages.isEmpty) {
                     HStack {
-                        TextField(chat.messages.isEmpty ? "Ask about this comment…" : "Ask a follow-up…", text: $question)
+                        TextField(chat.messages.isEmpty ? "Ask about \(subject)…" : "Ask a follow-up…", text: $question)
                             .textFieldStyle(.roundedBorder)
                             .onSubmit(send)
                             .disabled(chat.isAnswering)
                         Button("Ask", action: send)
                             .disabled(chat.isAnswering || question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
-                    .help("Same context as the explanation: PR description, conversation and diff")
+                    .help("Same context as the first answer, resent with every question")
                 }
             }
             .padding(10)
@@ -634,6 +636,6 @@ struct ExplanationView: View {
     private func send() {
         let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        Task { if await model.askFollowUp(text, about: comment.id) { question = "" } }
+        Task { if await model.askFollowUp(text, about: key) { question = "" } }
     }
 }

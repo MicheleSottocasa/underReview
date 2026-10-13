@@ -415,39 +415,49 @@ extension AppModel {
     /// Asks the AI what a comment means, then keeps the chat open for follow-ups. Sends the PR description, the
     /// conversation and, for inline comments, that file's diff to the engine's provider (nothing leaves the Mac with Ollama).
     func explain(_ comment: Comment, thread: ReviewThread?, pr: PullRequest) {
-        guard !blockDemo(pr) else { return }
-        let engine = preferredEngine(for: pr)
-        explanations[comment.id] = Explanation(engine: engine)
-        Task {
-            do {
-                // One click sends at once, so nothing the reviewer hasn't seen listed: no project context here.
-                let prompt = try await chatContext(comment, thread: thread, pr: pr, projectContext: false)
-                explanations[comment.id]?.prompt = prompt
-                let answer = try await reviewer.ask(engine, prompt: prompt)
-                explanations[comment.id]?.messages.append(ChatMessage(.assistant, answer))
-                explanations[comment.id]?.isAnswering = false
-            } catch {
-                explanations[comment.id] = nil
-                report(error, engine.name)
-            }
+        // One click sends at once, so nothing the reviewer hasn't seen listed: no project context here.
+        startChat(comment.id, pr: pr, answerFirst: true) {
+            try await self.chatContext(comment, thread: thread, pr: pr, projectContext: false)
         }
     }
 
     /// Opens the chat without an explanation first: the reviewer's own question is the first message.
     /// Same context as `explain`; nothing is sent until they ask.
     func openChat(_ comment: Comment, thread: ReviewThread?, pr: PullRequest) {
-        guard !blockDemo(pr) else { return }
         guard explanations[comment.id] == nil else { return }
+        // Ask sends nothing until the first question, and the chat lists the project context before that.
+        startChat(comment.id, pr: pr, answerFirst: false) {
+            try await self.chatContext(comment, thread: thread, pr: pr, projectContext: true)
+        }
+    }
+
+    /// The same chat about lines selected in a file's diff (`key` names the selection): the PR description,
+    /// the file's diff and the selected lines go to the engine. Tool-less, like every chat.
+    func chatAboutLines(_ lines: [DiffLine], file: FileChange, pr: PullRequest, key: String, answerFirst: Bool) {
+        guard answerFirst || explanations[key] == nil else { return }
+        let prompt = AIContext.selectionPrompt(title: pr.title, body: details[pr.id]?.body ?? "", path: file.filename,
+                                               patch: file.patch ?? "", selected: lines, instructions: Prompts.selection)
+        startChat(key, pr: pr, answerFirst: answerFirst) { prompt }
+    }
+
+    /// Opens the chat under `key` once `context` is ready; with `answerFirst` the AI answers it straight away,
+    /// otherwise it waits for the reviewer's question.
+    private func startChat(_ key: String, pr: PullRequest, answerFirst: Bool, context: @escaping () async throws -> String) {
+        guard !blockDemo(pr) else { return }
         let engine = preferredEngine(for: pr)
-        explanations[comment.id] = Explanation(engine: engine)
+        explanations[key] = Explanation(engine: engine)
         Task {
             do {
-                // Ask sends nothing until the first question, and the chat lists the project context before that.
-                explanations[comment.id]?.prompt = try await chatContext(comment, thread: thread, pr: pr, projectContext: true)
-                explanations[comment.id]?.isAnswering = false
+                let prompt = try await context()
+                explanations[key]?.prompt = prompt
+                if answerFirst {
+                    let answer = try await reviewer.ask(engine, prompt: prompt)
+                    explanations[key]?.messages.append(ChatMessage(.assistant, answer))
+                }
+                explanations[key]?.isAnswering = false
             } catch {
-                explanations[comment.id] = nil
-                report(error)
+                explanations[key] = nil
+                report(error, answerFirst ? engine.name : nil)
             }
         }
     }
@@ -470,7 +480,7 @@ extension AppModel {
     }
 }
 
-/// The Explain chat under a comment: the first answer, then the reviewer's follow-ups and their answers.
+/// The Explain chat under a comment or a diff selection: the first answer, then the reviewer's follow-ups and their answers.
 struct Explanation {
     var engine: AIEngine
     /// The first prompt (PR description, conversation, diff), resent with every follow-up so the context stays put.
@@ -505,7 +515,7 @@ struct Fix {
 /// The AI prompts, as customized in Settings. An empty override means the built-in default.
 enum Prompts {
     static let reviewKey = "prompt.review", codeReviewKey = "prompt.codeReview", structureKey = "prompt.structure"
-    static let explainKey = "prompt.explain", followUpKey = "prompt.followUp", fixKey = "prompt.fix"
+    static let explainKey = "prompt.explain", followUpKey = "prompt.followUp", fixKey = "prompt.fix", selectionKey = "prompt.selection"
     static var fix: String { value(fixKey, AIContext.defaultFixInstructions) }
 
     static var review: String { value(reviewKey, AIContext.defaultReviewInstructions) }
@@ -513,6 +523,7 @@ enum Prompts {
     static var structure: String { value(structureKey, AIContext.defaultStructureInstructions) }
     static var explain: String { value(explainKey, AIContext.defaultExplainInstructions) }
     static var followUp: String { value(followUpKey, FollowUp.defaultInstructions) }
+    static var selection: String { value(selectionKey, AIContext.defaultSelectionInstructions) }
 
     private static func value(_ key: String, _ fallback: String) -> String {
         let custom = UserDefaults.standard.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
