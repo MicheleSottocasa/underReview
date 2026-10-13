@@ -71,7 +71,7 @@ extension AppModel {
         let line = line ?? EditorLink.firstChange(in: file.patch ?? "")
         guard let link = EditorLink.url(template: template, path: url.path, line: line),
               NSWorkspace.shared.urlForApplication(toOpen: link) != nil else {
-            lastError = "No app opens “\(template)” links. Pick another editor in Settings › Repositories."
+            lastError = "“\(template)” isn't an editor link any app opens (file: links aren't allowed). Pick another editor in Settings › Repositories."
             return
         }
         NSWorkspace.shared.open(link)
