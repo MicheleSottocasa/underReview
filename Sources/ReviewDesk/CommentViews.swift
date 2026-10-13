@@ -541,7 +541,8 @@ struct ExplainButton: View {
 
     var body: some View {
         let engine = model.preferredEngine(for: pr)
-        let sends = engine.isLocal ? "" : " Sends the comment, its conversation and the file's diff to \(engine.name)'s provider."
+        let project = model.contextSources(for: pr) == nil ? "" : ", the project's extra context (what fits the token budget)"
+        let sends = engine.isLocal ? "" : " Sends the comment, its conversation\(project) and the file's diff to \(engine.name)'s provider."
         let busy = model.explanations[comment.id]?.isAnswering == true
         HStack(spacing: 6) {
             Button { model.explain(comment, thread: thread, pr: pr) } label: { Image(systemName: "sparkles") }
@@ -575,6 +576,15 @@ struct ExplanationView: View {
                             .buttonStyle(.borderless)
                             .help("Close the chat")
                     }
+                }
+                if !chat.extra.isEmpty {
+                    let sent = chat.extra.filter(\.included), left = chat.extra.filter { !$0.included }
+                    Label("Project context: \(sent.count) file\(sent.count == 1 ? "" : "s") sent"
+                          + (left.isEmpty ? "" : ", \(left.count) left out (over the token budget, or not readable)"),
+                          systemImage: "books.vertical")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .help((sent.map { "Sent: \($0.path)" } + left.map { "Left out: \($0.path)\($0.excludedReason.map { " (\($0))" } ?? "")" })
+                            .joined(separator: "\n"))
                 }
                 ForEach(Array(chat.messages.enumerated()), id: \.offset) { _, message in
                     if message.role == .reviewer {

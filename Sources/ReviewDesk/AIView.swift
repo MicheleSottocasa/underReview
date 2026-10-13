@@ -192,6 +192,25 @@ struct ContextPanel: View {
                     .padding(.vertical, 3)
                 }
             }
+            if !context.extra.isEmpty {
+                Divider()
+                Text("Project context: reference material you attached to this project").font(.caption.bold()).foregroundStyle(.secondary)
+                    .padding(.horizontal, 12).padding(.top, 8)
+                ForEach($context.extra) { $file in
+                    HStack {
+                        Toggle(isOn: $file.included) { Text(file.path).font(.callout.monospaced()).lineLimit(1).truncationMode(.middle) }
+                            .disabled(file.excludedReason != nil)
+                        Spacer()
+                        if let reason = file.excludedReason {
+                            Text(reason).font(.caption).foregroundStyle(.secondary)
+                        } else {
+                            Text("\(file.tokens.formatted())").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 60, alignment: .trailing)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 3)
+                }
+            }
             Divider()
             HStack {
                 Text(context.fitsBudget

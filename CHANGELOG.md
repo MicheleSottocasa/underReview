@@ -33,6 +33,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 - **Faster first open:** the pull request list is kept on disk, so the sidebar shows it as soon as ReviewDesk opens (the footer says how old it is), and the first refresh only fetches the pull requests that changed since.
 - **To Review and My PRs:** the sidebar's Inbox is split in two. *To Review* lists other people's pull requests; *My PRs* lists yours, and each shows the reviews others left on it (how many approved, asked for changes or commented; hover for who).
 - **Outdated AI analysis is obvious:** when the author pushes after an AI review, AI Review, Risk and Changes show one banner ("The author pushed 3 commits since this analysis") with *Re-run* (same engine, model and effort) and *Show Changes Since* (GitHub's comparison). The sidebar row gets orange sparkles, the header an *AI analysis outdated* badge, and key areas in the diff are dimmed.
+- **Extra AI context per project:** right-click a project › *AI Context…* to attach docs, local folders or another GitHub repository. Codex and Ollama reviews list every file in *Prepare Context*, where you can deselect it. Claude Code's `/code-review` can read the folders, read-only. Explain and Ask send as much as fits the token budget and say what they left out.
 
 ## 0.8.1
 
