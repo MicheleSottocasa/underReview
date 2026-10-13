@@ -136,6 +136,8 @@ final class AppModel {
     /// PR id → the Claude Code session linked to it in AI Review.
     var agentLinks: [String: AgentLink] { didSet { save(agentLinksFile, agentLinks.filter { !Demo.owns($0.key) }) } }
     var runningAgents: [RunningAgent] = []
+    /// Repository (`owner/repo`) → the folder of its clone on this Mac.
+    var localClones: [String: String] { didSet { save(localClonesFile, localClones) } }
     /// Stored Claude Code sessions, newest first; stopped ones can be linked too.
     var recentSessions: [RunningAgent] = []
 
@@ -149,6 +151,7 @@ final class AppModel {
     let github: GitHub
     let reviewer: AIReviewer
     let agents: ClaudeAgents
+    let clones: LocalClone
     private let orgFile = JSONFile<Organization>.appSupport("organization.json")
     private let checkpointFile = JSONFile<[String: Snapshot]>.appSupport("checkpoints.json")
     private let draftsFile = JSONFile<ReviewDrafts>.appSupport("drafts.json")
@@ -157,6 +160,7 @@ final class AppModel {
     private let riskChecksFile = JSONFile<[String: [String: String]]>.appSupport("risk-checks.json")
     private let followUpsFile = JSONFile<[FollowUpRun]>.appSupport("follow-ups.json")
     private let prsFile = JSONFile<PRCache>.appSupport("prs.json")
+    private let localClonesFile = JSONFile<[String: String]>.appSupport("local-clones.json")
     private var pollTask: Task<Void, Never>?
     private var lastFullRefresh = Date.distantPast
 
@@ -181,9 +185,11 @@ final class AppModel {
         aiRuns = aiRunsFile.load(default: [])
         reviewer = AIReviewer(runner: runner)
         agents = ClaudeAgents(runner: runner)
+        clones = LocalClone(runner: runner)
         agentLinks = agentLinksFile.load(default: [:])
         riskChecks = riskChecksFile.load(default: [:])
         followUps = followUpsFile.load(default: [])
+        localClones = localClonesFile.load(default: [:])
     }
 
     var selectedPR: PullRequest? { selectedPRID.flatMap { prs[$0] } }

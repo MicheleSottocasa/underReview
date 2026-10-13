@@ -248,6 +248,7 @@ struct SettingsView: View {
             AppearanceSettings().tabItem { Label("Appearance", systemImage: "paintpalette") }
             AISettings().tabItem { Label("AI", systemImage: "sparkles") }
             PromptSettings().tabItem { Label("Prompts", systemImage: "text.bubble") }
+            CloneSettings().tabItem { Label("Repositories", systemImage: "folder") }
             ToolSettings().tabItem { Label("Tools", systemImage: "terminal") }
         }
         .frame(width: 640)
