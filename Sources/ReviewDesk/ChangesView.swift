@@ -401,7 +401,8 @@ struct FileDiffView: View {
             .background(.bar)
             Divider()
             if let patch = file.patch {
-                let diff = rendered?.patch == patch && rendered?.mode == mode ? rendered : nil
+                let key = RenderedDiff.Key(patch: patch, mode: mode, theme: ThemeStore.shared.current)
+                let diff = rendered?.key == key ? rendered : nil
                 let commented = commentedAnchors
                 let shownThreads = threads // once per redraw: `involves` runs a regex per thread
                 ScrollViewReader { proxy in
@@ -433,7 +434,7 @@ struct FileDiffView: View {
                     .font(.system(size: 12.5, design: .monospaced))
                 }
                 .background(DiffColors.editor)
-                .onChange(of: RenderedDiff.Key(patch: patch, mode: mode), initial: true) { _, key in
+                .onChange(of: key, initial: true) { _, key in
                     rendered = RenderedDiff(key, path: file.filename)
                 }
                 .task(id: Pair(target?.id, diff != nil)) {
@@ -527,7 +528,7 @@ struct FileDiffView: View {
 
     /// Marks lines inside the AI's key areas.
     private var keyBar: some View {
-        Rectangle().fill(Color.yellow.opacity(0.85)).frame(width: 3).help("Key area: read this before submitting")
+        Rectangle().fill(DiffColors.keyArea).frame(width: 3).help("Key area: read this before submitting")
     }
 
     private func number(_ value: Int?) -> some View {
@@ -648,7 +649,7 @@ struct FileDiffView: View {
             }
             .font(.body)
             .padding(10)
-            .modifier(ThreadBox(accent: .accentColor))
+            .modifier(ThreadBox(accent: DiffColors.draft))
         }
     }
 }
@@ -659,10 +660,12 @@ struct RenderedDiff {
     struct Key: Equatable {
         var patch: String
         var mode: DiffMode
+        /// Colors are baked into `text`, so a theme change renders again.
+        var theme: Theme
     }
 
-    var patch: String
-    var mode: DiffMode
+    var key: Key
+    var mode: DiffMode { key.mode }
     var lines: [DiffLine]
     /// Index-aligned with `lines`.
     var changes: [DiffChange?]
@@ -670,14 +673,14 @@ struct RenderedDiff {
     var rows: [DiffRow]
     var text: [DiffLine: AttributedString]
 
-    init(_ key: Key, path: String) {
+    @MainActor init(_ key: Key, path: String) {
         let lines = Diff.parse(key.patch)
         let syntax = Syntax.language(for: path).map { Syntax.tokens(diff: lines, language: $0) } ?? [:]
         var text: [DiffLine: AttributedString] = [:]
         for line in lines where line.kind != .hunk {
             text[line] = FileDiffView.highlighted(line.text, tokens: syntax[line] ?? [])
         }
-        (patch, mode, self.lines, self.text) = (key.patch, key.mode, lines, text)
+        (self.key, self.lines, self.text) = (key, lines, text)
         changes = Diff.changes(lines)
         rows = key.mode == .split ? Diff.sideBySide(lines) : []
     }
@@ -706,52 +709,4 @@ private struct Pair<A: Equatable, B: Equatable>: Equatable {
     var a: A
     var b: B
     init(_ a: A, _ b: B) { (self.a, self.b) = (a, b) }
-}
-
-/// PyCharm New UI diff palette, adapting to light and dark appearance.
-enum DiffColors {
-    private static func dynamic(dark: UInt32, light: UInt32) -> Color {
-        Color(nsColor: NSColor(name: nil) { appearance in
-            let hex = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
-            return NSColor(srgbRed: CGFloat(hex >> 16 & 0xFF) / 255, green: CGFloat(hex >> 8 & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
-        })
-    }
-
-    static let editor = dynamic(dark: 0x1E1F22, light: 0xFFFFFF)
-    static let text = dynamic(dark: 0xBCBEC4, light: 0x080808)
-    static let lineNumber = dynamic(dark: 0x6F737A, light: 0xAEB3C2)
-    static let separator = dynamic(dark: 0x393B40, light: 0xEBECF0)
-    static let fold = dynamic(dark: 0x2B2D30, light: 0xF2F3F5)
-    static let modified = dynamic(dark: 0x283A4A, light: 0xDBE8FB)
-    static let added = dynamic(dark: 0x294436, light: 0xDCF0DC)
-    static let removed = dynamic(dark: 0x3C3F44, light: 0xE6E7EA)
-    /// Review threads and comments by me, and threads started by others: neither the draft accent nor the stale orange.
-    static let mine = dynamic(dark: 0x4DB6AC, light: 0x00897B)
-    static let others = dynamic(dark: 0xB388EB, light: 0x8E44AD)
-
-    enum Side { case left, right }
-
-    static func block(_ change: DiffChange?, side: Side) -> Color {
-        switch change {
-        case .modified: modified
-        case .added: added
-        case .removed: removed
-        case nil: .clear
-        }
-    }
-
-    /// The empty side of an added or removed block: a faint version of the block color.
-    static func filler(_ change: DiffChange?) -> Color {
-        block(change, side: .left).opacity(0.45)
-    }
-
-    static func syntax(_ kind: SyntaxKind) -> Color {
-        switch kind {
-        case .keyword: dynamic(dark: 0xCF8E6D, light: 0x0033B3)
-        case .string: dynamic(dark: 0x6AAB73, light: 0x067D17)
-        case .comment: dynamic(dark: 0x7A7E85, light: 0x8C8C8C)
-        case .number: dynamic(dark: 0x2AACB8, light: 0x1750EB)
-        case .call: dynamic(dark: 0x56A8F5, light: 0x00627A)
-        }
-    }
 }
