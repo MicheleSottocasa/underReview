@@ -35,9 +35,19 @@ public enum Focus {
     }
 }
 
+extension Focus {
+    /// One PR's read marks (area key → head it was read at) after marking `key` read or unread at `head`. Marks
+    /// from older heads are dropped: a push makes every area unread again, so they'd never count.
+    public static func readMarks(_ marks: [String: String], setting key: String, read: Bool, head: String) -> [String: String] {
+        var marks = marks.filter { $0.value == head }
+        marks[key] = read ? head : nil
+        return marks
+    }
+}
+
 extension KeyArea {
     /// Names the area in the saved read state: its file and lines, which a reworded reason doesn't change.
     public var readKey: String {
-        "\(path):\(startLine.map(String.init) ?? "file")-\(endLine.map(String.init) ?? "")"
+        "\(path):\(startLine.map(String.init) ?? "file")-\(endLine.map(String.init) ?? ""):\(risk ?? "")"
     }
 }

@@ -30,10 +30,18 @@ import Testing
     #expect(next(read: [], after: ("gone", 3)) == "a#0")
 }
 
-@Test func readKeysNameTheFileAndLines() {
-    #expect(KeyArea(path: "a.swift", startLine: 3, endLine: 9, reason: "x").readKey == "a.swift:3-9")
-    #expect(KeyArea(path: "a.swift", startLine: 3, endLine: 9, reason: "reworded").readKey == "a.swift:3-9")
-    #expect(KeyArea(path: "a.swift", reason: "x").readKey == "a.swift:file-")
+@Test func readKeysNameTheFileLinesAndRisk() {
+    #expect(KeyArea(path: "a.swift", startLine: 3, endLine: 9, reason: "x").readKey == "a.swift:3-9:")
+    #expect(KeyArea(path: "a.swift", startLine: 3, endLine: 9, reason: "reworded").readKey == "a.swift:3-9:")
+    #expect(KeyArea(path: "a.swift", startLine: 3, endLine: 9, reason: "x", risk: "data").readKey == "a.swift:3-9:data")
+    #expect(KeyArea(path: "a.swift", reason: "x").readKey == "a.swift:file-:")
+}
+
+@Test func readMarksDropOlderHeads() {
+    let marks = ["a:1-2:": "old", "b:3-4:": "new"]
+    #expect(Focus.readMarks(marks, setting: "c:5-6:", read: true, head: "new") == ["b:3-4:": "new", "c:5-6:": "new"])
+    #expect(Focus.readMarks(marks, setting: "b:3-4:", read: false, head: "new") == [:])
+    #expect(Focus.readMarks(marks, setting: "a:1-2:", read: true, head: "newer") == ["a:1-2:": "newer"])
 }
 
 @Test func keyAreaRangesCoverTheirLinesOnly() {

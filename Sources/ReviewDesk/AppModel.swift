@@ -74,6 +74,7 @@ final class AppModel {
     /// PR id → risk question → head commit it was checked at. Kept locally, never sent anywhere.
     var riskChecks: [String: [String: String]] { didSet { save(riskChecksFile, riskChecks.filter { !Demo.owns($0.key) }) } }
     /// PR id → key area (`KeyArea.readKey`) → head commit it was read at. Kept locally, like `riskChecks`.
+    /// ponytail: a closed or merged PR's marks stay until it's marked again; prune with the PR list if the file grows.
     var readAreas: [String: [String: String]] { didSet { save(readAreasFile, readAreas.filter { !Demo.owns($0.key) }) } }
 
     /// Sidebar multi-selection. The detail follows the last single-selected PR and stays put otherwise.
