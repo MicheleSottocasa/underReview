@@ -5,6 +5,7 @@ import SwiftUI
 struct MarkdownText: View {
     let source: String
     @Environment(\.markdownRepo) private var repo
+    @Environment(\.markdownLinkTargets) private var targets
 
     init(_ source: String) { self.source = source }
 
@@ -12,18 +13,30 @@ struct MarkdownText: View {
         let blocks = Markdown.blocks(source, repo: repo)
         VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                if block.quoted {
-                    HStack(spacing: 10) {
-                        RoundedRectangle(cornerRadius: 1).fill(.tertiary).frame(width: 3)
-                        content(block).foregroundStyle(.secondary)
-                    }
+                // ponytail: SwiftUI's Text has no per-link hover or context menu, so the block's hover lists the
+                // pull requests and commits it links to, and links have no Copy / Add Pull Request… menu; an
+                // NSTextView renderer would allow both.
+                if let summary = Markdown.linkSummary(of: block.text, prs: targets.prs, repo: repo, commits: targets.commits) {
+                    quotable(block).help(summary)
                 } else {
-                    content(block)
+                    quotable(block)
                 }
             }
         }
         .textSelection(.enabled)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func quotable(_ block: MarkdownBlock) -> some View {
+        if block.quoted {
+            HStack(spacing: 10) {
+                RoundedRectangle(cornerRadius: 1).fill(.tertiary).frame(width: 3)
+                content(block).foregroundStyle(.secondary)
+            }
+        } else {
+            content(block)
+        }
     }
 
     @ViewBuilder
@@ -89,7 +102,22 @@ private struct MarkdownRepoKey: EnvironmentKey {
     static let defaultValue: String? = nil
 }
 
+/// What the app knows about link targets, for their hover: the pull requests it follows and the PR's commits.
+struct MarkdownLinkTargets {
+    var prs: [PullRequest] = []
+    var commits: [PRCommit] = []
+}
+
+private struct MarkdownLinkTargetsKey: EnvironmentKey {
+    static let defaultValue = MarkdownLinkTargets()
+}
+
 extension EnvironmentValues {
+    var markdownLinkTargets: MarkdownLinkTargets {
+        get { self[MarkdownLinkTargetsKey.self] }
+        set { self[MarkdownLinkTargetsKey.self] = newValue }
+    }
+
     /// The PR's repo, so Markdown can link `#123` and commit SHAs to it.
     var markdownRepo: String? {
         get { self[MarkdownRepoKey.self] }
@@ -108,6 +136,7 @@ struct LinkHandler: ViewModifier {
     func body(content: Content) -> some View {
         content
             .environment(\.markdownRepo, pr.repo)
+            .environment(\.markdownLinkTargets, MarkdownLinkTargets(prs: Array(model.prs.values), commits: model.details[pr.id]?.commits ?? []))
             .environment(\.openURL, OpenURLAction { url in
                 guard Markdown.opensOutside(url) else { return .discarded }
                 if let commit = PRCommit.linked(by: url, repo: pr.repo, in: model.details[pr.id]?.commits ?? []) {

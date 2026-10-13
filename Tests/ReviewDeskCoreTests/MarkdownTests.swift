@@ -126,3 +126,21 @@ private func links(_ markdown: String, repo: String? = "o/r") -> [String] {
     // `#12` and bare SHAs need the PR's repo; references to other repos don't.
     #expect(links("#12 a1b2c3d octo/cat#14", repo: nil) == ["octo/cat#14 -> https://github.com/octo/cat/pull/14"])
 }
+
+@Test func summarizesKnownLinksForTheirHover() {
+    func followed(_ number: Int, repo: String, state: String = "OPEN", draft: Bool = false) -> PullRequest {
+        PullRequest(id: "PR_\(number)", number: number, title: "Title \(number)", url: "", state: state, isDraft: draft, updatedAt: .now,
+                    headRefOid: "", headRefName: "", baseRefName: "", author: "", repo: repo, commentCount: 0, reviewCount: 0,
+                    threadCommentCount: 0, requestedReviewers: [], stack: nil)
+    }
+    let prs = [followed(12, repo: "o/r"), followed(13, repo: "o/r", draft: true), followed(14, repo: "octo/cat", state: "MERGED")]
+    let commits = [PRCommit(oid: "a1b2c3d4e5f6", abbreviatedOid: "a1b2c3d", headline: "Add the parser", author: "", date: nil)]
+    func summary(_ source: String) -> String? {
+        Markdown.linkSummary(of: Markdown.blocks(source, repo: "o/r")[0].text, prs: prs, repo: "o/r", commits: commits)
+    }
+    #expect(summary("See #12, #12 again, GH-13, octo/cat#14 and a1b2c3d.") ==
+        "#12 Title 12 (open)\n#13 Title 13 (draft)\nocto/cat#14 Title 14 (merged)\na1b2c3d Add the parser")
+    // Unknown pull requests and commits, and plain text, have nothing to show.
+    #expect(summary("See #99 and ffff111, or octo/cat@a1b2c3d.") == nil)
+    #expect(summary("No links here.") == nil)
+}
