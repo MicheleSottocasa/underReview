@@ -40,7 +40,8 @@ public enum ProjectContext {
     /// Text files of a local file or folder, as context entries. Only regular files inside the chosen folder are
     /// read: symbolic links are resolved and refused when they lead out of it, hidden files and folders (`.git`,
     /// `.env`…) are skipped, and binaries and files over `maxFileBytes` are listed as left out with the reason.
-    public static func readLocal(_ location: String) -> [ContextFile] {
+    /// At most `limit` entries (files read or left out, links refused); a huge folder is never walked to the end.
+    public static func readLocal(_ location: String, limit: Int = maxFiles) -> [ContextFile] {
         let fileManager = FileManager.default
         let expanded = (location as NSString).expandingTildeInPath
         // Names use the path as chosen; containment uses real paths on both sides (`/tmp` is `/private/tmp`).
@@ -52,30 +53,36 @@ public enum ProjectContext {
         guard isFolder.boolValue else { return [entry(URL(fileURLWithPath: root), shown: shown)] }
         let enumerator = fileManager.enumerator(atPath: root)
         var files: [ContextFile] = []
-        var skipped = 0
-        while let relative = enumerator?.nextObject() as? String {
+        var more = false
+        // Lazy: stops at the first entry past the limit instead of listing a whole home folder or disk first.
+        let add = { (file: ContextFile) -> Bool in
+            guard files.count < limit else { more = true; return false }
+            files.append(file)
+            return true
+        }
+        while !more, let relative = enumerator?.nextObject() as? String {
             if relative.split(separator: "/").contains(where: { $0.hasPrefix(".") }) {
                 if enumerator?.fileAttributes?[.type] as? FileAttributeType == .typeDirectory { enumerator?.skipDescendants() }
                 continue // hidden files and folders are never read
             }
             let name = shown + "/" + relative
             guard let target = realPath(root + "/" + relative), target.hasPrefix(root + "/") else {
-                files.append(ContextFile(path: name, content: nil, included: false, excludedReason: "Links outside the folder"))
+                _ = add(ContextFile(path: name, content: nil, included: false, excludedReason: "Links outside the folder"))
                 continue
             }
             // A visible link can lead to a hidden file (env-link -> .env): judge where it leads, not its own name.
             guard !target.dropFirst(root.count + 1).split(separator: "/").contains(where: { $0.hasPrefix(".") }) else {
-                files.append(ContextFile(path: name, content: nil, included: false, excludedReason: "Links to a hidden file"))
+                _ = add(ContextFile(path: name, content: nil, included: false, excludedReason: "Links to a hidden file"))
                 continue
             }
             guard (try? fileManager.attributesOfItem(atPath: target)[.type] as? FileAttributeType) == .typeRegular else { continue }
-            guard files.count < maxFiles else { skipped += 1; continue }
+            guard files.count < limit else { more = true; break } // checked before reading the file
             files.append(entry(URL(fileURLWithPath: target), shown: name))
         }
         files.sort { $0.path < $1.path }
-        if skipped > 0 {
+        if more {
             files.append(ContextFile(path: shown + "/…", content: nil, included: false,
-                                     excludedReason: "\(skipped) more file\(skipped == 1 ? "" : "s") not read (limit \(maxFiles))"))
+                                     excludedReason: "More files not read (limit \(limit))"))
         }
         return files
     }
