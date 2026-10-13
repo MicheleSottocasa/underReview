@@ -137,6 +137,8 @@ final class AppModel {
     var stackRuns: [String: StackRun] = [:]
     /// Comment id → AI explanation. In memory only: a fresh one is a click away.
     var explanations: [String: Explanation] = [:]
+    /// Finding ("run#index") or comment id → the AI's proposed fix, waiting for the reviewer. In memory only.
+    var fixes: [String: Fix] = [:]
     var aiTasks: [String: Task<Void, Never>] = [:]
     /// "oldHead..newHead" → commits pushed in between (nil: unknown), for the stale-analysis banner. In memory only.
     var commitsSince: [String: Int?] = [:]

@@ -36,6 +36,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 - **To Review and My PRs:** the sidebar's Inbox is split in two. *To Review* lists other people's pull requests; *My PRs* lists yours, and each shows the reviews others left on it (how many approved, asked for changes or commented; hover for who).
 - **Outdated AI analysis is obvious:** when the author pushes after an AI review, AI Review, Risk and Changes show one banner ("The author pushed 3 commits since this analysis") with *Re-run* (same engine, model and effort) and *Show Changes Since* (GitHub's comparison). The sidebar row gets orange sparkles, the header an *AI analysis outdated* badge, and key areas in the diff are dimmed.
 - **Extra AI context per project:** right-click a project › *AI Context…* to attach docs, local folders or another GitHub repository. Codex and Ollama reviews list every file in *Prepare Context*, where you can deselect it. Claude Code's `/code-review` can read the folders' non-hidden files with its read-only tools. *Ask* lists what fits the token budget in its chat before your first question is sent. One-click *Explain* and stack reviews leave it out.
+- **Suggest a fix:** *Suggest Fix* on an AI finding, or the wand on an inline review comment, asks the AI for replacement code. It shows the lines it would replace next to the fix, which you can edit. *Add to Pending Review* posts it as a GitHub suggested change the author applies in one click, or *Discard* drops it. Nothing is written to your code or pushed.
 
 ## 0.8.1
 

@@ -398,6 +398,7 @@ struct PromptSettings: View {
     @AppStorage(Prompts.reviewKey) private var review = ""
     @AppStorage(Prompts.explainKey) private var explain = ""
     @AppStorage(Prompts.followUpKey) private var followUp = ""
+    @AppStorage(Prompts.fixKey) private var fix = ""
 
     var body: some View {
         Form {
@@ -411,6 +412,8 @@ struct PromptSettings: View {
                    text: $followUp, fallback: FollowUp.defaultInstructions)
             editor("Explain a comment", note: "Starts the prompt. The PR description, the diff and the conversation are always appended.",
                    text: $explain, fallback: AIContext.defaultExplainInstructions)
+            editor("Suggest a fix", note: "Asks for a fix to a finding or a comment as a GitHub suggested change. The result format, the PR description, the file's diff with line numbers and the problem are always appended.",
+                   text: $fix, fallback: AIContext.defaultFixInstructions)
         }
         .formStyle(.grouped)
         .frame(minHeight: 560)
