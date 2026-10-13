@@ -329,6 +329,7 @@ struct PRRow: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
+            AgentSpinner(ids: [pr.id])
             ReviewIndicator(status: review)
             Indicators(muted: muted, requested: requested)
         }
@@ -353,6 +354,7 @@ struct StackHeader: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
+            AgentSpinner(ids: item.pullRequests.map(\.id))
             ReviewIndicator(status: review)
             Indicators(muted: muted, requested: false)
         }
@@ -372,9 +374,24 @@ struct StackChildRow: View {
             StateIcon(pr: pr)
             Text(pr.title).lineLimit(1).truncationMode(.tail)
             Spacer(minLength: 0)
+            AgentSpinner(ids: [pr.id])
             ReviewIndicator(status: review)
         }
         .help(Legend.row("\(pr.repo)#\(pr.number) by \(pr.author) · number \(pr.stackPosition ?? 0) from the bottom of the stack", pr: pr, review: review))
+    }
+}
+
+/// Spins while an AI review, follow-up check or stack run is working on one of these pull requests.
+struct AgentSpinner: View {
+    @Environment(AppModel.self) private var model
+    let ids: [String]
+
+    var body: some View {
+        let working = ids.filter { model.aiTasks[$0] != nil }
+        if !working.isEmpty {
+            ProgressView().controlSize(.mini)
+                .help(working.compactMap { model.aiStatus[$0] }.first ?? "An agent is working on this")
+        }
     }
 }
 

@@ -5,6 +5,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+- A spinner in the sidebar marks every pull request an AI review, follow-up check or stack run is working on; hover it to see what the agent is doing.
 ## 0.8.0
 
 - The pull request header shows how many lines the whole pull request adds and removes; hover for the number of files.
