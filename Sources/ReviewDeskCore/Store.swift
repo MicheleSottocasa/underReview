@@ -107,6 +107,16 @@ public struct Organization: Codable, Sendable, Equatable {
         placements[itemKey] = folder
     }
 
+    /// The project (top-level folder) an item is filed under, through any subfolders; nil when unfiled.
+    public func project(of itemKey: String) -> Folder? {
+        var folder = placements[itemKey].flatMap { id in folders.first { $0.id == id } }
+        var seen: Set<UUID> = []
+        while let parent = folder?.parentID, seen.insert(parent).inserted {
+            folder = folders.first { $0.id == parent }
+        }
+        return folder
+    }
+
     public func items(in folder: UUID) -> Set<String> {
         Set(placements.filter { $0.value == folder }.keys)
     }

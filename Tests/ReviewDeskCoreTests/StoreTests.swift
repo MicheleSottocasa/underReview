@@ -46,6 +46,16 @@ import Testing
     #expect(org.placements == ["pr:b": other.id])
 }
 
+@Test func anItemBelongsToTheProjectAboveItsFolder() {
+    var org = Organization()
+    let project = org.addFolder("Shop")
+    let sub = org.addFolder("Backend", in: project.id)
+    org.place("pr:a", in: sub.id)
+    org.place("pr:b", in: project.id)
+    #expect(org.project(of: "pr:a")?.id == project.id && org.project(of: "pr:b")?.id == project.id)
+    #expect(org.project(of: "pr:unfiled") == nil)
+}
+
 @Test func itemHasSingleLocation() {
     var org = Organization()
     let a = org.addFolder("A"), b = org.addFolder("B")

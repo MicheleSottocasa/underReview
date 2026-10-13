@@ -552,6 +552,23 @@ public struct GitHub: Sendable {
         return result
     }
 
+    public struct TreeEntry: Decodable, Hashable, Sendable {
+        public var path: String
+        public var size: Int
+    }
+
+    /// Every file of a repository at a ref (`HEAD` for the default branch), with its size in bytes.
+    // ponytail: GitHub truncates trees past 100,000 entries; walk subtrees if a huge repo needs more.
+    public func tree(repo: String, ref: String) async throws -> [TreeEntry] {
+        guard ContextSource.isRepositoryName(repo), !ref.split(separator: "/").contains("..") else {
+            throw GitHubError.notFound("Repository “\(repo)” at “\(ref)”")
+        }
+        let ref = ref.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? ref
+        let data = try await runner.output("gh", ["api", "repos/\(repo)/git/trees/\(ref)?recursive=1",
+                                                  "--jq", #"[.tree[] | select(.type == "blob") | {path, size}]"#])
+        return try JSONDecoder().decode([TreeEntry].self, from: data)
+    }
+
     /// Paths that differ between two commits (used to tell whether a draft went stale).
     public func changedPaths(repo: String, from base: String, to head: String) async throws -> Set<String> {
         let data = try await runner.output("gh", ["api", "repos/\(repo)/compare/\(base)...\(head)", "--jq", "[.files[].filename]"])
