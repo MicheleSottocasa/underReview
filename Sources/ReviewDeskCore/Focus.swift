@@ -59,6 +59,15 @@ extension Focus {
         marks[key] = read ? head : nil
         return marks
     }
+
+    /// The file to mark Viewed after `area` was marked read: its file, once every key area in it is read, unless it's
+    /// Viewed already. Nil otherwise.
+    public static func fileToMarkViewed(after area: KeyArea, in files: [FocusFile], viewed: Set<String>,
+                                        isRead: (KeyArea) -> Bool) -> String? {
+        guard !viewed.contains(area.path), let file = files.first(where: { $0.path == area.path }),
+              !file.areas.isEmpty, file.areas.allSatisfy(isRead) else { return nil }
+        return file.path
+    }
 }
 
 extension KeyArea {

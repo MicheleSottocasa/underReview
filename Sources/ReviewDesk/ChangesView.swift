@@ -686,6 +686,7 @@ struct FileDiffView: View {
     var areaBeyond: (_ forward: Bool) -> (() -> Void)? = { _ in nil }
     @AppStorage("wrapLines") private var wrap = false
     @AppStorage("involvedFilter") private var involvedOnly = false
+    @AppStorage(AppModel.autoMarkViewedKey) private var autoMarkViewed = false
     @ViewState private var composing: ReviewDeskCore.Anchor?
     @ViewState private var draftText = ""
     /// Lines whose comments the user folded away with the gutter bubble.
@@ -1166,6 +1167,7 @@ struct FileDiffView: View {
             Spacer(minLength: 0)
             Button(read ? "Mark as Unread" : "Mark as Read") { model.setRead(area, read: !read, pr: pr) }
                 .controlSize(.small)
+                .help(!read && autoMarkViewed ? "Once every key area of this file is read, the file is marked Viewed on GitHub (Settings › General)" : "")
         }
         .font(.body)
         .padding(10)

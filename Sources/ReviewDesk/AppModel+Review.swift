@@ -84,7 +84,16 @@ extension AppModel {
     func setRead(_ area: KeyArea, read: Bool, pr: PullRequest) {
         let marks = Focus.readMarks(readAreas[pr.id] ?? [:], setting: area.readKey, read: read, head: pr.headRefOid)
         readAreas[pr.id] = marks.isEmpty ? nil : marks
+        // Opt-in (Settings › General), since it writes to GitHub without a click on the Viewed checkbox.
+        guard read, !pr.isDemo, UserDefaults.standard.bool(forKey: Self.autoMarkViewedKey),
+              let path = Focus.fileToMarkViewed(after: area, in: focus(for: pr), viewed: viewedFiles[pr.id] ?? [],
+                                                isRead: { isRead($0, pr: pr) }),
+              !pending.contains("\(pr.id):\(path)") else { return }
+        Task { await toggleViewed(path, pr: pr) }
     }
+
+    /// Settings key: mark a file Viewed on GitHub once all its key areas are read. Off by default.
+    static let autoMarkViewedKey = "autoMarkViewed"
 
     /// Question 5 as a line in the review summary, so it's posted with the review.
     static let explainRequest = "Could you explain the approach in two or three sentences?"
