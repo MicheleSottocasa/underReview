@@ -62,6 +62,7 @@ struct DetailView: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(pr.title).font(.title2.bold()).textSelection(.enabled)
                 Spacer()
+                CheckOutButton(pr: pr)
                 Button("Open on GitHub") { model.openOnGitHub(pr) }
             }
             HStack(spacing: 8) {
