@@ -52,17 +52,34 @@ import Testing
         if call.args.contains("graphql") {
             return data(#"{"repository":{"f0":{"text":"guide","isBinary":false,"isTruncated":false},"f1":{"text":null,"isBinary":true,"isTruncated":false}}}"#)
         }
-        return ok(#"[{"path":"README.md","size":10},{"path":"docs/guide.md","size":5},{"path":"docs/diagram.png","size":40},{"path":"docs/dump.sql","size":500000}]"#)
+        // The folder's own tree lists paths relative to it.
+        return ok(#"{"truncated":false,"tree":[{"path":"guide.md","size":5},{"path":"diagram.png","size":40},{"path":"dump.sql","size":500000}]}"#)
     }
     let source = ContextSource(kind: .repository, location: "o/lib", path: "docs/", ref: "v2")
     let files = await ProjectContext.readRepository(source, github: GitHub(runner: runner))
-    #expect(runner.calls.first?.args.prefix(2) == ["api", "repos/o/lib/git/trees/v2?recursive=1"])
+    #expect(runner.calls.first?.args.prefix(2) == ["api", "repos/o/lib/git/trees/v2:docs?recursive=1"])
     #expect(files.map(\.path) == ["o/lib@v2:docs/diagram.png", "o/lib@v2:docs/dump.sql", "o/lib@v2:docs/guide.md"])
     var main = source
     main.ref = ""
     #expect(await ProjectContext.readRepository(main, github: GitHub(runner: runner)).map(\.path).contains("o/lib:docs/guide.md"))
     #expect(files.map(\.included) == [false, false, true] && files[2].content == "guide")
     #expect(files[1].excludedReason == "Larger than 100 KB")
+
+    // A huge repository's listing is cut by GitHub: say so instead of looking complete.
+    let truncated = FakeRunner { call in
+        call.args.contains("graphql") ? data(#"{"repository":{"f0":{"text":"r","isBinary":false,"isTruncated":false}}}"#)
+            : ok(#"{"truncated":true,"tree":[{"path":"README.md","size":1}]}"#)
+    }
+    let cut = await ProjectContext.readRepository(ContextSource(kind: .repository, location: "o/huge"), github: GitHub(runner: truncated))
+    #expect(cut.map(\.included) == [true, false] && cut[1].excludedReason?.hasPrefix("GitHub listed only part of it") == true)
+    // A single file isn't a tree: it's found in the whole repository's listing.
+    let single = FakeRunner { call in
+        if call.args.contains("graphql") { return data(#"{"repository":{"f0":{"text":"hi","isBinary":false,"isTruncated":false}}}"#) }
+        if call.args[1].contains(":README.md") { return CommandResult(status: 1, stdout: Data(), stderr: "HTTP 404") }
+        return ok(#"{"truncated":false,"tree":[{"path":"README.md","size":2},{"path":"src/a.c","size":2}]}"#)
+    }
+    let file = await ProjectContext.readRepository(ContextSource(kind: .repository, location: "o/r", path: "README.md"), github: GitHub(runner: single))
+    #expect(file.map(\.path) == ["o/r:README.md"] && file[0].content == "hi")
 
     let failing = FakeRunner { _ in CommandResult(status: 1, stdout: Data(), stderr: "HTTP 404") }
     let failed = await ProjectContext.readRepository(ContextSource(kind: .repository, location: "o/gone"), github: GitHub(runner: failing))
