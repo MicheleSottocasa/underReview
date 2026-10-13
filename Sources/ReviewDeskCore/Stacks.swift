@@ -12,8 +12,6 @@ public struct Item: Hashable, Identifiable, Sendable {
     public var repo: String { pullRequests.first?.repo ?? "" }
     /// Highest PR number in the item, i.e. the newest.
     public var number: Int { pullRequests.map(\.number).max() ?? 0 }
-    /// The viewer wrote it (any PR of a stack): the sidebar lists it under My PRs instead of To Review.
-    public var isViewers: Bool { pullRequests.contains(where: \.viewerIsAuthor) }
 }
 
 extension PullRequest {
@@ -32,6 +30,12 @@ public enum Stacks {
                 Item(key: key, pullRequests: members.sorted { ($0.stackPosition ?? 0, $0.number) < ($1.stackPosition ?? 0, $1.number) })
             }
             .sorted { ($0.repo, $1.number, $0.key) < ($1.repo, $0.number, $1.key) }
+    }
+
+    /// Keys of the items the viewer wrote (any PR of a stack): the sidebar lists them under My PRs, not To Review.
+    /// Pass every PR, not the state-filtered ones, so hiding a merged PR never moves its stack between sections.
+    public static func viewersItemKeys(_ prs: [PullRequest]) -> Set<String> {
+        Set(prs.filter(\.viewerIsAuthor).map(\.itemKey))
     }
 
     /// Stack members we don't have yet, so following one PR of a stack shows the whole stack.

@@ -25,10 +25,14 @@ private func pr(_ id: String, _ number: Int, stack: Int? = nil, entries: [String
 }
 
 @Test func itemsTheViewerWroteAreTheirs() {
+    // My merged bottom PR makes the whole stack mine, even with merged PRs filtered out of the sidebar.
     var mine = pr("A", 1, stack: 1, entries: ["A", "B"])
     mine.viewerIsAuthor = true
-    let items = Stacks.items([mine, pr("B", 2, stack: 1, entries: ["A", "B"]), pr("solo", 3)])
-    #expect(items.filter(\.isViewers).map(\.key) == ["stack:o/r#1"]) // one PR of the stack is enough
+    mine.state = "MERGED"
+    var standalone = pr("own", 4)
+    standalone.viewerIsAuthor = true
+    let keys = Stacks.viewersItemKeys([mine, pr("B", 2, stack: 1, entries: ["A", "B"]), pr("solo", 3), standalone])
+    #expect(keys == ["stack:o/r#1", "pr:own"])
 }
 
 @Test func mergedBottomPRStaysInStack() {

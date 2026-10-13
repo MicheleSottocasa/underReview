@@ -78,7 +78,8 @@ public struct PullRequest: Codable, Hashable, Identifiable, Sendable {
     public var mergeable: String?
     /// DIRTY, BEHIND, BLOCKED, CLEAN, UNSTABLE, HAS_HOOKS, DRAFT or UNKNOWN.
     public var mergeStateStatus: String?
-    /// Everyone else's latest submitted review, by login: APPROVED, CHANGES_REQUESTED, COMMENTED or DISMISSED.
+    /// Everyone else's review, by login: their latest APPROVED or CHANGES_REQUESTED, else their latest COMMENTED
+    /// or DISMISSED one.
     public var reviewsByOthers: [String: String] = [:]
 
     public var ref: PRRef { PRRef(nameWithOwner: repo, number: number) }
@@ -532,6 +533,7 @@ public struct GitHub: Sendable {
       comments { totalCount } reviews { totalCount }
       viewerDidAuthor viewerLatestReview { state commit { oid } }
       latestReviews(first: 20) { nodes { state viewerDidAuthor author { login } } }
+      latestOpinionatedReviews(first: 20) { nodes { state viewerDidAuthor author { login } } }
       pendingReview: reviews(states: PENDING, first: 1) { nodes { comments { totalCount } } }
       reviewThreads(first: 100) { nodes { isResolved
         comments(last: 1) { totalCount nodes { viewerDidAuthor } }
@@ -582,7 +584,10 @@ public struct GitHub: Sendable {
             changedFiles: node["changedFiles"] as? Int ?? 0,
             mergeable: node["mergeable"] as? String,
             mergeStateStatus: node["mergeStateStatus"] as? String,
-            reviewsByOthers: nodes(node["latestReviews"]).filter { $0["viewerDidAuthor"] as? Bool != true }
+            // A thread reply is a COMMENTED review, so the latest review can hide an earlier approval or
+            // change request: those come from the opinionated list and win.
+            reviewsByOthers: (nodes(node["latestReviews"]) + nodes(node["latestOpinionatedReviews"]))
+                .filter { $0["viewerDidAuthor"] as? Bool != true }
                 .reduce(into: [:]) { $0[login($1)] = $1["state"] as? String }
         )
     }
