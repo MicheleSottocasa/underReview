@@ -13,6 +13,29 @@ import Testing
     #expect(focus[2] == FocusFile(path: "c.swift", areas: [], pendingComments: 2))
 }
 
+@Test func nextUnreadFollowsReadingOrderAndWrapsAround() {
+    let a1 = KeyArea(path: "a", startLine: 1, reason: ""), a2 = KeyArea(path: "a", startLine: 9, reason: "")
+    let b1 = KeyArea(path: "b", reason: "whole file")
+    let files = [FocusFile(path: "a", areas: [a1, a2], pendingComments: 0), FocusFile(path: "b", areas: [b1], pendingComments: 0),
+                 FocusFile(path: "c", areas: [], pendingComments: 2)]
+    func next(read: [KeyArea], after current: (String, Int)?) -> String? {
+        Focus.nextUnread(files, isRead: { area in read.contains(area) }, after: current).map { "\($0.path)#\($0.index)" }
+    }
+    #expect(next(read: [], after: nil) == "a#0")
+    #expect(next(read: [], after: ("a", 0)) == "a#1")
+    #expect(next(read: [a2], after: ("a", 0)) == "b#0") // skips read areas, across files
+    #expect(next(read: [a2], after: ("b", 0)) == "a#0") // wraps around
+    #expect(next(read: [a1, a2], after: ("b", 0)) == "b#0") // the current one, when it's the only unread
+    #expect(next(read: [a1, a2, b1], after: nil) == nil)
+    #expect(next(read: [], after: ("gone", 3)) == "a#0")
+}
+
+@Test func readKeysNameTheFileAndLines() {
+    #expect(KeyArea(path: "a.swift", startLine: 3, endLine: 9, reason: "x").readKey == "a.swift:3-9")
+    #expect(KeyArea(path: "a.swift", startLine: 3, endLine: 9, reason: "reworded").readKey == "a.swift:3-9")
+    #expect(KeyArea(path: "a.swift", reason: "x").readKey == "a.swift:file-")
+}
+
 @Test func keyAreaRangesCoverTheirLinesOnly() {
     #expect(KeyArea(path: "a", startLine: 10, endLine: 12, reason: "").contains(line: 12))
     #expect(!KeyArea(path: "a", startLine: 10, endLine: 12, reason: "").contains(line: 13))

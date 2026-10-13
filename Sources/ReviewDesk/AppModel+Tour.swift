@@ -47,6 +47,7 @@ extension AppModel {
         aiRuns = aiRuns.filter { !Demo.owns($0.prID) }
         followUps = followUps.filter { !Demo.owns($0.prID) }
         riskChecks = riskChecks.filter { !Demo.owns($0.key) }
+        readAreas = readAreas.filter { !Demo.owns($0.key) }
         org = org.removingDemo()
         checkpoints = checkpoints.filter { !Demo.owns($0.key) }
     }

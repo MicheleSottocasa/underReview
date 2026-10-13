@@ -26,7 +26,7 @@ struct ChangesView: View {
         let notice = missing ?? (shown != nil && (changed?.count ?? 0) >= 300
             ? "GitHub lists at most 300 files when comparing commits, so some may be missing here." : nil)
         VStack(spacing: 0) {
-            ReviewBar(pr: pr, mode: $mode)
+            ReviewBar(pr: pr, mode: $mode, nextUnread: openNextUnread)
             Divider()
             let analysis = model.keyAreasRun(for: pr)
             if let analysis, analysis.isOutdated(for: pr) {
@@ -106,6 +106,14 @@ struct ChangesView: View {
     /// The file's key areas from the latest AI review, in the order the file list shows them.
     private func keyAreas(_ path: String) -> [KeyArea] {
         model.keyAreasRun(for: pr)?.result.keyAreas.filter { $0.path == path } ?? []
+    }
+
+    /// Opens the next key area not marked as read, in the Focus list's order, and shows that list.
+    private func openNextUnread() {
+        let current: (path: String, index: Int)? = if case .area(let path, let index)? = selection { (path, index) } else { nil }
+        guard let next = Focus.nextUnread(model.focus(for: pr), isRead: { model.isRead($0, pr: pr) }, after: current) else { return }
+        focusOnly = true
+        selection = .area(next.path, next.index)
     }
 
     /// Previous/next file in the order the file list shows them: the tree (narrowed by Involving Me), or the Focus list.
@@ -197,6 +205,7 @@ struct ReviewBar: View {
     @Environment(AppModel.self) private var model
     let pr: PullRequest
     @Binding var mode: DiffMode
+    var nextUnread: () -> Void = {}
     @AppStorage("wrapLines") private var wrap = false
     @AppStorage("involvedFilter") private var involvedOnly = false
     @ViewState private var finishing = false
@@ -225,6 +234,15 @@ struct ReviewBar: View {
                 CommitPicker(pr: pr, commits: commits)
             }
             MyReviewStatus(pr: pr, compact: true)
+            let areas = model.focus(for: pr).flatMap(\.areas)
+            if !areas.isEmpty {
+                let read = areas.filter { model.isRead($0, pr: pr) }.count
+                Text("\(read) of \(areas.count) key areas read").font(.callout).foregroundStyle(.secondary)
+                Button("Next Unread", action: nextUnread)
+                    .keyboardShortcut("u", modifiers: [.command, .control])
+                    .disabled(read == areas.count)
+                    .help("Open the next key area you haven't marked as read (⌃⌘U)")
+            }
             Spacer()
             if stale > 0 {
                 Label("\(stale) outdated", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.callout)
@@ -694,6 +712,8 @@ struct FileDiffView: View {
                 let key = RenderedDiff.Key(patch: patch, mode: mode, ink: ThemeStore.shared.ink)
                 let diff = currentDiff
                 let commented = commentedAnchors
+                // Key area index → the row its callout sits above; -1 for whole-file areas and lines not in the diff.
+                let callouts = Dictionary(grouping: keyAreas.indices) { areaRowsNow.indices.contains($0) ? areaRowsNow[$0] ?? -1 : -1 }
                 ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -703,6 +723,7 @@ struct FileDiffView: View {
                             Text("Comments on lines no longer in the diff").font(.caption).foregroundStyle(.secondary).padding([.top, .leading], 12)
                             ForEach(detached) { ThreadView(pr: pr, thread: $0, hidden: hiddenIDs) }
                         }
+                        if diff != nil { areaCallouts(callouts[-1] ?? []) }
                         if let diff {
                             switch mode {
                             case .unified:
@@ -710,6 +731,7 @@ struct FileDiffView: View {
                                 ForEach(diff.lines.indices, id: \.self) { index in
                                     let line = diff.lines[index]
                                     VStack(alignment: .leading, spacing: 0) {
+                                        areaCallouts(callouts[index] ?? [])
                                         unifiedRow(line, change: diff.changes[index], text: diff.text, commented: commented)
                                         if let anchor = line.anchor(path: file.filename) {
                                             annotations(anchor, threads: shownThreads).padding(.leading, Self.numberWidth * 2 + Self.markerWidth)
@@ -719,6 +741,7 @@ struct FileDiffView: View {
                             case .split:
                                 ForEach(diff.rows.indices, id: \.self) { index in
                                     VStack(alignment: .leading, spacing: 0) {
+                                        areaCallouts(callouts[index] ?? [])
                                         splitRow(diff.rows[index], text: diff.text, commented: commented)
                                         splitAnnotations(diff.rows[index], commented: commented, threads: shownThreads)
                                     }
@@ -979,6 +1002,49 @@ struct FileDiffView: View {
         .padding(.leading, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(DiffColors.fold)
+    }
+
+    // MARK: Key area callouts
+
+    /// Why the AI flagged the lines below, with a read toggle; under the new side, like a comment on it.
+    @ViewBuilder
+    private func areaCallouts(_ indices: [Int]) -> some View {
+        if !indices.isEmpty {
+            let column = VStack(alignment: .leading, spacing: 0) {
+                ForEach(indices, id: \.self) { areaCallout(keyAreas[$0]) }
+            }
+            switch mode {
+            case .unified:
+                column.padding(.leading, Self.numberWidth * 2 + Self.markerWidth).padding(.trailing, 12)
+            case .split:
+                HStack(alignment: .top, spacing: 0) {
+                    annotationColumn(nil, threads: [])
+                    Color.clear.frame(width: Self.numberWidth * 2 + Self.markerWidth, height: 0)
+                    column.frame(maxWidth: .infinity, alignment: .leading).padding(.trailing, 12)
+                }
+            }
+        }
+    }
+
+    /// Read areas fold to one line.
+    private func areaCallout(_ area: KeyArea) -> some View {
+        let read = model.isRead(area, pr: pr)
+        return HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: read ? "checkmark.circle.fill" : "scope").foregroundStyle(read ? Color.green : Color.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                if !read {
+                    Text("Key area · " + FileTree.lines(area) + (area.question.map { " · \($0.label)" } ?? ""))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Text(inlineMarkdown(area.reason)).lineLimit(read ? 1 : nil).foregroundStyle(read ? .secondary : .primary)
+            }
+            Spacer(minLength: 0)
+            Button(read ? "Mark as Unread" : "Mark as Read") { model.setRead(area, read: !read, pr: pr) }
+                .controlSize(.small)
+        }
+        .font(.body)
+        .padding(10)
+        .modifier(ThreadBox(accent: .orange, bar: read ? nil : .orange))
     }
 
     // MARK: Inline comments
