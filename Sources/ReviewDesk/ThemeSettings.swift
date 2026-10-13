@@ -452,7 +452,8 @@ struct IDEImportSheet: View {
                 ThemePreview(theme: result).environment(\.colorScheme, .light)
                 ThemePreview(theme: result).environment(\.colorScheme, .dark)
             }
-            ForEach(themes, id: \.dark) { theme in
+            ForEach(themes.indices, id: \.self) { index in
+                let theme = themes[index]
                 let taken = keys.filter { theme.colors[$0] != nil }, fallback = keys.filter { theme.colors[$0] == nil }
                 VStack(alignment: .leading, spacing: 4) {
                     Text(Self.label(theme)).bold()
