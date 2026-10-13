@@ -23,7 +23,7 @@ enum TourStep: Int, CaseIterable {
         case .sidebar:
             "Grouped by repository. **To Review** holds others' pull requests you're asked to review or assigned to; **My PRs** holds yours, with the reviews others left on them; **Projects** are your own folders (drag pull requests or stacks into them). A GitHub **stack** shows as one group. On each row: ✈ comments not sent yet, ✓ or ! your review, ↻ new commits since your review, ↩ replies you owe.\n\nThis stack is a fictional demo for the tour."
         case .header:
-            "Title, repository and number, author, branches (head → base) and the position in its stack. **Open on GitHub** opens it in your browser."
+            "Title, repository and number, author, and the branches (head → base): click a branch to copy its name. The short commit id opens the head commit on GitHub. The **stack** control steps to the pull request below or above, or jumps to any of them. The status line shows its state, merge conflicts, your review and what's waiting on you, then the other reviewers. **Open on GitHub** opens it in your browser."
         case .conversation:
             "The description, reviews and comments, in order. Edit, delete or react to comments, resolve conversations, and use ✨ **Explain** or 💬 **Ask** to chat with the AI about a comment.\n\nWhen the author pushes or replies after your review, a **Follow-up** tab checks whether each of your comments was handled (see the stack's first pull request)."
         case .risk:
