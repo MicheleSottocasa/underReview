@@ -9,7 +9,7 @@ public enum Demo {
     /// The PR the tour walks through: the top of the stack.
     public static let mainID = "DEMO_PR_42"
     public static let baseID = "DEMO_PR_41"
-    static let head = "demo0003", oldHead = "demo0002", baseHead = "demo0102", baseReviewed = "demo0101"
+    static let head = "demo003", oldHead = "demo002", baseHead = "demo102", baseReviewed = "demo101"
 
     /// GitHub logins can't contain dots, so these can't be real people (and no avatar is fetched for them).
     public static let viewer = "you.demo"
@@ -283,7 +283,16 @@ public enum Demo {
             findings: [Finding(severity: "medium", title: "Retries can email twice", rationale: "The task doesn't record that the email went out.",
                                path: "app/invites/tasks.py", line: 9, comment: "A retry after a timeout would send the invite again.")]))
         old.date = ago(4)
-        return [current, old]
+        // The base PR's only analysis predates its last push: its banner, sidebar icon and header badge show it.
+        var base = AIRun(prID: baseID, engine: .claudeCode, headRefOid: baseReviewed, result: ReviewResult(
+            summary: "Invites aren't unique per organisation yet, so the same email can be invited twice.",
+            findings: [Finding(severity: "medium", title: "Duplicate invites", rationale: "Nothing stops two invites for one email in one organisation.",
+                               path: "app/invites/models.py", line: 6, comment: "Could invites be unique per organisation?")],
+            keyAreas: [KeyArea(path: "app/invites/models.py", startLine: 1, endLine: 13, reason: "The invite model: check what keeps invites unique.", risk: "data")],
+            risks: [RiskAssessment(question: "data", level: "medium", answer: "Adds the `Invite` table in `models.py` without a uniqueness constraint.")]))
+        base.date = ago(6)
+        base.options = CodeReviewOptions(model: "", effort: "high")
+        return [current, old, base]
     }
 }
 

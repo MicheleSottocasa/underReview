@@ -306,6 +306,9 @@ enum Legend {
             default: break
             }
         }
+        if status.outdatedAnalysis {
+            lines.append("✨ Orange sparkles: the author pushed after the latest AI analysis, so it may be out of date. Run it again from AI Review or Risk.")
+        }
         if status.awaitingReply > 0 {
             let n = status.awaitingReply
             lines.append("↩ Purple arrow \(n): someone answered you in \(n == 1 ? "a conversation" : "\(n) conversations"), and it's your turn to reply.")
@@ -468,6 +471,10 @@ struct ReviewIndicator: View {
                     .help(Legend.review(ReviewStatus(changedSinceReview: true)).joined())
             } else if let submitted = status.submitted, let (symbol, color) = Self.submitted(submitted) {
                 Image(systemName: symbol).foregroundStyle(color).help(Legend.review(ReviewStatus(submitted: submitted)).joined())
+            }
+            if status.outdatedAnalysis {
+                Image(systemName: "sparkles").foregroundStyle(.orange)
+                    .help(Legend.review(ReviewStatus(outdatedAnalysis: true)).joined())
             }
             if status.awaitingReply > 0 {
                 Label("\(status.awaitingReply)", systemImage: "arrowshape.turn.up.left.fill")

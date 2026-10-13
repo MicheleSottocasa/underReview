@@ -1,9 +1,50 @@
-import Foundation
+import AppKit
 import ReviewDeskCore
 
 extension AppModel {
     func runs(for prID: String) -> [AIRun] {
         aiRuns.filter { $0.prID == prID }.sorted { $0.date > $1.date }
+    }
+
+    /// The latest analysis of an open PR predates its head: the author pushed since.
+    func hasOutdatedAnalysis(_ pr: PullRequest) -> Bool {
+        pr.state == "OPEN" && runs(for: pr.id).first?.isOutdated(for: pr) == true
+    }
+
+    /// Counts the commits pushed since `run`, once per pair of heads. A failure (the old head was force-pushed
+    /// away) leaves it unknown, and the banner says "new commits" instead.
+    func loadCommitsSince(_ run: AIRun, pr: PullRequest) async {
+        let key = "\(run.headRefOid)...\(pr.headRefOid)"
+        guard !pr.isDemo, commitsSince[key] == nil,
+              let count = try? await github.commitsAhead(repo: pr.repo, from: run.headRefOid, to: pr.headRefOid) else { return }
+        commitsSince[key] = count
+    }
+
+    /// Runs `run`'s analysis again on the current head, with the same engine (and model and effort, for /code-review).
+    /// Codex and Ollama show their context in the AI tab first, as always.
+    func rerun(_ run: AIRun, pr: PullRequest) {
+        guard !blockDemo(pr) else { return }
+        if run.engine.tool == "claude" {
+            let defaults = UserDefaults.standard
+            startCodeReview(pr, engine: run.engine, options: run.options ?? CodeReviewOptions(
+                model: defaults.string(forKey: "claudeModel") ?? "", effort: defaults.string(forKey: "reviewEffort") ?? "high"))
+            return
+        }
+        let defaults = UserDefaults.standard
+        if case .ollama(let model) = run.engine {
+            defaults.set("ollama", forKey: "aiEngine")
+            defaults.set(model, forKey: "ollamaModel")
+        } else {
+            defaults.set("codex", forKey: "aiEngine")
+        }
+        detailTab = .ai
+        contextRequest = pr.id
+    }
+
+    /// GitHub's compare view between the analysed commit and the current head.
+    func openChangesSince(_ run: AIRun, pr: PullRequest) {
+        guard !blockDemo(pr), let url = GitHub.compareURL(repo: pr.repo, from: run.headRefOid, to: pr.headRefOid) else { return }
+        NSWorkspace.shared.open(url)
     }
 
     /// Diff plus full files at head. Nothing is sent anywhere until the user runs the review.

@@ -67,6 +67,11 @@ struct DetailView: View {
             HStack(spacing: 8) {
                 StateBadge(pr: pr)
                 MergeBadges(pr: pr)
+                if model.hasOutdatedAnalysis(pr) {
+                    Button { model.detailTab = .ai } label: { Badge(text: "AI analysis outdated", color: .orange) }
+                        .buttonStyle(.plain)
+                        .help("The author pushed after the latest AI analysis. Open AI Review to run it again.")
+                }
                 Text(verbatim: "\(pr.repo)#\(pr.number) by \(pr.author)")
                 Text("\(pr.headRefName) → \(pr.baseRefName)").font(.caption.monospaced())
                 if let head = URL(string: "https://github.com/\(pr.repo)/commit/\(pr.headRefOid)") {
