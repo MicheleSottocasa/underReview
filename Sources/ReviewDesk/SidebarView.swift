@@ -9,6 +9,7 @@ struct SidebarView: View {
     @ViewState private var renaming: Folder?
     @ViewState private var newName = ""
     @ViewState private var confirmingStop: Set<String>?
+    @ViewState private var editingContext: Folder?
 
     var body: some View {
         @Bindable var model = model
@@ -77,6 +78,7 @@ struct SidebarView: View {
             }
         }
         .sheet(isPresented: $addingPR) { AddPRSheet() }
+        .sheet(item: $editingContext) { ProjectContextSheet(project: $0) { editingContext = nil } }
         .alert("Rename", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("Name", text: $newName)
             Button("Rename") {
@@ -110,6 +112,9 @@ struct SidebarView: View {
             Button("Rename…") {
                 newName = folder.name
                 renaming = folder
+            }
+            if folder.parentID == nil {
+                Button("AI Context…") { editingContext = folder }
             }
             Divider()
             Button("Delete Folder", role: .destructive) { model.deleteFolder(folder.id) }
@@ -586,6 +591,81 @@ struct FolderNode {
     /// Flattened with depth, for "Move to" menus.
     static func flat(_ org: Organization, parent: UUID? = nil, depth: Int = 0) -> [(folder: Folder, depth: Int)] {
         org.children(of: parent).flatMap { [($0, depth)] + flat(org, parent: $0.id, depth: depth + 1) }
+    }
+}
+
+/// A project's extra AI context: local docs or folders and other repositories, sent with its pull requests.
+struct ProjectContextSheet: View {
+    @Environment(AppModel.self) private var model
+    let project: Folder
+    let done: () -> Void
+    @ViewState private var repo = ""
+    @ViewState private var path = ""
+    @ViewState private var ref = ""
+
+    var body: some View {
+        let sources = model.projectContext[project.id] ?? []
+        let repoName = repo.trimmingCharacters(in: .whitespaces)
+        VStack(alignment: .leading, spacing: 12) {
+            Text("AI context for \(project.name)").font(.headline)
+            Text("Reference material sent to the AI with this project's pull requests, on top of the pull request itself. It goes to the provider of the engine you use (it stays on this Mac with Ollama). With Codex and Ollama, Prepare Context lists every file so you can deselect it; Claude Code's /code-review can read the folders, read-only; Explain sends what fits the token budget and says what it left out.")
+                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            List {
+                ForEach(sources) { source in
+                    HStack {
+                        Image(systemName: source.kind == .local ? "folder" : "shippingbox").foregroundStyle(.secondary).frame(width: 18)
+                        Text(source.label).font(.callout.monospaced()).lineLimit(1).truncationMode(.middle)
+                        Spacer()
+                        Button { model.projectContext[project.id]?.removeAll { $0.id == source.id } } label: { Image(systemName: "minus.circle") }
+                            .buttonStyle(.borderless)
+                            .help("Stop sending this")
+                    }
+                }
+            }
+            .listStyle(.bordered)
+            .frame(minHeight: 120)
+            .overlay { if sources.isEmpty { Text("No extra context yet").foregroundStyle(.secondary) } }
+            Button("Add Files or Folders…", action: choose)
+            GroupBox("Another GitHub repository, read through gh") {
+                HStack {
+                    TextField("owner/name", text: $repo)
+                    TextField("Folder or file (optional)", text: $path)
+                    TextField("Ref (optional)", text: $ref).help("A branch, tag or commit; the default branch when empty")
+                    Button("Add") {
+                        add(ContextSource(kind: .repository, location: repoName, path: path.trimmingCharacters(in: .whitespaces),
+                                          ref: ref.trimmingCharacters(in: .whitespaces)))
+                        (repo, path, ref) = ("", "", "")
+                    }
+                    .disabled(!ContextSource.isRepositoryName(repoName))
+                }
+                .padding(4)
+            }
+            Text("Up to \(ProjectContext.maxFiles) files per source and \(ProjectContext.maxFileBytes / 1000) KB per file; larger and binary files are listed as left out, never cut. In folders, hidden files (like .env) are skipped and links leading out of the folder are left out. Repositories use the default branch unless you name a ref; submodules and LFS content aren't fetched.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Done", action: done).keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(16)
+        .frame(width: 640, height: 540)
+    }
+
+    private func choose() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.prompt = "Add"
+        panel.message = "Docs or folders to send to the AI with this project's pull requests"
+        guard panel.runModal() == .OK else { return }
+        for url in panel.urls { add(ContextSource(kind: .local, location: url.path)) }
+    }
+
+    private func add(_ source: ContextSource) {
+        let sources = model.projectContext[project.id] ?? []
+        guard !sources.contains(where: { $0.kind == source.kind && $0.label == source.label }) else { return }
+        model.projectContext[project.id] = sources + [source]
     }
 }
 

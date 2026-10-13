@@ -120,6 +120,8 @@ final class AppModel {
     var aiRuns: [AIRun] { didSet { save(aiRunsFile, aiRuns.filter { !Demo.owns($0.prID) }) } }
     /// Checks of whether the author handled the viewer's comments, newest last.
     var followUps: [FollowUpRun] { didSet { save(followUpsFile, followUps.filter { !Demo.owns($0.prID) }) } }
+    /// Project (top-level folder) id → extra AI context sent with its pull requests.
+    var projectContext: [UUID: [ContextSource]] { didSet { save(projectContextFile, projectContext) } }
     /// PR id → what the AI is doing right now.
     var aiStatus: [String: String] = [:]
     /// PR id → the latest steps of a running review, newest last; cleared when it ends.
@@ -163,6 +165,7 @@ final class AppModel {
     private let followUpsFile = JSONFile<[FollowUpRun]>.appSupport("follow-ups.json")
     private let prsFile = JSONFile<PRCache>.appSupport("prs.json")
     private let localClonesFile = JSONFile<[String: String]>.appSupport("local-clones.json")
+    private let projectContextFile = JSONFile<[UUID: [ContextSource]]>.appSupport("project-context.json")
     private var pollTask: Task<Void, Never>?
     private var lastFullRefresh = Date.distantPast
 
@@ -192,6 +195,7 @@ final class AppModel {
         riskChecks = riskChecksFile.load(default: [:])
         followUps = followUpsFile.load(default: [])
         localClones = localClonesFile.load(default: [:])
+        projectContext = projectContextFile.load(default: [:])
     }
 
     var selectedPR: PullRequest? { selectedPRID.flatMap { prs[$0] } }
@@ -340,6 +344,7 @@ final class AppModel {
 
     func deleteFolder(_ id: UUID) {
         org.deleteFolder(id)
+        projectContext = projectContext.filter { entry in org.folders.contains { $0.id == entry.key } }
         selection = selection.filter { if case .folder(let folder) = $0 { org.folders.contains { $0.id == folder } } else { true } }
     }
 

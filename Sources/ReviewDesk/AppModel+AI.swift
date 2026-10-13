@@ -53,8 +53,30 @@ extension AppModel {
         let changed = files[pr.id] ?? []
         let paths = changed.filter { $0.status != "removed" && $0.patch != nil }.map(\.filename)
         let contents = try await github.fileContents(repo: pr.repo, paths: paths, ref: pr.headRefOid)
-        return AIContext.build(pr: pr, body: details[pr.id]?.body ?? "", files: changed, contents: contents, budget: budget,
-                               rules: await repoRules(pr, changed: changed))
+        var context = AIContext.build(pr: pr, body: details[pr.id]?.body ?? "", files: changed, contents: contents, budget: budget,
+                                      rules: await repoRules(pr, changed: changed))
+        context.extra = await extraContext(for: pr)
+        return context
+    }
+
+    /// The project this PR is filed in, with its extra AI context, when it has some.
+    func contextSources(for pr: PullRequest) -> (project: Folder, sources: [ContextSource])? {
+        guard let project = org.project(of: pr.itemKey), let sources = projectContext[project.id], !sources.isEmpty else { return nil }
+        return (project, sources)
+    }
+
+    /// Reads the project's extra context: local files on this Mac, repositories through `gh`. Nothing is sent
+    /// until a review or an Explain runs, and every file left out is listed with the reason.
+    func extraContext(for pr: PullRequest) async -> [ContextFile] {
+        var files: [ContextFile] = []
+        for source in contextSources(for: pr)?.sources ?? [] {
+            switch source.kind {
+            case .local: files += await Task.detached { ProjectContext.readLocal(source.location) }.value
+            case .repository: files += await ProjectContext.readRepository(source, github: github)
+            }
+        }
+        var seen: Set<String> = [] // two sources can overlap; each file goes once
+        return files.filter { seen.insert($0.path).inserted }
     }
 
     /// The repository's rule files on the PR's base branch: the rules the change has to follow. A failed fetch
@@ -210,10 +232,20 @@ extension AppModel {
             logStep(rules.isEmpty ? "No repository rules found (AGENTS.md, CONTRIBUTING.md…)"
                                   : "Repository rules: " + RepoRules.candidates(changed: changed.map(\.filename)).filter { rules[$0] != nil }.joined(separator: ", "),
                     pr: key)
+            // The project's folders are readable with the same read-only tools; other sources need Prepare Context.
+            let sources = contextSources(for: pr)?.sources ?? []
+            let folders = ProjectContext.folders(sources)
+            if !folders.isEmpty {
+                logStep("Project context, readable (read-only): " + folders.map { ($0 as NSString).abbreviatingWithTildeInPath }.joined(separator: ", "), pr: key)
+            }
+            let unused = sources.filter { ProjectContext.folders([$0]).isEmpty } // single files and repositories
+            if !unused.isEmpty {
+                logStep("Not used by /code-review (Codex, Ollama and Explain use them): " + unused.map(\.label).joined(separator: ", "), pr: key)
+            }
             aiStatus[key] = "Running /code-review (\(options.effort))\(on) with \(engine.name)…"
             let context = AIContext.build(pr: pr, body: details[pr.id]?.body ?? "", files: changed, contents: [:],
                                           budget: UserDefaults.standard.object(forKey: "aiBudget") as? Int ?? 150_000, rules: rules)
-            let result = try await reviewer.codeReview(engine, prURL: pr.url, context: context, options: options,
+            let result = try await reviewer.codeReview(engine, prURL: pr.url, context: context, options: options, folders: folders,
                                                        instructions: Prompts.codeReview, structureInstructions: Prompts.structure) { step in
                 Task { @MainActor in self.logStep(step, pr: key) }
             }
@@ -342,14 +374,21 @@ extension AppModel {
         }
     }
 
-    /// The material both chats start from: PR description, the comment's conversation and its file's diff.
+    /// The material both chats start from: PR description, the comment's conversation and its file's diff, plus the
+    /// project's extra context while it fits the token budget (the chat names what it sent and what it left out).
     private func chatContext(_ comment: Comment, thread: ReviewThread?, pr: PullRequest) async throws -> String {
         if thread != nil, files[pr.id] == nil { files[pr.id] = try await github.files(pr.ref) }
         let conversation = thread?.comments ?? Array((details[pr.id]?.comments ?? []).prefix { $0.id != comment.id }.suffix(10) + [comment])
-        return AIContext.explainPrompt(
-            title: pr.title, body: details[pr.id]?.body ?? "", path: thread?.path, line: thread?.line,
-            patch: thread.flatMap { thread in files[pr.id]?.first { $0.filename == thread.path }?.patch },
-            conversation: conversation, comment: comment, instructions: Prompts.explain)
+        let prompt = { (extra: [ContextFile]) in
+            AIContext.explainPrompt(
+                title: pr.title, body: self.details[pr.id]?.body ?? "", path: thread?.path, line: thread?.line,
+                patch: thread.flatMap { thread in self.files[pr.id]?.first { $0.filename == thread.path }?.patch },
+                conversation: conversation, comment: comment, extra: extra, instructions: Prompts.explain)
+        }
+        let budget = UserDefaults.standard.object(forKey: "aiBudget") as? Int ?? 150_000
+        let extra = ProjectContext.fitting(await extraContext(for: pr), budget: budget - AIContext.estimateTokens(prompt([])))
+        explanations[comment.id]?.extra = extra
+        return prompt(extra)
     }
 }
 
@@ -360,6 +399,8 @@ struct Explanation {
     var prompt = ""
     var messages: [ChatMessage] = []
     var isAnswering = true
+    /// The project's extra context: the included entries are in `prompt`, the rest were left out.
+    var extra: [ContextFile] = []
 }
 
 /// The AI prompts, as customized in Settings. An empty override means the built-in default.
