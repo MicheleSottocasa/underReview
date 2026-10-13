@@ -30,7 +30,9 @@ public struct LocalClone: Sendable {
     }
 
     /// Files git leaves in its folder while an operation waits for the user; a checkout then would mix branches.
-    static let operationMarkers = ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG", "rebase-merge", "rebase-apply"]
+    /// `sequencer` outlives a resolved conflict in a multi-commit cherry-pick or revert, with a clean status.
+    static let operationMarkers = ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG", "rebase-merge", "rebase-apply",
+                                   "sequencer"]
 
     let runner: any CommandRunner
 
