@@ -46,7 +46,8 @@ extension AppModel {
     }
 
     /// Diff plus full files at head. Nothing is sent anywhere until the user runs the review.
-    func prepareContext(_ pr: PullRequest, budget: Int) async throws -> ReviewContext {
+    /// `projectContext` is false for stack reviews: they run without showing the context first, so nothing extra may go.
+    func prepareContext(_ pr: PullRequest, budget: Int, projectContext: Bool = true) async throws -> ReviewContext {
         if pr.isDemo { throw DemoError.readOnly }
         if files[pr.id] == nil { files[pr.id] = try await github.files(pr.ref) }
         if details[pr.id] == nil { await loadDetail(pr.id) }
@@ -55,7 +56,7 @@ extension AppModel {
         let contents = try await github.fileContents(repo: pr.repo, paths: paths, ref: pr.headRefOid)
         var context = AIContext.build(pr: pr, body: details[pr.id]?.body ?? "", files: changed, contents: contents, budget: budget,
                                       rules: await repoRules(pr, changed: changed))
-        context.extra = await extraContext(for: pr)
+        if projectContext { context.extra = await extraContext(for: pr) }
         return context
     }
 
@@ -147,7 +148,11 @@ extension AppModel {
         } else {
             do {
                 aiStatus[pr.id] = "Preparing the context…"
-                let context = try await prepareContext(pr, budget: budget)
+                // A stack review never shows its context, so the project's extra context (sent only once seen) stays out.
+                if contextSources(for: pr) != nil {
+                    logStep("Project context isn't used in stack reviews; review the PR on its own to include it", pr: pr.id)
+                }
+                let context = try await prepareContext(pr, budget: budget, projectContext: false)
                 if context.fitsBudget {
                     aiStatus[pr.id] = "Reviewing with \(engine.name)…"
                     await review(pr, engine: engine, context: context)
