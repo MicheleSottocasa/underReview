@@ -557,16 +557,27 @@ public struct GitHub: Sendable {
         public var size: Int
     }
 
-    /// Every file of a repository at a ref (`HEAD` for the default branch), with its size in bytes.
-    // ponytail: GitHub truncates trees past 100,000 entries; walk subtrees if a huge repo needs more.
-    public func tree(repo: String, ref: String) async throws -> [TreeEntry] {
-        guard ContextSource.isRepositoryName(repo), !ref.split(separator: "/").contains("..") else {
+    public struct TreeListing: Decodable, Sendable {
+        /// Paths from the repository root.
+        public var tree: [TreeEntry]
+        /// GitHub stopped listing (past about 100,000 entries or 7 MB): some files are missing from `tree`.
+        public var truncated: Bool
+    }
+
+    /// Every file of a repository at a ref (`HEAD` for the default branch), or only under the folder `path`, with
+    /// its size in bytes. Asking for the folder's own tree keeps big repositories under GitHub's listing limit.
+    /// Throws when `path` isn't a folder.
+    public func tree(repo: String, ref: String, path: String = "") async throws -> TreeListing {
+        guard ContextSource.isRepositoryName(repo), !(ref + "/" + path).split(separator: "/").contains("..") else {
             throw GitHubError.notFound("Repository “\(repo)” at “\(ref)”")
         }
-        let ref = ref.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? ref
-        let data = try await runner.output("gh", ["api", "repos/\(repo)/git/trees/\(ref)?recursive=1",
-                                                  "--jq", #"[.tree[] | select(.type == "blob") | {path, size}]"#])
-        return try JSONDecoder().decode([TreeEntry].self, from: data)
+        let encode = { (text: String) in text.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? text }
+        let object = path.isEmpty ? encode(ref) : "\(encode(ref)):\(encode(path))" // `ref:path` names the folder's tree
+        let data = try await runner.output("gh", ["api", "repos/\(repo)/git/trees/\(object)?recursive=1",
+                                                  "--jq", #"{truncated, tree: [.tree[] | select(.type == "blob") | {path, size}]}"#])
+        var listing = try JSONDecoder().decode(TreeListing.self, from: data)
+        if !path.isEmpty { listing.tree = listing.tree.map { TreeEntry(path: path + "/" + $0.path, size: $0.size) } }
+        return listing
     }
 
     /// Paths that differ between two commits (used to tell whether a draft went stale).

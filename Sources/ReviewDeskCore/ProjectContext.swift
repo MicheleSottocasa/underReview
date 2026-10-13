@@ -116,9 +116,19 @@ public enum ProjectContext {
         // The ref is part of the name: the same repository at two refs gives two different files.
         let name = { (path: String) in "\(source.location)\(source.ref.isEmpty ? "" : "@\(source.ref)"):\(path)" }
         do {
-            let blobs = try await github.tree(repo: source.location, ref: ref)
-                .filter { prefix.isEmpty || $0.path == prefix || $0.path.hasPrefix(prefix + "/") }
+            // A folder's own tree; a single file isn't a tree, so it's looked up in the whole repository's.
+            var listing: GitHub.TreeListing
+            if !prefix.isEmpty, let folder = try? await github.tree(repo: source.location, ref: ref, path: prefix) {
+                listing = folder
+            } else {
+                listing = try await github.tree(repo: source.location, ref: ref)
+            }
+            let blobs = listing.tree.filter { prefix.isEmpty || $0.path == prefix || $0.path.hasPrefix(prefix + "/") }
             var files: [ContextFile] = []
+            if listing.truncated {
+                files.append(ContextFile(path: name("…"), content: nil, included: false,
+                                         excludedReason: "GitHub listed only part of it: some files weren't read (pick a smaller folder)"))
+            }
             var wanted: [String] = []
             for blob in blobs.prefix(maxFiles) {
                 if blob.size > maxFileBytes {
