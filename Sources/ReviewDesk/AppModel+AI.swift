@@ -13,7 +13,14 @@ extension AppModel {
         let changed = files[pr.id] ?? []
         let paths = changed.filter { $0.status != "removed" && $0.patch != nil }.map(\.filename)
         let contents = try await github.fileContents(repo: pr.repo, paths: paths, ref: pr.headRefOid)
-        return AIContext.build(pr: pr, body: details[pr.id]?.body ?? "", files: changed, contents: contents, budget: budget)
+        return AIContext.build(pr: pr, body: details[pr.id]?.body ?? "", files: changed, contents: contents, budget: budget,
+                               rules: await repoRules(pr, changed: changed))
+    }
+
+    /// The repository's rule files on the PR's base branch: the rules the change has to follow. A failed fetch
+    /// just means a review without them; it shouldn't block the review.
+    func repoRules(_ pr: PullRequest, changed: [FileChange]) async -> [String: String] {
+        (try? await github.fileContents(repo: pr.repo, paths: RepoRules.candidates(changed: changed.map(\.filename)), ref: pr.baseRefName)) ?? [:]
     }
 
     func startReview(_ pr: PullRequest, engine: AIEngine, context: ReviewContext) {
@@ -87,8 +94,15 @@ extension AppModel {
             if files[pr.id] == nil { files[pr.id] = try await github.files(pr.ref) }
             if details[pr.id] == nil { await loadDetail(pr.id) }
             // Diffs only: they let the second pass pick key areas; /code-review fetches the PR itself.
-            let context = AIContext.build(pr: pr, body: details[pr.id]?.body ?? "", files: files[pr.id] ?? [], contents: [:],
-                                          budget: UserDefaults.standard.object(forKey: "aiBudget") as? Int ?? 150_000)
+            let changed = files[pr.id] ?? []
+            aiStatus[pr.id] = "Reading the repository's rules…"
+            let rules = await repoRules(pr, changed: changed)
+            logStep(rules.isEmpty ? "No repository rules found (AGENTS.md, CONTRIBUTING.md…)"
+                                  : "Repository rules: " + RepoRules.candidates(changed: changed.map(\.filename)).filter { rules[$0] != nil }.joined(separator: ", "),
+                    pr: pr.id)
+            aiStatus[pr.id] = "Running /code-review (\(options.effort)) with \(engine.name)…"
+            let context = AIContext.build(pr: pr, body: details[pr.id]?.body ?? "", files: changed, contents: [:],
+                                          budget: UserDefaults.standard.object(forKey: "aiBudget") as? Int ?? 150_000, rules: rules)
             let result = try await reviewer.codeReview(engine, prURL: pr.url, context: context, options: options,
                                                        instructions: Prompts.codeReview, structureInstructions: Prompts.structure) { step in
                 Task { @MainActor in self.logStep(step, pr: pr.id) }

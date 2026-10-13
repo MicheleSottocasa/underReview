@@ -161,6 +161,20 @@ struct ContextPanel: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 3)
             }
+            if !context.rules.isEmpty {
+                Divider()
+                Text("Repository rules (base branch): checked against the change").font(.caption.bold()).foregroundStyle(.secondary)
+                    .padding(.horizontal, 12).padding(.top, 8)
+                ForEach($context.rules) { $rule in
+                    HStack {
+                        Toggle(isOn: $rule.included) { Text(rule.path).font(.callout.monospaced()).lineLimit(1).truncationMode(.middle) }
+                        Spacer()
+                        Text("\(rule.tokens.formatted())").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 60, alignment: .trailing)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 3)
+                }
+            }
             Divider()
             HStack {
                 Text(context.fitsBudget

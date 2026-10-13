@@ -105,13 +105,20 @@ public struct ReviewContext: Sendable {
     public var body: String
     public var files: [ContextFile]
     public var budget: Int
+    /// The repository's rule files (AGENTS.md, CONTRIBUTING.md…), shown and sent like files.
+    public var rules: [ContextFile] = []
 
-    public var tokens: Int { files.filter(\.included).reduce(AIContext.estimateTokens(title + body)) { $0 + $1.tokens } }
+    public init(title: String, body: String, files: [ContextFile], budget: Int, rules: [ContextFile] = []) {
+        (self.title, self.body, self.files, self.budget, self.rules) = (title, body, files, budget, rules)
+    }
+
+    public var tokens: Int { (files + rules).filter(\.included).reduce(AIContext.estimateTokens(title + body)) { $0 + $1.tokens } }
 
     /// Keeps files in order while they fit the budget; the rest are left out and named in the prompt.
+    /// Rules always stay: they're short, and reviewing against them is the point.
     public func fittingBudget() -> ReviewContext {
         var context = self
-        var used = AIContext.estimateTokens(title + body)
+        var used = rules.filter(\.included).reduce(AIContext.estimateTokens(title + body)) { $0 + $1.tokens }
         for index in context.files.indices where context.files[index].included {
             if used + context.files[index].tokens > budget { context.files[index].included = false } else { used += context.files[index].tokens }
         }
@@ -152,12 +159,14 @@ public enum AIContext {
     public static func estimateTokens(_ text: String) -> Int { text.utf8.count / 4 + 1 }
 
     /// Diff plus full content of each changed file at head. Files GitHub gave no patch for are listed as excluded.
-    public static func build(pr: PullRequest, body: String, files: [FileChange], contents: [String: String], budget: Int) -> ReviewContext {
+    public static func build(pr: PullRequest, body: String, files: [FileChange], contents: [String: String], budget: Int,
+                             rules: [String: String] = [:]) -> ReviewContext {
         let contextFiles = files.map { file in
             let reason: String? = file.patch == nil ? "GitHub omitted the diff (binary or too large)" : nil
             return ContextFile(path: file.filename, patch: file.patch, content: contents[file.filename], included: reason == nil, excludedReason: reason)
         }
-        return ReviewContext(title: pr.title, body: body, files: contextFiles, budget: budget)
+        return ReviewContext(title: pr.title, body: body, files: contextFiles, budget: budget,
+                             rules: RepoRules.contextFiles(rules, changed: files.map(\.filename)))
     }
 
     /// How key areas are asked for, shared by every review prompt.
@@ -183,6 +192,8 @@ public enum AIContext {
     Report real problems (bugs, security, data loss, concurrency, missing error handling, unclear code) as findings.
     For inline findings set `path` and `line` to a line number on the NEW side of the diff that appears in a hunk.
     Use null path/line for general remarks. `comment` is the text to post on GitHub, in Markdown.
+    Check the change against the repository rules included below (AGENTS.md, CLAUDE.md, CONTRIBUTING.md and the
+    like): report each violation as a finding that quotes the rule, but skip rules a linter or formatter enforces.
     \(keyAreasInstructions)
     """
 
@@ -196,7 +207,9 @@ public enum AIContext {
     /// the JSON schema, the report and the diff are always appended.
     public static let defaultStructureInstructions = """
     Below is a code review of a GitHub pull request, written by Claude Code's /code-review, followed by the PR's diff.
-    Turn the review into findings: one per issue it reports, never adding issues it doesn't contain. For each, keep
+    Turn the review into findings: one per issue it reports, never adding issues it doesn't contain, except that you
+    check the diff against the repository rules (if included) and add a finding for each clear violation the review
+    didn't report, quoting the rule; skip rules a linter or formatter enforces. For each finding, keep
     the review's substance in `comment` (the text to post on GitHub, in Markdown), pick a severity (critical, high,
     medium or low), write a short title and the rationale, and set `path` and `line` to a line on the NEW side of the
     diff that appears in a hunk, or null for general remarks. `summary` is the review's verdict in two or three
@@ -219,6 +232,8 @@ public enum AIContext {
         \(report)
 
         """
+        // /code-review's helper agent never sees our instructions, so the rules are checked here, against the diff.
+        text += RepoRules.section(context.rules)
         for file in context.files where file.included {
             text += "\n## Diff: \(file.path)\n```diff\n\(file.patch ?? "")\n```\n"
         }
@@ -240,6 +255,7 @@ public enum AIContext {
         \(context.body)
 
         """
+        text += RepoRules.section(context.rules)
         for file in context.files where file.included {
             text += "\n## Diff: \(file.path)\n```diff\n\(file.patch ?? "")\n```\n"
             if let content = file.content {
