@@ -60,9 +60,10 @@ public struct LocalClone: Sendable {
     /// Checks out the pull request's head branch with `gh pr checkout`, after making sure nothing in the clone can
     /// be lost or mixed up: no uncommitted changes to tracked files, no merge, rebase, cherry-pick, revert or bisect
     /// under way, no detached commits left unreachable, and no untracked or ignored file where the pull request adds
-    /// one (git overwrites ignored files on checkout). Returns the branch now checked out.
+    /// one (git overwrites ignored files on checkout). `head` is the PR's head branch name, which gh reuses for the
+    /// local branch. Returns the branch now checked out.
     @discardableResult
-    public func checkout(_ pr: PRRef, in folder: URL) async throws -> String {
+    public func checkout(_ pr: PRRef, head: String, in folder: URL) async throws -> String {
         let (top, remote) = try await clone(folder, repo: pr.nameWithOwner)
         let dir = top.path
         let status = try await runner.output("git", ["-C", dir, "status", "--porcelain", "--untracked-files=no"])
@@ -76,12 +77,15 @@ public struct LocalClone: Sendable {
             throw Failure.unreachableHead(folder: dir)
         }
         _ = try await runner.output("git", ["-C", dir, "fetch", remote, "refs/pull/\(pr.number)/head"], timeout: .seconds(180))
-        // `--no-renames`: a rename or copy onto an ignored path (`git mv config.example .env`) is an addition too.
-        // `-z`: otherwise git C-quotes non-ASCII paths (`"caf\303\251.txt"`) and none would be found on disk.
-        let added = try await runner.output("git", ["-C", dir, "diff", "--name-only", "-z", "--no-renames", "--diff-filter=A",
-                                                    "HEAD", "FETCH_HEAD"])
+        var added = try await paths(dir, addedBy: "FETCH_HEAD")
+        // With a same-named local branch, gh first checks out its old tip and then fast-forwards: an ignored file
+        // that tip tracks would be overwritten, then deleted by the fast-forward.
+        let localHead = "refs/heads/\(head)"
+        if try await runner.run("git", ["-C", dir, "rev-parse", "--verify", "-q", localHead]).status == 0 {
+            added += try await paths(dir, addedBy: localHead).filter { !added.contains($0) }
+        }
         // The tree is clean, so a file the PR adds that is already on disk is untracked or ignored.
-        let inTheWay = String(decoding: added, as: UTF8.self).split(separator: "\0").map(String.init).filter {
+        let inTheWay = added.filter {
             (try? FileManager.default.attributesOfItem(atPath: top.appendingPathComponent($0).path)) != nil
         }
         guard inTheWay.isEmpty else { throw Failure.untrackedFilesInTheWay(folder: dir, paths: inTheWay) }
@@ -97,6 +101,14 @@ public struct LocalClone: Sendable {
             throw Failure.checkoutFailed(detail: error.localizedDescription, branch: branch)
         }
         return try await text("git", ["-C", dir, "branch", "--show-current"])
+    }
+
+    /// Files `rev` has that HEAD doesn't. `--no-renames`: a rename or copy onto an ignored path
+    /// (`git mv config.example .env`) is an addition too. `-z`: otherwise git C-quotes non-ASCII paths
+    /// (`"caf\303\251.txt"`) and none would be found on disk.
+    private func paths(_ dir: String, addedBy rev: String) async throws -> [String] {
+        let out = try await runner.output("git", ["-C", dir, "diff", "--name-only", "-z", "--no-renames", "--diff-filter=A", "HEAD", rev])
+        return String(decoding: out, as: UTF8.self).split(separator: "\0").map(String.init)
     }
 
     private func text(_ tool: String, _ args: [String]) async throws -> String {
