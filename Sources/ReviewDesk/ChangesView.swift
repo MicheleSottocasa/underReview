@@ -86,7 +86,7 @@ struct ReviewBar: View {
                 .help("Soft-wrap long lines")
             Toggle(isOn: $involvedOnly) { Label("Involving Me", systemImage: "person.crop.circle") }
                 .toggleStyle(.button)
-                .help("Show only the review threads you started, replied in or are @mentioned in, and only the files that have one")
+                .help("Show only the review threads you started, replied in or are @mentioned in, and, when there are some, only the files that have one")
             Spacer()
             if stale > 0 {
                 Label("\(stale) outdated", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.callout)
@@ -237,9 +237,9 @@ struct FileTree: View {
                     focusRows(focus)
                 } else {
                     if involvedOnly && involved.isEmpty {
-                        Text("No review threads involving you.").font(.caption).foregroundStyle(.secondary)
+                        Text("No review threads involve you, so all files are listed.").font(.caption).foregroundStyle(.secondary)
                     }
-                    ForEach(rows(FileNode.tree(involvedOnly ? files.filter { involved[$0.filename] != nil } : files), depth: 0), id: \.node.id) { row in
+                    ForEach(rows(FileNode.tree(involvedOnly && !involved.isEmpty ? files.filter { involved[$0.filename] != nil } : files), depth: 0), id: \.node.id) { row in
                         if let file = row.node.file {
                             fileRow(file, name: row.node.name, involved: involved[file.filename])
                                 .padding(.leading, CGFloat(row.depth) * 14 + 16)
@@ -403,10 +403,11 @@ struct FileDiffView: View {
             if let patch = file.patch {
                 let diff = rendered?.patch == patch && rendered?.mode == mode ? rendered : nil
                 let commented = commentedAnchors
+                let shownThreads = threads // once per redraw: `involves` runs a regex per thread
                 ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        let detached = threads.filter { $0.line == nil }
+                        let detached = shownThreads.filter { $0.line == nil }
                         if !detached.isEmpty {
                             Text("Comments on lines no longer in the diff").font(.caption).foregroundStyle(.secondary).padding([.top, .leading], 12)
                             ForEach(detached) { ThreadView(pr: pr, thread: $0, hidden: hiddenIDs) }
@@ -418,13 +419,13 @@ struct FileDiffView: View {
                                     let line = diff.lines[index]
                                     unifiedRow(line, change: diff.changes[index], text: diff.text, commented: commented)
                                     if let anchor = line.anchor(path: file.filename) {
-                                        annotations(anchor).padding(.leading, Self.numberWidth * 2 + Self.markerWidth)
+                                        annotations(anchor, threads: shownThreads).padding(.leading, Self.numberWidth * 2 + Self.markerWidth)
                                     }
                                 }
                             case .split:
                                 ForEach(diff.rows.indices, id: \.self) { index in
                                     splitRow(diff.rows[index], text: diff.text, commented: commented)
-                                    splitAnnotations(diff.rows[index], commented: commented)
+                                    splitAnnotations(diff.rows[index], commented: commented, threads: shownThreads)
                                 }
                             }
                         }
@@ -610,27 +611,27 @@ struct FileDiffView: View {
 
     /// Comments sit under the pane of the side they're anchored to, like PyCharm.
     @ViewBuilder
-    private func splitAnnotations(_ row: DiffRow, commented: Set<ReviewDeskCore.Anchor>) -> some View {
+    private func splitAnnotations(_ row: DiffRow, commented: Set<ReviewDeskCore.Anchor>, threads: [ReviewThread]) -> some View {
         let left = side(row.left, left: true), right = side(row.right, left: false)
         let shown = { (anchor: ReviewDeskCore.Anchor?) in anchor.map { commented.contains($0) || composing == $0 } ?? false }
         if shown(left) || shown(right) {
             HStack(alignment: .top, spacing: 0) {
-                annotationColumn(left)
+                annotationColumn(left, threads: threads)
                 Color.clear.frame(width: Self.numberWidth * 2 + Self.markerWidth)
-                annotationColumn(right)
+                annotationColumn(right, threads: threads)
             }
         }
     }
 
-    private func annotationColumn(_ anchor: ReviewDeskCore.Anchor?) -> some View {
+    private func annotationColumn(_ anchor: ReviewDeskCore.Anchor?, threads: [ReviewThread]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let anchor { annotations(anchor) }
+            if let anchor { annotations(anchor, threads: threads) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
-    private func annotations(_ anchor: ReviewDeskCore.Anchor) -> some View {
+    private func annotations(_ anchor: ReviewDeskCore.Anchor, threads: [ReviewThread]) -> some View {
         if !collapsed.contains(anchor) {
             ForEach(threads.filter { $0.line == anchor.line && $0.side == anchor.side }) {
                 ThreadView(pr: pr, thread: $0, hidden: hiddenIDs).font(.body)
