@@ -14,6 +14,12 @@ struct ChangesView: View {
     @ViewState private var target: LineTarget?
 
     var body: some View {
+        // Some commits instead of the whole PR: their comparison, or the whole diff when GitHub can't make it.
+        let bounds = model.commitSelection(for: pr).bounds(commits: model.details[pr.id]?.commits ?? [], pr: pr)
+        let key = bounds.map { AppModel.comparisonKey(pr, base: $0.base, head: $0.head) }
+        let missing = key.map(model.missingComparisons.contains) ?? false
+        let shown = key.flatMap { missing ? nil : $0 }
+        let changed = if let shown { model.comparisons[shown] } else { model.files[pr.id] }
         VStack(spacing: 0) {
             ReviewBar(pr: pr, mode: $mode)
             Divider()
@@ -22,7 +28,15 @@ struct ChangesView: View {
                 OutdatedAnalysisBanner(pr: pr, run: analysis).padding(8)
                 Divider()
             }
-            if let files = model.files[pr.id] {
+            if missing {
+                Label("Those commits aren't on GitHub anymore (force-pushed?), so the whole pull request is shown.",
+                      systemImage: "exclamationmark.triangle")
+                    .font(.callout).foregroundStyle(.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                Divider()
+            }
+            if let files = changed {
                 HSplitView {
                     FileTree(pr: pr, files: files, selection: $selectedPath) { path, line in
                         selectedPath = path
@@ -31,11 +45,17 @@ struct ChangesView: View {
                         .frame(minWidth: 180, idealWidth: 240, maxWidth: 300)
                     Group {
                         if let file = files.first(where: { $0.filename == selectedPath }) ?? files.first {
+                            let commitView = shown == nil ? nil : CommitView(
+                                endsAtHead: bounds?.head == pr.headRefOid,
+                                prAnchors: model.files[pr.id]?.first { $0.filename == file.filename }?.patch
+                                    .map { Diff.anchors(path: file.filename, patch: $0) } ?? [])
                             // An added or deleted file has one empty side: show it full width.
                             FileDiffView(pr: pr, file: file, mode: ["added", "removed"].contains(file.status) ? .unified : mode, target: target?.path == file.filename ? target : nil,
-                                         keyAreas: analysis?.result.keyAreas.filter { $0.path == file.filename } ?? [],
-                                         keyAreasOutdated: analysis?.isOutdated(for: pr) == true)
-                                .id(file.filename)
+                                         keyAreas: commitView?.endsAtHead == false ? []
+                                             : analysis?.result.keyAreas.filter { $0.path == file.filename } ?? [],
+                                         keyAreasOutdated: analysis?.isOutdated(for: pr) == true,
+                                         commitView: commitView)
+                                .id(file.filename + (shown ?? ""))
                         } else {
                             ContentUnavailableView("No changed files", systemImage: "doc")
                         }
@@ -47,6 +67,7 @@ struct ChangesView: View {
             }
         }
         .task { if model.files[pr.id] == nil { await model.loadFiles(pr) } }
+        .task(id: key) { if let bounds { await model.loadComparison(pr, base: bounds.base, head: bounds.head) } }
         .onChange(of: model.changesTarget?.id, initial: true) {
             // Sent here from another tab (e.g. Risk): open the file and, when there's a line, scroll to it.
             guard let next = model.changesTarget else { return }
@@ -96,6 +117,9 @@ struct ReviewBar: View {
             Toggle(isOn: $involvedOnly) { Label("Involving Me", systemImage: "person.crop.circle") }
                 .toggleStyle(.button)
                 .help("Show only the review threads you started, replied in or are @mentioned in, and, when there are some, only the files that have one")
+            if let commits = model.details[pr.id]?.commits, !commits.isEmpty {
+                CommitPicker(pr: pr, commits: commits)
+            }
             MyReviewStatus(pr: pr, compact: true)
             Spacer()
             if stale > 0 {
@@ -124,6 +148,90 @@ struct ReviewBar: View {
         if pending > 0 { parts.append("\(pending) pending on GitHub") }
         if unsaved > 0 { parts.append("\(unsaved) local") }
         return parts.isEmpty ? "No review comments yet" : parts.joined(separator: " · ")
+    }
+}
+
+/// GitHub's "Changes from" menu: all commits, those since the viewer's review, or one commit or a run of them.
+struct CommitPicker: View {
+    @Environment(AppModel.self) private var model
+    let pr: PullRequest
+    let commits: [PRCommit]
+    @ViewState private var open = false
+
+    var body: some View {
+        let selection = model.commitSelection(for: pr)
+        Button { open = true } label: {
+            Label(title(selection), systemImage: "smallcircle.filled.circle").lineLimit(1).frame(maxWidth: 260)
+        }
+        .help("Review all the changes, those since your last review, or one commit or a range of them")
+        .popover(isPresented: $open, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 6) {
+                option("All commits", .all, selection)
+                if pr.viewerReviewedOid.map({ $0 != pr.headRefOid }) == true {
+                    option("Since your last review", .sinceReview, selection)
+                }
+                Divider()
+                Text("Click a commit, or Shift-click another to pick a range.").font(.caption).foregroundStyle(.secondary)
+                List(selection: range(selection)) {
+                    ForEach(commits) { commit in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(commit.headline).lineLimit(1)
+                            Text("\(commit.abbreviatedOid) · \(commit.author)\(commit.date.map { " · " + $0.formatted(.relative(presentation: .named)) } ?? "")")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        .tag(commit.oid)
+                    }
+                }
+                .frame(height: min(CGFloat(commits.count) * 40 + 12, 360))
+            }
+            .padding(12)
+            .frame(width: 440)
+        }
+    }
+
+    private func option(_ title: String, _ value: CommitSelection, _ selection: CommitSelection) -> some View {
+        Button {
+            model.selectCommits(value, pr: pr)
+            open = false
+        } label: {
+            Label(title, systemImage: "checkmark").labelStyle(CheckLabel(checked: value == selection))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// The selected run as list rows; any multi-selection becomes the run from its oldest to its newest commit.
+    private func range(_ selection: CommitSelection) -> Binding<Set<String>> {
+        Binding {
+            guard case .range(let first, let last) = selection,
+                  let start = commits.firstIndex(where: { $0.oid == first }), let end = commits.firstIndex(where: { $0.oid == last }) else { return [] }
+            return Set(commits[start...end].map(\.oid))
+        } set: { oids in
+            let picked = commits.indices.filter { oids.contains(commits[$0].oid) }
+            guard let start = picked.first, let end = picked.last else { return model.selectCommits(.all, pr: pr) }
+            model.selectCommits(.range(first: commits[start].oid, last: commits[end].oid), pr: pr)
+        }
+    }
+
+    private func title(_ selection: CommitSelection) -> String {
+        guard case .range(let first, let last) = selection,
+              let start = commits.firstIndex(where: { $0.oid == first }), let end = commits.firstIndex(where: { $0.oid == last }) else {
+            return selection == .sinceReview ? "Since your last review" : "All commits"
+        }
+        return start == end ? "\(commits[start].abbreviatedOid) \(commits[start].headline)"
+            : "\(end - start + 1) commits: \(commits[start].abbreviatedOid)…\(commits[end].abbreviatedOid)"
+    }
+}
+
+/// A checkmark that keeps its space when hidden, so options line up.
+private struct CheckLabel: LabelStyle {
+    var checked: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 6) {
+            configuration.icon.opacity(checked ? 1 : 0)
+            configuration.title
+        }
+        .contentShape(Rectangle())
     }
 }
 
@@ -394,6 +502,8 @@ struct FileDiffView: View {
     var keyAreas: [KeyArea] = []
     /// The key areas come from an older head: their lines may have moved, so they're marked dimmed.
     var keyAreasOutdated = false
+    /// Set when Changes shows some commits: comments go only where they map onto the whole PR's diff.
+    var commitView: CommitView?
     @AppStorage("wrapLines") private var wrap = false
     @AppStorage("involvedFilter") private var involvedOnly = false
     @ViewState private var composing: ReviewDeskCore.Anchor?
@@ -486,7 +596,17 @@ struct FileDiffView: View {
         return keyAreas.contains { $0.contains(line: number) }
     }
 
-    private var allThreads: [ReviewThread] { model.details[pr.id]?.threads.filter { $0.path == file.filename } ?? [] }
+    private var allThreads: [ReviewThread] {
+        model.details[pr.id]?.threads.filter { thread in
+            thread.path == file.filename
+                && commitView.map { view in thread.line.map { view.shows(ReviewDeskCore.Anchor(path: file.filename, line: $0, side: thread.side)) } ?? false } != false
+        } ?? []
+    }
+
+    /// The file's drafts, those that sit on a line of this view.
+    private var drafts: [Draft] {
+        model.drafts(for: pr.id).filter { $0.anchor.path == file.filename && commitView?.shows($0.anchor) != false }
+    }
 
     /// The threads shown: with Involving Me on, only those involving the viewer (the gutter still marks the others).
     private var threads: [ReviewThread] { allThreads.filter { !involvedOnly || $0.involves(model.viewer) } }
@@ -496,7 +616,7 @@ struct FileDiffView: View {
     /// Lines with threads or drafts, worked out once per redraw instead of once per row.
     private var commentedAnchors: Set<ReviewDeskCore.Anchor> {
         Set(allThreads.compactMap { thread in thread.line.map { ReviewDeskCore.Anchor(path: file.filename, line: $0, side: thread.side) } })
-            .union(model.drafts(for: pr.id).map(\.anchor))
+            .union(drafts.map(\.anchor))
     }
 
     // MARK: Rows
@@ -582,6 +702,9 @@ struct FileDiffView: View {
                 }
                 .buttonStyle(.plain)
                 .help(folded ? "Show comments" : "Hide comments")
+            } else if let anchor, hovered, commitView?.accepts(anchor) == false {
+                Image(systemName: "plus.square").foregroundStyle(DiffColors.lineNumber)
+                    .help("GitHub takes comments only on lines of the whole pull request's diff. To comment here, pick All commits or a range that ends at the latest commit.")
             } else if let anchor, hovered {
                 Button {
                     draftText = ""
@@ -675,7 +798,7 @@ struct FileDiffView: View {
             ForEach(threads.filter { $0.line == anchor.line && $0.side == anchor.side }) {
                 ThreadView(pr: pr, thread: $0, hidden: hiddenIDs).font(.body)
             }
-            ForEach(model.drafts(for: pr.id).filter { $0.anchor == anchor }) {
+            ForEach(drafts.filter { $0.anchor == anchor }) {
                 DraftView(pr: pr, draft: $0).font(.body)
             }
         }

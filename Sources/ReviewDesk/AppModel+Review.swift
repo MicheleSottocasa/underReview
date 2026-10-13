@@ -48,6 +48,7 @@ extension AppModel {
 
     /// Opens Changes at a file, scrolled to `line` when given (an old-file line when `side` is left).
     func openInChanges(_ path: String, line: Int?, side: DiffSide = .right, pr: PullRequest) {
+        commitSelections[pr.id] = nil // the line is in the whole pull request, maybe not in the commits shown
         changesTarget = LineTarget(path: path, line: line ?? 0, side: side)
         detailTab = .changes
     }
