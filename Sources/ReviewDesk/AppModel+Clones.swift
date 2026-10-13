@@ -1,5 +1,6 @@
 import AppKit
 import ReviewDeskCore
+import UniformTypeIdentifiers
 
 extension AppModel {
     /// Asks for the clone of `repo` and links it once one of its remotes is on that repo. Returns whether it linked.
@@ -36,7 +37,7 @@ extension AppModel {
         }
     }
 
-    /// The editor link template chosen in Settings › Repositories; empty opens the file in its default app.
+    /// The editor link template chosen in Settings › Repositories; empty opens the file in the default text editor.
     static let editorKey = "editorURL"
 
     /// Opens a changed file from the repo's clone in the user's editor, at `line` or else at its first change.
@@ -45,14 +46,26 @@ extension AppModel {
         guard !blockDemo(pr) else { return }
         if localClones[pr.repo] == nil, await !chooseClone(for: pr.repo) { return }
         guard let clone = localClones[pr.repo] else { return }
-        let url = URL(fileURLWithPath: clone).appendingPathComponent(file.filename)
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            lastError = "\(file.filename) isn't in \(clone). Check out the pull request first."
+        let url: URL
+        do {
+            url = try EditorLink.file(file.filename, inClone: URL(fileURLWithPath: clone))
+        } catch {
+            report(error)
             return
         }
         let template = UserDefaults.standard.string(forKey: Self.editorKey) ?? ""
         guard !template.isEmpty else {
-            NSWorkspace.shared.open(url)
+            // Security boundary: never the file's own default app, i.e. a double-click. Files from a pull request
+            // carry no quarantine, so a script, `.command` or app would run. Always open it as text.
+            guard let editor = NSWorkspace.shared.urlForApplication(toOpen: .plainText) else {
+                lastError = "No text editor found. Pick an editor in Settings › Repositories."
+                return
+            }
+            do {
+                _ = try await NSWorkspace.shared.open([url], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration())
+            } catch {
+                report(error, "Couldn't open \(file.filename)")
+            }
             return
         }
         let line = line ?? EditorLink.firstChange(in: file.patch ?? "")

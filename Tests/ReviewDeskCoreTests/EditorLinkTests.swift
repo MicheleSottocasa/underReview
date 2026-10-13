@@ -26,3 +26,25 @@ import Testing
     #expect(EditorLink.firstChange(in: "@@ -1,2 +1,1 @@\n a\n-b") == 1)
     #expect(EditorLink.firstChange(in: "") == 1)
 }
+
+@Test func onlyRegularFilesInsideTheCloneOpen() throws {
+    let fm = FileManager.default
+    let base = fm.temporaryDirectory.appendingPathComponent("editor-\(UUID().uuidString)")
+    defer { try? fm.removeItem(at: base) }
+    let clone = base.appendingPathComponent("clone"), outside = base.appendingPathComponent("outside.txt")
+    try fm.createDirectory(at: clone.appendingPathComponent("Tool.app/Contents"), withIntermediateDirectories: true)
+    try Data("x".utf8).write(to: clone.appendingPathComponent("a.swift"))
+    try Data("x".utf8).write(to: outside)
+    try fm.createSymbolicLink(atPath: clone.appendingPathComponent("inside-link").path, withDestinationPath: "a.swift")
+    try fm.createSymbolicLink(atPath: clone.appendingPathComponent("escape").path, withDestinationPath: outside.path)
+    try fm.createSymbolicLink(atPath: clone.appendingPathComponent("launcher").path, withDestinationPath: "Tool.app")
+    try fm.createSymbolicLink(atPath: clone.appendingPathComponent("system-app").path, withDestinationPath: "/System/Applications/Calculator.app")
+
+    #expect(try EditorLink.file("a.swift", inClone: clone).lastPathComponent == "a.swift")
+    #expect(try EditorLink.file("inside-link", inClone: clone).lastPathComponent == "a.swift")
+    #expect(throws: EditorLink.Refusal.missing("gone.swift")) { try EditorLink.file("gone.swift", inClone: clone) }
+    #expect(throws: EditorLink.Refusal.outsideClone("escape")) { try EditorLink.file("escape", inClone: clone) }
+    #expect(throws: EditorLink.Refusal.outsideClone("system-app")) { try EditorLink.file("system-app", inClone: clone) }
+    #expect(throws: EditorLink.Refusal.notAFile("launcher")) { try EditorLink.file("launcher", inClone: clone) }
+    #expect(throws: EditorLink.Refusal.notAFile("Tool.app")) { try EditorLink.file("Tool.app", inClone: clone) }
+}
