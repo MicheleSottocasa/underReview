@@ -127,6 +127,10 @@ import Testing
     #expect(paths.contains("app/tasks.py"))
     #expect(paths.contains("app/tasks/send_email.py"))
     #expect(paths.contains("utils/dates.py"))
+    let wrapped = Definitions.imports("from .services import (\n    send_invite,\n    revoke as cancel,\n)\n", path: "app/views.py")
+    #expect(wrapped.contains("app/services.py"))
+    #expect(wrapped.contains("app/services/send_invite.py"))
+    #expect(wrapped.contains("app/services/revoke.py"))
     let js = "import { a } from './lib/date.js'\nconst b = require(\"../store\")\nimport React from 'react'"
     let jsPaths = Definitions.imports(js, path: "src/ui/App.tsx")
     #expect(jsPaths.contains("src/ui/lib/date.ts"))

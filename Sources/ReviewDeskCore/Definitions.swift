@@ -211,12 +211,13 @@ public enum Definitions {
         var paths: [String] = []
         switch (path as NSString).pathExtension.lowercased() {
         case "py", "pyi":
-            for match in matches(#"(?m)^\s*from\s+(\.*)([\w.]*)\s+import\s+\(?([\w ,]+)"#, in: source) {
+            // Names come on one line or in parentheses over several.
+            for match in matches(#"(?m)^\s*from\s+(\.*)([\w.]*)\s+import\s+(?:\(([\w\s,]+)\)|([\w ,]*))"#, in: source) {
                 let base = match[1].isEmpty ? "" : ([folder] + Array(repeating: "..", count: match[1].count - 1)).joined(separator: "/")
                 let module = join(base, match[2].replacingOccurrences(of: ".", with: "/"))
                 if !match[2].isEmpty { paths += [module + ".py", join(module, "__init__.py")] }
-                for name in match[3].split(separator: ",") {
-                    guard let word = name.split(separator: " ").first else { continue }
+                for name in (match[3] + match[4]).split(separator: ",") {
+                    guard let word = name.split(whereSeparator: \.isWhitespace).first else { continue }
                     paths.append(join(module, word + ".py"))
                 }
             }
