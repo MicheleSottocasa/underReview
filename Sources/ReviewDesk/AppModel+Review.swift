@@ -46,9 +46,9 @@ extension AppModel {
                            changed: files[pr.id]?.map(\.filename) ?? [])
     }
 
-    /// Opens Changes at a file, scrolled to `line` when given.
-    func openInChanges(_ path: String, line: Int?, pr: PullRequest) {
-        changesTarget = LineTarget(path: path, line: line ?? 0)
+    /// Opens Changes at a file, scrolled to `line` when given (an old-file line when `side` is left).
+    func openInChanges(_ path: String, line: Int?, side: DiffSide = .right, pr: PullRequest) {
+        changesTarget = LineTarget(path: path, line: line ?? 0, side: side)
         detailTab = .changes
     }
 

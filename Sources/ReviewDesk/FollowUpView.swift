@@ -183,7 +183,7 @@ private struct FollowUpItemView: View {
             MarkdownText(item.explanation).font(.callout)
             if let thread {
                 HStack {
-                    Button("Open in Changes") { model.openInChanges(thread.path, line: thread.line, pr: pr) }
+                    Button("Open in Changes") { model.openInChanges(thread.path, line: thread.line, side: thread.side, pr: pr) }
                     if item.status == "addressed", !thread.isResolved, thread.viewerCanResolve {
                         Button("Resolve Conversation") { Task { await model.setResolved(thread, true, pr: pr) } }
                     }
