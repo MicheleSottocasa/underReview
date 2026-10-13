@@ -10,13 +10,14 @@ extension AppModel {
         var texts: [String: String] = [:]
         var imported: Set<String> = []
         if !pr.isDemo {
-            texts = try await headContents(pr, paths: changed.map(\.filename))
+            // The clicked file first, so the file cap never leaves out its imports.
+            texts = try await headContents(pr, paths: [path] + changed.map(\.filename).filter { $0 != path })
             let candidates = Definitions.imports(texts[path] ?? "", path: path)
             let more = try await headContents(pr, paths: candidates)
             imported = Set(more.keys)
             texts.merge(more) { first, _ in first }
         }
-        // A file whose text GitHub didn't give (binary, too large, or the demo): what its diff shows of the head.
+        // A file without its text (binary, too large, past the file cap, or the demo): what its diff shows of the head.
         let patches = changed.filter { texts[$0.filename] == nil }.compactMap { file in file.patch.map { (file.filename, $0) } }
         let sources = texts.sorted { $0.key < $1.key }
         // Off the main actor: a common name in a large pull request means a lot of regex matching.
@@ -33,7 +34,9 @@ extension AppModel {
     private func headContents(_ pr: PullRequest, paths: [String]) async throws -> [String: String] {
         let sha = pr.headRefOid
         if headFiles[pr.id]?.sha != sha { headFiles[pr.id] = HeadFiles(sha: sha) } // a push: the old texts are stale
-        let wanted = paths.filter(Definitions.isCovered)
+        // ponytail: at most 200 files per lookup (4 queries); the rest are searched through their diff's head side.
+        // Raise the cap, or search on a linked local clone, if huge pull requests miss definitions.
+        let wanted = Array(paths.filter(Definitions.isCovered).prefix(200))
         let missing = wanted.filter { headFiles[pr.id]?.texts[$0] == nil && headFiles[pr.id]?.fetching[$0] == nil }
         for start in stride(from: 0, to: missing.count, by: 50) {
             let batch = Array(missing[start..<min(start + 50, missing.count)])
