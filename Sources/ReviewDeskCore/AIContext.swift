@@ -447,10 +447,58 @@ public enum AIContext {
         return lines.contains(nil) ? nil : lines.compactMap { $0 }.joined(separator: "\n")
     }
 
+    /// Asks about lines the reviewer selected in a file's diff. Editable in Settings.
+    public static let defaultSelectionInstructions = """
+    You are helping someone review a GitHub pull request. Explain the lines under **Selected lines** below, which
+    come from the diff shown before them: what they change, why the author likely did it, and anything that looks
+    wrong, risky or unclear. Use only the material below; do not run tools or commands. Reply briefly, in Markdown.
+    """
+
+    /// The PR description, the file's whole diff, then the selected lines again with where they are.
+    /// `selected` holds the parsed lines the reviewer picked, in diff order.
+    public static func selectionPrompt(title: String, body: String, path: String, patch: String, selected: [DiffLine],
+                                       instructions: String = defaultSelectionInstructions) -> String {
+        """
+        \(instructions)
+
+        # \(title)
+
+        \(body)
+
+        ## Diff: \(path)
+        ```diff
+        \(patch)
+        ```
+
+        ## Selected lines: \(path), \(linesLabel(selected))
+        ```diff
+        \(selected.filter { $0.kind != .hunk }.map(diffText).joined(separator: "\n"))
+        ```
+
+        """
+    }
+
+    /// "lines 12–18" on the new side, or "removed lines 3–5" when only old lines were picked.
+    public static func linesLabel(_ lines: [DiffLine]) -> String {
+        func span(_ numbers: [Int]) -> String? {
+            guard let first = numbers.min(), let last = numbers.max() else { return nil }
+            return first == last ? "line \(first)" : "lines \(first)–\(last)"
+        }
+        return span(lines.compactMap(\.newLine)) ?? span(lines.compactMap(\.oldLine)).map { "removed " + $0 } ?? "no lines"
+    }
+
+    private static func diffText(_ line: DiffLine) -> String {
+        switch line.kind {
+        case .added: "+" + line.text
+        case .removed: "-" + line.text
+        case .context, .hunk: " " + line.text
+        }
+    }
+
     /// A follow-up in the Explain chat. Each call stands alone (it works the same with every engine), so it
     /// resends the original explain prompt, with its PR description, conversation and diff, plus the chat so far.
     public static func followUpPrompt(explainPrompt: String, chat: [ChatMessage], question: String) -> String {
-        var text = explainPrompt + (chat.isEmpty ? "" : "\n## Chat about this comment so far\n")
+        var text = explainPrompt + (chat.isEmpty ? "" : "\n## Chat so far\n")
         for message in chat {
             text += "\n**\(message.role == .reviewer ? "Reviewer" : "You")**:\n\(message.text)\n"
         }

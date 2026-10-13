@@ -60,6 +60,21 @@ private func finding(_ path: String?, _ line: Int?) -> Finding {
     #expect(!prompt.contains("**alice** **[EXPLAIN THIS]**"))
 }
 
+@Test func selectionPromptCarriesTheFileDiffAndTheSelectedLines() {
+    let patch = "@@ -1,3 +1,3 @@\n ctx\n-old\n+new\n tail"
+    let lines = Diff.parse(patch)
+    let prompt = AIContext.selectionPrompt(title: "T", body: "B", path: "a.swift", patch: patch, selected: Array(lines[1...3]))
+    #expect(prompt.contains("## Diff: a.swift\n```diff\n\(patch)\n```"))
+    #expect(prompt.contains("## Selected lines: a.swift, lines 1–2\n```diff\n ctx\n-old\n+new\n```"))
+}
+
+@Test func linesLabelPrefersTheNewSide() {
+    let lines = Diff.parse("@@ -3,2 +3,1 @@\n-a\n-b\n+c")
+    #expect(AIContext.linesLabel(lines) == "line 3")
+    #expect(AIContext.linesLabel(Array(lines[1...2])) == "removed lines 3–4")
+    #expect(AIContext.linesLabel([]) == "no lines")
+}
+
 @Test func followUpsKeepTheContextAndTheChat() {
     let base = "EXPLAIN PROMPT with the diff"
     let prompt = AIContext.followUpPrompt(explainPrompt: base, chat: [
