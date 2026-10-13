@@ -27,16 +27,35 @@ extension AppModel {
         return Definitions.rank(found, from: path, imported: imported)
     }
 
-    /// The files' text at the PR's head commit, in languages the matcher covers. Each commit's files are fetched
-    /// once (one GraphQL query per 50 files); files that don't exist are remembered as such and left out.
+    /// The files' text at the PR's head commit, in languages the matcher covers. Each file is fetched once per
+    /// commit, in GraphQL queries of 50 files stored as each one lands; a file another lookup is already fetching
+    /// is waited for, not fetched again. Files that don't exist are remembered as such and left out.
     private func headContents(_ pr: PullRequest, paths: [String]) async throws -> [String: String] {
+        let sha = pr.headRefOid
+        if headFiles[pr.id]?.sha != sha { headFiles[pr.id] = HeadFiles(sha: sha) } // a push: the old texts are stale
         let wanted = paths.filter(Definitions.isCovered)
-        let missing = wanted.filter { headFiles[pr.headRefOid]?[$0] == nil }
-        if !missing.isEmpty {
-            let fetched = try await github.fileContents(repo: pr.repo, paths: missing, ref: pr.headRefOid)
-            for path in missing { headFiles[pr.headRefOid, default: [:]][path] = fetched[path] ?? "" }
+        let missing = wanted.filter { headFiles[pr.id]?.texts[$0] == nil && headFiles[pr.id]?.fetching[$0] == nil }
+        for start in stride(from: 0, to: missing.count, by: 50) {
+            let batch = Array(missing[start..<min(start + 50, missing.count)])
+            let fetch = Task {
+                defer { for path in batch where headFiles[pr.id]?.sha == sha { headFiles[pr.id]?.fetching[path] = nil } }
+                let fetched = try await github.fileContents(repo: pr.repo, paths: batch, ref: sha)
+                guard headFiles[pr.id]?.sha == sha else { return }
+                for path in batch { headFiles[pr.id]?.texts[path] = fetched[path] ?? "" }
+            }
+            for path in batch { headFiles[pr.id]?.fetching[path] = fetch }
         }
-        let cached = headFiles[pr.headRefOid] ?? [:]
-        return Dictionary(uniqueKeysWithValues: wanted.compactMap { path in cached[path].flatMap { $0.isEmpty ? nil : (path, $0) } })
+        for fetch in Set(wanted.compactMap { headFiles[pr.id]?.fetching[$0] }) { try await fetch.value }
+        let texts = headFiles[pr.id]?.texts ?? [:]
+        return Dictionary(uniqueKeysWithValues: wanted.compactMap { path in texts[path].flatMap { $0.isEmpty ? nil : (path, $0) } })
     }
+}
+
+/// A PR's files at its head commit, read for ⌘-click definitions. In memory only.
+struct HeadFiles {
+    var sha: String
+    /// Path → text; "" for a file that isn't there.
+    var texts: [String: String] = [:]
+    /// Fetches in flight, by the paths they bring.
+    var fetching: [String: Task<Void, any Error>] = [:]
 }
