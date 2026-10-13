@@ -175,7 +175,7 @@ private struct FollowUpItemView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 FollowUpBadge(status: item.status)
-                Text(inlineMarkdown(item.request)).bold()
+                Text(inlineMarkdown(item.request, repo: pr.repo)).bold()
                 Spacer()
                 Text(verbatim: thread.map { "\($0.path)\($0.line.map { ":\($0)" } ?? "")" } ?? "Review summary")
                     .font(.caption.monospaced()).foregroundStyle(.secondary)

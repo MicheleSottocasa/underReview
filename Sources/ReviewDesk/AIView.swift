@@ -223,7 +223,7 @@ struct RunView: View {
                     Label("Read before submitting (Changes › Focus)", systemImage: "scope").font(.callout.bold())
                     ForEach(Array(run.result.keyAreas.enumerated()), id: \.offset) { _, area in
                         (Text(verbatim: "\(area.path) · \(FileTree.lines(area))  ").font(.caption.monospaced()).foregroundColor(.secondary)
-                            + Text(inlineMarkdown(area.reason)).font(.caption))
+                            + Text(inlineMarkdown(area.reason, repo: pr.repo)).font(.caption))
                     }
                 }
                 .padding(10)
@@ -250,6 +250,7 @@ struct FindingCard: View {
     let handled: Bool
     let accept: (_ includeSuggestion: Bool) -> Void
     let dismiss: () -> Void
+    @Environment(\.markdownRepo) private var repo
     @ViewState private var includeSuggestion = true
 
     private var placement: AIContext.Placement { AIContext.placement(finding, files: files, includeSuggestion: includeSuggestion) }
@@ -262,7 +263,7 @@ struct FindingCard: View {
                 Spacer()
                 Text(verbatim: location).font(.caption.monospaced()).foregroundStyle(.secondary)
             }
-            Text(inlineMarkdown(finding.rationale)).font(.callout).foregroundStyle(.secondary)
+            Text(inlineMarkdown(finding.rationale, repo: repo)).font(.callout).foregroundStyle(.secondary)
             MarkdownText(finding.comment).font(.callout)
                 .padding(8)
                 .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))

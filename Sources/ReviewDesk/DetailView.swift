@@ -44,6 +44,7 @@ struct DetailView: View {
             case .notes: NotesView(pr: pr)
             }
         }
+        .modifier(LinkHandler(pr: pr))
         // Changes takes the whole window, like a diff editor; only restore a sidebar the app hid itself.
         .onChange(of: tab, initial: true) { _, tab in
             if tab == .changes, model.columns != .detailOnly {
@@ -67,6 +68,9 @@ struct DetailView: View {
                 StateBadge(pr: pr)
                 Text(verbatim: "\(pr.repo)#\(pr.number) by \(pr.author)")
                 Text("\(pr.headRefName) → \(pr.baseRefName)").font(.caption.monospaced())
+                if let head = URL(string: "https://github.com/\(pr.repo)/commit/\(pr.headRefOid)") {
+                    Link(String(pr.headRefOid.prefix(7)), destination: head).font(.caption.monospaced()).foregroundStyle(.tint).help("The head commit, on GitHub")
+                }
                 if let position = pr.stackPosition, let stack = pr.stack {
                     Text(verbatim: "Stack #\(stack.number): \(position) of \(stack.entries.count)")
                 }
