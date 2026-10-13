@@ -75,17 +75,32 @@ struct DefinitionPopover: View {
     /// The file the name was clicked in.
     let path: String
     let close: () -> Void
-    @ViewState private var found: [Definition]?
+    @ViewState private var found: [Match]?
+    /// All matches, of which `found` shows the first `limit`.
+    @ViewState private var total = 0
     @ViewState private var failure: String?
+    private static let limit = 30
+
+    /// A definition with what the popover shows about it, worked out once instead of on every redraw.
+    private struct Match {
+        var definition: Definition
+        var change: Definition.Change
+        /// The diff shows its line, so Go to Definition can open it in Changes.
+        var inDiff: Bool
+        var declaration: AttributedString
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let found, !found.isEmpty {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        ForEach(Array(found.enumerated()), id: \.offset) { index, definition in
+                        ForEach(Array(found.enumerated()), id: \.offset) { index, match in
                             if index > 0 { Divider() }
-                            row(definition)
+                            row(match)
+                        }
+                        if total > found.count {
+                            Text("+\(total - found.count) more").font(.callout).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -108,32 +123,51 @@ struct DefinitionPopover: View {
         .padding(14)
         .frame(width: 560, alignment: .leading)
         .task {
-            do { found = try await model.definitions(of: name, from: path, pr: pr) } catch { failure = error.localizedDescription }
+            do {
+                let definitions = try await model.definitions(of: name, from: path, pr: pr)
+                total = definitions.count
+                found = matches(Array(definitions.prefix(Self.limit)))
+            } catch {
+                failure = error.localizedDescription
+            }
         }
     }
 
-    private func row(_ definition: Definition) -> some View {
-        let change = Definitions.change(of: definition, in: model.files[pr.id] ?? [])
-        let language = Syntax.language(for: definition.path)
-        let declaration = definition.declaration.components(separatedBy: "\n").map { line in
-            FileDiffView.highlighted(line, tokens: language.map { Syntax.tokens(line, language: $0) } ?? [])
-        }.reduce(into: AttributedString()) { result, line in
-            if !result.characters.isEmpty { result += AttributedString("\n") }
-            result += line
+    private func matches(_ definitions: [Definition]) -> [Match] {
+        let files = model.files[pr.id] ?? []
+        var shown: [String: Set<Int>] = [:] // head-side lines each diff shows, parsed once per file
+        return definitions.map { definition in
+            if shown[definition.path] == nil {
+                let patch = files.first { $0.filename == definition.path }?.patch ?? ""
+                shown[definition.path] = Set(Diff.parse(patch).filter { $0.kind != .removed }.compactMap(\.newLine))
+            }
+            let language = Syntax.language(for: definition.path)
+            let declaration = definition.declaration.components(separatedBy: "\n").map { line in
+                FileDiffView.highlighted(line, tokens: language.map { Syntax.tokens(line, language: $0) } ?? [])
+            }.reduce(into: AttributedString()) { result, line in
+                if !result.characters.isEmpty { result += AttributedString("\n") }
+                result += line
+            }
+            return Match(definition: definition, change: Definitions.change(of: definition, in: files),
+                         inDiff: shown[definition.path]?.contains(definition.line) == true, declaration: declaration)
         }
+    }
+
+    private func row(_ match: Match) -> some View {
+        let definition = match.definition
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Badge(text: definition.kind)
                 Text(definition.name).font(.headline.monospaced())
                 Spacer()
-                switch change {
+                switch match.change {
                 case .added: Badge(text: "Added in this PR", color: .green)
                 case .modified: Badge(text: "Changed in this PR", color: .blue)
                 case .untouched: Badge(text: "Not changed")
                 }
             }
             Text("\(definition.path):\(definition.line)").font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
-            Text(declaration)
+            Text(match.declaration)
                 .font(.system(size: 12, design: .monospaced))
                 .textSelection(.enabled)
                 .padding(8)
@@ -141,18 +175,14 @@ struct DefinitionPopover: View {
                 .background(DiffColors.editor, in: RoundedRectangle(cornerRadius: 6))
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(DiffColors.separator))
             if let doc = definition.doc { MarkdownText(doc).font(.callout) }
-            Button("Go to Definition") { open(definition) }
-                .help(inDiff(definition) ? "Show this line in Changes" : "Open the file on GitHub at this pull request's head commit")
+            Button("Go to Definition") { open(match) }
+                .help(match.inDiff ? "Show this line in Changes" : "Open the file on GitHub at this pull request's head commit")
         }
     }
 
-    private func inDiff(_ definition: Definition) -> Bool {
-        guard let patch = model.files[pr.id]?.first(where: { $0.filename == definition.path })?.patch else { return false }
-        return Diff.parse(patch).contains { $0.kind != .removed && $0.newLine == definition.line }
-    }
-
-    private func open(_ definition: Definition) {
-        if inDiff(definition) {
+    private func open(_ match: Match) {
+        let definition = match.definition
+        if match.inDiff {
             close()
             model.changesTarget = LineTarget(path: definition.path, line: definition.line)
         } else if let url = URL(string: "https://github.com/\(pr.repo)/blob/\(pr.headRefOid)/"
