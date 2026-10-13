@@ -78,9 +78,11 @@ struct MarkdownText: View {
 }
 
 /// One line of AI text (a rationale, a reason) with its `code` and **bold** rendered, for places too small for blocks.
-func inlineMarkdown(_ text: String, repo: String?) -> AttributedString {
+/// With `repo`, SHAs and PR references become links; leave it out inside buttons, where links can't be clicked.
+func inlineMarkdown(_ text: String, repo: String? = nil) -> AttributedString {
     let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-    return MarkdownText.styled(Markdown.linkify((try? AttributedString(markdown: text, options: options)) ?? AttributedString(text), repo: repo))
+    let parsed = (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+    return MarkdownText.styled(repo.map { Markdown.linkify(parsed, repo: $0) } ?? parsed)
 }
 
 private struct MarkdownRepoKey: EnvironmentKey {
