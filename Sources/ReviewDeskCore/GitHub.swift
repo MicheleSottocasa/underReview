@@ -249,6 +249,8 @@ public struct PRDetail: Sendable {
     public var reviewDecision: String?
     /// Each reviewer's latest review; their latest approval or change request when they have one.
     public var latestReviews: [Review] = []
+    /// The latest 100 commits, oldest first.
+    public var commits: [PRCommit] = []
 
     /// Like GitHub's Reviewers box, without the viewer (shown apart) and the author: requested reviewers wait,
     /// everyone else shows their latest review.
@@ -267,6 +269,19 @@ public struct PRDetail: Sendable {
                 && (pr.viewerIsAuthor || thread.isStarted(by: viewer))
         }
     }
+}
+
+public struct PRCommit: Hashable, Identifiable, Sendable {
+    public var oid: String
+    public var abbreviatedOid: String
+    public var headline: String
+    /// GitHub login, or the git author name when the email isn't linked to an account.
+    public var author: String
+    public var date: Date?
+    /// The first parent: what a selection starting at this commit is compared against.
+    public var parent: String?
+
+    public var id: String { oid }
 }
 
 public struct FileChange: Codable, Hashable, Sendable {
@@ -398,6 +413,8 @@ public struct GitHub: Sendable {
           \(Self.pendingField)
           reviewDecision latestReviews(first: 20) { nodes { ...LatestReview } }
           latestOpinionatedReviews(first: 20) { nodes { ...LatestReview } }
+          commits(last: 100) { nodes { commit { oid abbreviatedOid messageHeadline committedDate
+            author { name user { login } } parents(first: 1) { nodes { oid } } } } }
         } } }
         fragment LatestReview on PullRequestReview { id author { login } state body submittedAt commit { oid } }
         fragment CommentFields on Comment {
@@ -428,7 +445,14 @@ public struct GitHub: Sendable {
             pendingReview: pending,
             reviewDecision: pr["reviewDecision"] as? String,
             latestReviews: Self.latestReviews(Self.nodes(pr["latestReviews"]).map(Self.decodeReview),
-                                              opinionated: Self.nodes(pr["latestOpinionatedReviews"]).map(Self.decodeReview))
+                                              opinionated: Self.nodes(pr["latestOpinionatedReviews"]).map(Self.decodeReview)),
+            commits: Self.nodes(pr["commits"]).compactMap { $0["commit"] as? [String: Any] }.map {
+                let author = $0["author"] as? [String: Any]
+                return PRCommit(oid: $0["oid"] as? String ?? "", abbreviatedOid: $0["abbreviatedOid"] as? String ?? "",
+                                headline: $0["messageHeadline"] as? String ?? "",
+                                author: ((author?["user"] as? [String: Any])?["login"] ?? author?["name"]) as? String ?? "ghost",
+                                date: Self.date($0["committedDate"]), parent: Self.nodes($0["parents"]).first?["oid"] as? String)
+            }
         )
     }
 
