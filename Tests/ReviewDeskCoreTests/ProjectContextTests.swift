@@ -32,6 +32,9 @@ import Testing
     #expect(!files.contains { $0.content?.contains("password") == true || $0.content?.contains("TOKEN") == true })
 
     #expect(ProjectContext.readLocal(root.appendingPathComponent("api.md").path).map(\.content) == ["# API"])
+    // Past the limit, enumeration stops: links count too, and one entry says more weren't read.
+    let capped = ProjectContext.readLocal(root.path, limit: 3)
+    #expect(capped.count == 4 && capped.last?.excludedReason == "More files not read (limit 3)")
     #expect(ProjectContext.readLocal(base.appendingPathComponent("missing").path).first?.excludedReason == "Not found")
     #expect(ProjectContext.folders([ContextSource(kind: .local, location: root.path), ContextSource(kind: .local, location: outside.path),
                                     ContextSource(kind: .repository, location: "o/r")]).count == 1)
