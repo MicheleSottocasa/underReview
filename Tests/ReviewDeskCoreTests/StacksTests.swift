@@ -67,3 +67,11 @@ private func pr(_ id: String, _ number: Int, stack: Int? = nil, entries: [String
     let stack = [pr("A", review: "APPROVED"), pr("B", review: "CHANGES_REQUESTED"), pr("C", state: "MERGED"), pr("D"), pr("E", review: "COMMENTED")]
     #expect(Stacks.toReview(stack).map(\.id) == ["B", "D", "E"])
 }
+
+@Test func stepsToTheNeighboursInTheStack() throws {
+    let stack = try #require(pr("B", 20, stack: 1, entries: ["A", "B", "C"]).stack)
+    #expect(stack.neighbors(of: "A").below == nil && stack.neighbors(of: "A").above?.id == "B")
+    #expect(stack.neighbors(of: "B").below?.id == "A" && stack.neighbors(of: "B").above?.id == "C")
+    #expect(stack.neighbors(of: "C").above == nil)
+    #expect(stack.neighbors(of: "gone").below == nil && stack.neighbors(of: "gone").above == nil)
+}

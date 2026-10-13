@@ -40,6 +40,12 @@ public struct StackInfo: Codable, Hashable, Sendable {
     public var number: Int
     /// Sorted by position: 1 is closest to the base branch.
     public var entries: [Entry]
+
+    /// The entries just below (closer to the base) and just above `id`, for stepping through the stack.
+    public func neighbors(of id: String) -> (below: Entry?, above: Entry?) {
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return (nil, nil) }
+        return (index > 0 ? entries[index - 1] : nil, index + 1 < entries.count ? entries[index + 1] : nil)
+    }
 }
 
 public struct PullRequest: Codable, Hashable, Identifiable, Sendable {
