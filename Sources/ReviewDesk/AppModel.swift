@@ -99,6 +99,8 @@ final class AppModel {
     var checkpoints: [String: Snapshot]
     var reviewDrafts: ReviewDrafts { didSet { save(draftsFile, reviewDrafts.removingDemo()) } }
     var recentEvents: [RecentEvent] = []
+    /// Events added since the notifications list was last opened.
+    var unseenEvents = 0
     var aiRuns: [AIRun] { didSet { save(aiRunsFile, aiRuns.filter { !Demo.owns($0.prID) }) } }
     /// Checks of whether the author handled the viewer's comments, newest last.
     var followUps: [FollowUpRun] { didSet { save(followUpsFile, followUps.filter { !Demo.owns($0.prID) }) } }
@@ -258,9 +260,11 @@ final class AppModel {
         for (id, kinds) in events {
             guard let pr = self.prs[id] else { continue }
             recentEvents.insert(RecentEvent(pr: pr, kinds: kinds), at: 0)
+            unseenEvents += 1
             if !org.muted.contains(pr.itemKey) { notifier.post(pr, kinds: kinds) }
         }
-        recentEvents = Array(recentEvents.prefix(20))
+        recentEvents = Array(recentEvents.prefix(50))
+        unseenEvents = min(unseenEvents, recentEvents.count)
         await refreshStaleDrafts(prs)
     }
 

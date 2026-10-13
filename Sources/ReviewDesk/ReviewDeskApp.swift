@@ -75,6 +75,69 @@ struct MenuBarLabel: View {
     }
 }
 
+/// The notifications posted since launch, newest first, muted pull requests included.
+struct NotificationsButton: View {
+    @Environment(AppModel.self) private var model
+    @ViewState private var showing = false
+
+    var body: some View {
+        Button {
+            showing.toggle()
+            model.unseenEvents = 0
+        } label: {
+            Label("Notifications", systemImage: model.unseenEvents > 0 ? "bell.badge" : "bell")
+        }
+        .help(model.unseenEvents > 0 ? "\(model.unseenEvents) new notification\(model.unseenEvents == 1 ? "" : "s")" : "Notifications")
+        .popover(isPresented: $showing, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text("Notifications").font(.headline)
+                    Spacer()
+                    if !model.recentEvents.isEmpty {
+                        Button("Clear") { model.recentEvents.removeAll() }.buttonStyle(.link)
+                    }
+                }
+                .padding(10)
+                Divider()
+                if model.recentEvents.isEmpty {
+                    Text("No notifications since ReviewDesk opened.")
+                        .font(.callout).foregroundStyle(.secondary)
+                        .padding(20)
+                        .frame(maxWidth: .infinity)
+                } else {
+                    List(model.recentEvents) { event in
+                        Button {
+                            model.open(prID: event.pr.id)
+                            showing = false
+                        } label: { row(event) }
+                        .buttonStyle(.plain)
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .frame(width: 380, height: model.recentEvents.isEmpty ? nil : 420)
+        }
+    }
+
+    private func row(_ event: RecentEvent) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                Text(verbatim: "\(event.pr.repo)#\(event.pr.number)").font(.caption).foregroundStyle(.secondary)
+                if model.org.muted.contains(event.pr.itemKey) {
+                    Image(systemName: "bell.slash").font(.caption).foregroundStyle(.secondary)
+                        .help("Notifications are off for this pull request, so macOS didn't show this one")
+                }
+                Spacer()
+                Text(event.date, format: .relative(presentation: .named)).font(.caption).foregroundStyle(.secondary)
+            }
+            Text(event.pr.title).lineLimit(1)
+            Text(event.kinds.map(\.text).joined(separator: " · ")).font(.callout).foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 3)
+        .contentShape(Rectangle())
+    }
+}
+
 struct MenuBarContent: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openWindow) private var openWindow
@@ -131,6 +194,7 @@ struct ContentView: View {
                 }
             }
             .toolbar {
+                ToolbarItem { NotificationsButton() }
                 ToolbarItem {
                     Button { model.refreshNow() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
                         .disabled(model.isRefreshing)
