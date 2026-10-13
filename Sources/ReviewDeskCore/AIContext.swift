@@ -128,6 +128,18 @@ public struct ReviewContext: Sendable {
     public var fitsBudget: Bool { tokens <= budget }
 }
 
+/// One message in the Explain chat.
+public struct ChatMessage: Hashable, Sendable {
+    public enum Role: Hashable, Sendable { case reviewer, assistant }
+
+    public var role: Role
+    public var text: String
+
+    public init(_ role: Role, _ text: String) {
+        (self.role, self.text) = (role, text)
+    }
+}
+
 public enum AIContext {
     /// Strict-mode friendly (Codex requires every property listed and no extras).
     public static let schema = """
@@ -297,6 +309,24 @@ public enum AIContext {
         for entry in conversation {
             text += "\n**\(entry.author)**\(entry.id == comment.id ? " **[EXPLAIN THIS]**" : ""):\n\(entry.body)\n"
         }
+        return text
+    }
+
+    /// A follow-up in the Explain chat. Each call stands alone (it works the same with every engine), so it
+    /// resends the original explain prompt, with its PR description, conversation and diff, plus the chat so far.
+    public static func followUpPrompt(explainPrompt: String, chat: [ChatMessage], question: String) -> String {
+        var text = explainPrompt + (chat.isEmpty ? "" : "\n## Chat about this comment so far\n")
+        for message in chat {
+            text += "\n**\(message.role == .reviewer ? "Reviewer" : "You")**:\n\(message.text)\n"
+        }
+        text += """
+
+        ## The reviewer's new question
+
+        \(question)
+
+        Answer this question, briefly, in Markdown. Keep using only the material above; if it doesn't hold the answer, say so.
+        """
         return text
     }
 

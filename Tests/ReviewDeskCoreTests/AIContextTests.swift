@@ -57,3 +57,16 @@ private func finding(_ path: String?, _ line: Int?) -> Finding {
     #expect(prompt.contains("**bob** **[EXPLAIN THIS]**"))
     #expect(!prompt.contains("**alice** **[EXPLAIN THIS]**"))
 }
+
+@Test func followUpsKeepTheContextAndTheChat() {
+    let base = "EXPLAIN PROMPT with the diff"
+    let prompt = AIContext.followUpPrompt(explainPrompt: base, chat: [
+        ChatMessage(.assistant, "It asks for a set."),
+        ChatMessage(.reviewer, "Why a set?"),
+        ChatMessage(.assistant, "Lookups are O(1)."),
+    ], question: "Would a dict work too?")
+    #expect(prompt.hasPrefix(base))
+    #expect(prompt.contains("**You**:\nIt asks for a set."))
+    #expect(prompt.contains("**Reviewer**:\nWhy a set?"))
+    #expect(prompt.contains("## The reviewer's new question\n\nWould a dict work too?"))
+}

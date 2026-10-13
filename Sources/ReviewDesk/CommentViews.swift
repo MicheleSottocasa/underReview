@@ -418,7 +418,7 @@ struct GitHubCommentView<Badges: View>: View {
 
 // MARK: - AI explanation
 
-/// Asks the AI tab's engine what a comment means.
+/// ✨ Explain (the AI answers first) and 💬 Ask (the reviewer asks first), both opening the comment's chat.
 struct ExplainButton: View {
     @Environment(AppModel.self) private var model
     let pr: PullRequest
@@ -427,40 +427,78 @@ struct ExplainButton: View {
 
     var body: some View {
         let engine = model.preferredEngine(for: pr)
-        Button { model.explain(comment, thread: thread, pr: pr) } label: { Image(systemName: "sparkles") }
-            .buttonStyle(.borderless)
-            .disabled(model.explanations[comment.id] != nil && model.explanations[comment.id]?.text == nil)
-            .help(engine.isLocal
-                  ? "Explain this comment with \(engine.name)"
-                  : "Explain this comment with \(engine.name). Sends the comment, its conversation and the file's diff to \(engine.name)'s provider.")
+        let sends = engine.isLocal ? "" : " Sends the comment, its conversation and the file's diff to \(engine.name)'s provider."
+        let busy = model.explanations[comment.id]?.isAnswering == true
+        HStack(spacing: 6) {
+            Button { model.explain(comment, thread: thread, pr: pr) } label: { Image(systemName: "sparkles") }
+                .disabled(busy)
+                .help("Explain this comment with \(engine.name), then ask follow-ups.\(sends)")
+            Button { model.openChat(comment, thread: thread, pr: pr) } label: { Image(systemName: "bubble.left.and.text.bubble.right") }
+                .disabled(model.explanations[comment.id] != nil)
+                .help("Ask \(engine.name) your own question about this comment.\(sends)")
+        }
+        .buttonStyle(.borderless)
     }
 }
 
-/// The AI's answer under the comment, or a spinner while it's thinking.
+/// The Explain chat under the comment: the answer, then follow-up questions with the same context.
 struct ExplanationView: View {
     @Environment(AppModel.self) private var model
     let comment: Comment
+    @ViewState private var question = ""
 
     var body: some View {
-        if let explanation = model.explanations[comment.id] {
-            VStack(alignment: .leading, spacing: 6) {
+        if let chat = model.explanations[comment.id] {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
                     Image(systemName: "sparkles").foregroundStyle(.purple)
-                    Text(explanation.text == nil ? "Asking \(explanation.engine)…" : "Explanation · \(explanation.engine)")
+                    Text(chat.isAnswering && chat.messages.isEmpty ? "Asking \(chat.engine.name)…" : "Chat about this comment · \(chat.engine.name)")
                         .font(.caption.bold()).foregroundStyle(.secondary)
-                    if explanation.text == nil { ProgressView().controlSize(.small) }
+                    if chat.isAnswering { ProgressView().controlSize(.small) }
                     Spacer()
-                    if explanation.text != nil {
+                    if !chat.isAnswering {
                         Button { model.explanations[comment.id] = nil } label: { Image(systemName: "xmark") }
                             .buttonStyle(.borderless)
-                            .help("Hide explanation")
+                            .help("Close the chat")
                     }
                 }
-                if let text = explanation.text { MarkdownText(text).font(.callout) }
+                ForEach(Array(chat.messages.enumerated()), id: \.offset) { _, message in
+                    if message.role == .reviewer {
+                        HStack {
+                            Spacer(minLength: 40)
+                            Text(message.text)
+                                .font(.callout)
+                                .textSelection(.enabled)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color.accentColor.opacity(0.14), in: RoundedRectangle(cornerRadius: 10))
+                        }
+                    } else {
+                        MarkdownText(message.text).font(.callout)
+                    }
+                }
+                // Once the context is ready: after the explanation, or straight away for a direct chat.
+                if !chat.prompt.isEmpty && !(chat.isAnswering && chat.messages.isEmpty) {
+                    HStack {
+                        TextField(chat.messages.isEmpty ? "Ask about this comment…" : "Ask a follow-up…", text: $question)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit(send)
+                            .disabled(chat.isAnswering)
+                        Button("Ask", action: send)
+                            .disabled(chat.isAnswering || question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                    .help("Same context as the explanation: PR description, conversation and diff")
+                }
             }
             .padding(10)
             .background(Color.purple.opacity(0.07), in: RoundedRectangle(cornerRadius: 6))
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.purple.opacity(0.3)))
         }
+    }
+
+    private func send() {
+        let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        Task { if await model.askFollowUp(text, about: comment.id) { question = "" } }
     }
 }

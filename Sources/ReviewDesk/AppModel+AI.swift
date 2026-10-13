@@ -151,6 +151,25 @@ extension AppModel {
         aiRuns.removeAll { $0.id == runID }
     }
 
+    /// Asks a follow-up in a comment's Explain chat, with the same engine and context. Returns false if it failed,
+    /// so the question can stay in the field.
+    func askFollowUp(_ question: String, about commentID: String) async -> Bool {
+        guard let chat = explanations[commentID], !chat.isAnswering, !chat.prompt.isEmpty else { return false }
+        explanations[commentID]?.messages.append(ChatMessage(.reviewer, question))
+        explanations[commentID]?.isAnswering = true
+        defer { explanations[commentID]?.isAnswering = false }
+        do {
+            let prompt = AIContext.followUpPrompt(explainPrompt: chat.prompt, chat: chat.messages, question: question)
+            let answer = try await reviewer.ask(chat.engine, prompt: prompt)
+            explanations[commentID]?.messages.append(ChatMessage(.assistant, answer))
+            return true
+        } catch {
+            if explanations[commentID]?.messages.last == ChatMessage(.reviewer, question) { explanations[commentID]?.messages.removeLast() }
+            lastError = "\(chat.engine.name): \(error.localizedDescription)"
+            return false
+        }
+    }
+
     func engine(named name: String, ollamaModel: String, for pr: PullRequest) -> AIEngine {
         switch name {
         case "linked" where agentLinks[pr.id] != nil: agentLinks[pr.id]!.engine
@@ -167,32 +186,60 @@ extension AppModel {
                       ollamaModel: defaults.string(forKey: "ollamaModel") ?? "qwen2.5-coder", for: pr)
     }
 
-    /// Asks the AI what a comment means. Sends the PR description, the conversation and, for inline
-    /// comments, that file's diff to the engine's provider (nothing leaves the Mac with Ollama).
+    /// Asks the AI what a comment means, then keeps the chat open for follow-ups. Sends the PR description, the
+    /// conversation and, for inline comments, that file's diff to the engine's provider (nothing leaves the Mac with Ollama).
     func explain(_ comment: Comment, thread: ReviewThread?, pr: PullRequest) {
         let engine = preferredEngine(for: pr)
-        explanations[comment.id] = Explanation(engine: engine.name)
+        explanations[comment.id] = Explanation(engine: engine)
         Task {
             do {
-                if thread != nil, files[pr.id] == nil { files[pr.id] = try await github.files(pr.ref) }
-                let conversation = thread?.comments ?? Array((details[pr.id]?.comments ?? []).prefix { $0.id != comment.id }.suffix(10) + [comment])
-                let prompt = AIContext.explainPrompt(
-                    title: pr.title, body: details[pr.id]?.body ?? "", path: thread?.path, line: thread?.line,
-                    patch: thread.flatMap { thread in files[pr.id]?.first { $0.filename == thread.path }?.patch },
-                    conversation: conversation, comment: comment, instructions: Prompts.explain)
-                explanations[comment.id]?.text = try await reviewer.ask(engine, prompt: prompt)
+                let prompt = try await chatContext(comment, thread: thread, pr: pr)
+                explanations[comment.id]?.prompt = prompt
+                let answer = try await reviewer.ask(engine, prompt: prompt)
+                explanations[comment.id]?.messages.append(ChatMessage(.assistant, answer))
+                explanations[comment.id]?.isAnswering = false
             } catch {
                 explanations[comment.id] = nil
                 lastError = "\(engine.name): \(error.localizedDescription)"
             }
         }
     }
+
+    /// Opens the chat without an explanation first: the reviewer's own question is the first message.
+    /// Same context as `explain`; nothing is sent until they ask.
+    func openChat(_ comment: Comment, thread: ReviewThread?, pr: PullRequest) {
+        guard explanations[comment.id] == nil else { return }
+        let engine = preferredEngine(for: pr)
+        explanations[comment.id] = Explanation(engine: engine)
+        Task {
+            do {
+                explanations[comment.id]?.prompt = try await chatContext(comment, thread: thread, pr: pr)
+                explanations[comment.id]?.isAnswering = false
+            } catch {
+                explanations[comment.id] = nil
+                lastError = error.localizedDescription
+            }
+        }
+    }
+
+    /// The material both chats start from: PR description, the comment's conversation and its file's diff.
+    private func chatContext(_ comment: Comment, thread: ReviewThread?, pr: PullRequest) async throws -> String {
+        if thread != nil, files[pr.id] == nil { files[pr.id] = try await github.files(pr.ref) }
+        let conversation = thread?.comments ?? Array((details[pr.id]?.comments ?? []).prefix { $0.id != comment.id }.suffix(10) + [comment])
+        return AIContext.explainPrompt(
+            title: pr.title, body: details[pr.id]?.body ?? "", path: thread?.path, line: thread?.line,
+            patch: thread.flatMap { thread in files[pr.id]?.first { $0.filename == thread.path }?.patch },
+            conversation: conversation, comment: comment, instructions: Prompts.explain)
+    }
 }
 
+/// The Explain chat under a comment: the first answer, then the reviewer's follow-ups and their answers.
 struct Explanation {
-    var engine: String
-    /// Nil while the engine is still answering.
-    var text: String?
+    var engine: AIEngine
+    /// The first prompt (PR description, conversation, diff), resent with every follow-up so the context stays put.
+    var prompt = ""
+    var messages: [ChatMessage] = []
+    var isAnswering = true
 }
 
 /// The AI prompts, as customized in Settings. An empty override means the built-in default.
