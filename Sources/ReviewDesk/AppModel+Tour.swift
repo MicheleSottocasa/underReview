@@ -19,6 +19,9 @@ extension AppModel {
 
     var isDemoShown: Bool { prs[Demo.mainID] != nil }
 
+    /// Who "you" is on `pr`: the demo's own viewer on the tour's fictional PRs, the GitHub login elsewhere.
+    func viewer(for pr: PullRequest) -> String { pr.isDemo ? Demo.viewer : viewer }
+
     /// Puts the demo stack in memory, next to the real PRs. Saves drop it (see the `didSet`s).
     func showDemo() {
         for pr in Demo.pullRequests { prs[pr.id] = pr }
