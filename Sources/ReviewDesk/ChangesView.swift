@@ -86,7 +86,7 @@ struct ChangesView: View {
             guard let next = model.changesTarget else { return }
             let areas = keyAreas(next.path)
             let named = next.areaIndex.flatMap { areas.indices.contains($0) ? $0 : nil }
-            let area = named ?? areas.firstIndex { next.line > 0 && next.side == .right && $0.startLine == next.line }
+            let area = named ?? areas.firstIndex { next.line > 0 && $0.isOld == (next.side == .left) && $0.startLine == next.line }
             if named != nil { focusOnly = true } // a key area from Risk: show it in the same reading list
             selection = area.map { .area(next.path, $0) } ?? .file(next.path)
             target = next.line > 0 ? LineTarget(path: next.path, line: next.line, endLine: area.flatMap { areas[$0].endLine }, side: next.side) : nil
@@ -100,7 +100,7 @@ struct ChangesView: View {
             switch selection {
             case .area(let path, let index)?:
                 guard !linesMoved else { target = nil; break }
-                target = keyAreas(path).dropFirst(index).first.map { LineTarget(path: path, line: $0.startLine ?? 0, endLine: $0.endLine) }
+                target = keyAreas(path).dropFirst(index).first.map(LineTarget.init(area:))
             case .file(let path)?:
                 // A jump left over from an earlier visit would otherwise replay when the file is shown again.
                 if target?.path != path { target = nil }
@@ -123,8 +123,7 @@ struct ChangesView: View {
         let item = ChangesItem.area(next.path, next.index)
         if selection == item {
             // Already selected (e.g. the only unread one, after scrolling elsewhere): no change to react to, so jump here.
-            let area = keyAreas(next.path)[next.index]
-            target = LineTarget(path: next.path, line: area.startLine ?? 0, endLine: area.endLine)
+            target = LineTarget(area: keyAreas(next.path)[next.index])
         } else {
             selection = item
         }
@@ -171,6 +170,13 @@ struct LineTarget: Equatable {
     /// A key area to select in the Focus list, as an index into its file's areas.
     var areaIndex: Int?
     var id = UUID()
+}
+
+extension LineTarget {
+    /// The start of a key area, on its side (the old file for removed code); the top of the file for a whole-file area.
+    init(area: KeyArea) {
+        self.init(path: area.path, line: area.startLine ?? 0, endLine: area.endLine, side: area.isOld ? .left : .right)
+    }
 }
 
 /// "⌃ File 2 of 9 ⌄": previous/next buttons with [ and ] shortcuts, shared by files, comments and key areas.
@@ -576,7 +582,8 @@ struct FileTree: View {
     static func lines(_ area: KeyArea) -> String {
         guard let start = area.startLine else { return "Whole file" }
         let end = max(start, area.endLine ?? start)
-        return end == start ? "Line \(start)" : "Lines \(start)–\(end)"
+        let lines = end == start ? "line \(start)" : "lines \(start)–\(end)"
+        return area.isOld ? "Removed code, old \(lines)" : lines.prefix(1).uppercased() + lines.dropFirst()
     }
 
     private func rows(_ nodes: [FileNode], depth: Int) -> [(node: FileNode, depth: Int)] {
@@ -726,7 +733,8 @@ struct FileDiffView: View {
                 Spacer()
                 if let target, target.line > 0, let diff = currentDiff, diff.row(for: target) == nil {
                     let end = max(target.line, target.endLine ?? target.line)
-                    Label(end > target.line ? "Lines \(target.line)–\(end) aren't in this diff" : "Line \(target.line) isn't in this diff",
+                    let old = target.side == .left ? "Old l" : "L"
+                    Label(end > target.line ? "\(old)ines \(target.line)–\(end) aren't in this diff" : "\(old)ine \(target.line) isn't in this diff",
                           systemImage: "exclamationmark.triangle")
                         .font(.callout).foregroundStyle(.orange)
                         .help("The key area starts after the last changed lines, or comes from an older commit")
@@ -882,7 +890,7 @@ struct FileDiffView: View {
     /// The diff row of each key area, index-aligned with `keyAreas`; nil for whole-file areas and lines not in the diff.
     private var areaRows: [Int?] {
         guard let diff = currentDiff else { return [] }
-        return keyAreas.map { area in area.lines.flatMap { diff.index.row(ofNewLines: $0) } }
+        return keyAreas.map { diff.index.row(of: $0) }
     }
 
     /// Diff rows with shown threads (Involving Me hides the others) or drafts, and the anchors on each (a split row
@@ -933,6 +941,7 @@ struct FileDiffView: View {
                 HoverRow { hovered in
                     HStack(spacing: 0) {
                         code(row.left, text: text).background(leftColor)
+                            .overlay(alignment: .leading) { keyMark(row.left, old: true) }
                             .overlay { if isSelected(leftIndex) { selectedTint(bar: true) } }
                         HStack(spacing: 0) {
                             number(row.left?.oldLine, select: leftIndex).background(leftColor)
@@ -944,7 +953,7 @@ struct FileDiffView: View {
                         .overlay(alignment: .leading) { Rectangle().fill(DiffColors.separator).frame(width: 1) }
                         .overlay(alignment: .trailing) { Rectangle().fill(DiffColors.separator).frame(width: 1) }
                         code(row.right, text: text).background(rightColor)
-                            .overlay(alignment: .leading) { keyMark(row.right) }
+                            .overlay(alignment: .leading) { keyMark(row.right, old: false) }
                             .overlay { if isSelected(rightIndex) { selectedTint(bar: true) } }
                     }
                 }
@@ -983,16 +992,17 @@ struct FileDiffView: View {
     }
 
     /// Marks lines inside the AI's key areas, dimmed when they come from an older head; the one picked in the file
-    /// list gets a wider bar and a tint.
+    /// list gets a wider bar and a tint. `old`: only areas on that side (a half of the side-by-side layout); nil for both.
     @ViewBuilder
-    private func keyMark(_ line: DiffLine?) -> some View {
-        if let line, line.kind != .removed, let number = line.newLine {
-            if selectedArea?.contains(line: number) == true {
+    private func keyMark(_ line: DiffLine?, old: Bool? = nil) -> some View {
+        let areas = keyAreas.filter { old == nil || $0.isOld == old }
+        if let line {
+            if let selectedArea, areas.contains(selectedArea), selectedArea.covers(line) {
                 DiffColors.keyArea.opacity(0.15).allowsHitTesting(false)
                     .overlay(alignment: .leading) {
                         Rectangle().fill(Color.orange).frame(width: 5).help("The key area selected in the file list")
                     }
-            } else if keyAreas.contains(where: { $0.contains(line: number) }) {
+            } else if areas.contains(where: { $0.covers(line) }) {
                 Rectangle().fill(DiffColors.keyArea.opacity(keyAreasOutdated ? 0.35 : 1)).frame(width: 3)
                     .help(keyAreasOutdated ? "Key area from an analysis of an older commit: the lines may have moved since"
                                            : "Key area: read this before submitting")
@@ -1143,12 +1153,11 @@ struct FileDiffView: View {
     /// With Key Areas Only on, the runs of hunks that have no key area and no comment, minus the ones opened. Files
     /// without key areas in the diff fold nothing.
     private func folds(_ diff: RenderedDiff, commented: Set<ReviewDeskCore.Anchor>) -> [Range<Int>] {
-        let ranges = keyAreas.compactMap(\.lines)
-        guard focusedDiff, !ranges.isEmpty else { return [] }
+        let areas = keyAreas.filter { $0.lines != nil }
+        guard focusedDiff, !areas.isEmpty else { return [] }
         return Focus.folds(rows: diff.rowCount, isHunk: diff.isHunk) { row in
             diff.lines(at: row).contains { line in
-                line.kind != .removed && line.newLine.map { number in ranges.contains { $0.contains(number) } } == true
-                    || line.anchor(path: file.filename).map(commented.contains) == true
+                areas.contains { $0.covers(line) } || line.anchor(path: file.filename).map(commented.contains) == true
             }
         }
         .filter { !unfolded.contains($0.lowerBound) }
@@ -1328,15 +1337,11 @@ struct RenderedDiff {
             .map { NSAttributedString(string: $0.0, attributes: [.font: font]).size().width }.max() ?? 0
     }
 
-    /// Offset of the target's first diff row, matching the ForEach ids; nil when its new-side lines aren't in the diff.
-    /// An old-file target (a thread on a removed line) lands on the first row at or after its line.
+    /// Offset of the target's first diff row, matching the ForEach ids; nil when none of its lines is in the diff. A
+    /// left target (a thread on a removed line, a key area about deleted code) counts in old-file lines.
     func row(for target: LineTarget) -> Int? {
-        switch (mode, target.side) {
-        case (_, .right): index.row(ofNewLines: target.line...max(target.line, target.endLine ?? target.line))
-        // ponytail: scans; only a click on a removed-line thread in Conversation gets here.
-        case (.unified, .left): lines.firstIndex { $0.kind != .added && ($0.oldLine ?? 0) >= target.line }
-        case (.split, .left): rows.firstIndex { ($0.left?.oldLine ?? 0) >= target.line }
-        }
+        let range = target.line...max(target.line, target.endLine ?? target.line)
+        return target.side == .left ? index.row(ofOldLines: range) : index.row(ofNewLines: range)
     }
 
     /// Offset of the row a comment is anchored to.

@@ -27,26 +27,39 @@ public struct Finding: Codable, Hashable, Sendable {
 /// A part of the change the reviewer should read personally before submitting.
 public struct KeyArea: Codable, Hashable, Sendable {
     public var path: String
-    /// Line range on the new side; nil for the whole file.
+    /// Line range on the side `side` names (the new one unless it's "old"); nil for the whole file.
     public var startLine: Int?
     public var endLine: Int?
     public var reason: String
     /// Which risk question it answers (a `RiskQuestion` raw value, or "other"). Nil in reviews saved before risk tags.
     public var risk: String?
+    /// "old" when the lines are numbered in the old file, for code the PR deletes; "new" or nil (reviews saved
+    /// before sides) for the new file. Kept a string so an unexpected value reads as the new side instead of failing.
+    public var side: String?
 
-    public init(path: String, startLine: Int? = nil, endLine: Int? = nil, reason: String, risk: String? = nil) {
-        (self.path, self.startLine, self.endLine, self.reason, self.risk) = (path, startLine, endLine, reason, risk)
+    public init(path: String, startLine: Int? = nil, endLine: Int? = nil, reason: String, risk: String? = nil, side: String? = nil) {
+        (self.path, self.startLine, self.endLine, self.reason, self.risk, self.side) = (path, startLine, endLine, reason, risk, side)
     }
 
     public var question: RiskQuestion? { risk.flatMap(RiskQuestion.init) }
 
-    /// The new-side lines it covers; nil for the whole file.
+    /// The lines are in the old file: the area is about removed code.
+    public var isOld: Bool { side == "old" }
+
+    /// The lines it covers, on its side; nil for the whole file.
     public var lines: ClosedRange<Int>? {
         startLine.map { $0...max($0, endLine ?? $0) }
     }
 
     public func contains(line: Int) -> Bool {
         lines?.contains(line) ?? false
+    }
+
+    /// Whether a diff line is inside the area: by its old-file number for an old-side area (removed and unchanged
+    /// lines), by its new-file number otherwise (added and unchanged lines).
+    public func covers(_ line: DiffLine) -> Bool {
+        isOld ? line.kind != .added && line.oldLine.map(contains) == true
+              : line.kind != .removed && line.newLine.map(contains) == true
     }
 }
 
@@ -194,12 +207,13 @@ public enum AIContext {
           "level":{"type":"string","enum":["none","low","medium","high"]},
           "answer":{"type":"string"}}}},
       "keyAreas":{"type":"array","items":{"type":"object","additionalProperties":false,
-        "required":["path","startLine","endLine","reason","risk"],"properties":{
+        "required":["path","startLine","endLine","reason","risk","side"],"properties":{
           "path":{"type":"string"},
           "startLine":{"type":["integer","null"]},
           "endLine":{"type":["integer","null"]},
           "reason":{"type":"string"},
-          "risk":{"type":"string","enum":["data","access","scale","failure","explain","other"]}}}},
+          "risk":{"type":"string","enum":["data","access","scale","failure","explain","other"]},
+          "side":{"type":"string","enum":["new","old"]}}}},
       "findings":{"type":"array","items":{"type":"object","additionalProperties":false,
         "required":["severity","title","rationale","path","line","comment","startLine","suggestion"],"properties":{
           "severity":{"type":"string","enum":["critical","high","medium","low"]},
@@ -242,8 +256,10 @@ public enum AIContext {
     the user or organisation), `scale` (behaviour at 100x the data: N+1 queries, missing indexes, whole tables loaded
     into memory), `failure` (timeouts, retries, tasks running twice, double submits), `explain` (non-trivial design
     the author should explain) or `other`. If the PR description has Risk notes, make every item the author is unsure
-    about a key area. Never flag formatting, naming or style. Give line ranges on the NEW side of the diff; use null
-    lines for a whole file. `reason` says in one sentence what to check there.
+    about a key area. Never flag formatting, naming or style. Give line ranges on the NEW side of the diff with `side`
+    `new`; when what matters is code the PR deletes (a removed check, guard or migration step), give its line numbers
+    in the OLD file with `side` `old`. Use null lines (and `side` `new`) for a whole file. `reason` says in one sentence
+    what to check there.
     In `risks`, answer each of these questions about this PR exactly once, in this order: `data` (what changes about
     the data?), `access` (who is allowed to do this?), `scale` (what happens at 100x the data?), `failure` (what
     happens when it fails?), `explain` (can the author explain it: is the design non-obvious enough to ask?). `level`

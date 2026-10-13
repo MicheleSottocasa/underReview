@@ -93,6 +93,21 @@ private let patch = """
     #expect(split.row(ofNewLines: 20...30) == nil)
 }
 
+@Test func keyAreasAboutRemovedCodeFindTheirOldLines() {
+    let lines = Diff.parse(patch)
+    let unified = DiffIndex(lines: lines, path: "a.swift")
+    let removedB = KeyArea(path: "a.swift", startLine: 11, reason: "", side: "old")
+    #expect(unified.row(of: removedB) == 2) // the removed "let b = 2", not the added line 11
+    #expect(unified.row(of: KeyArea(path: "a.swift", startLine: 11, reason: "")) == 3)
+    #expect(unified.row(of: KeyArea(path: "a.swift", startLine: 40, endLine: 41, reason: "", side: "old")) == 7)
+    #expect(unified.row(of: KeyArea(path: "a.swift", startLine: 20, endLine: 30, reason: "", side: "old")) == nil)
+    #expect(unified.row(of: KeyArea(path: "a.swift", reason: "", side: "old")) == nil) // whole file
+    let rows = Diff.sideBySide(lines)
+    let split = DiffIndex(rows: rows, path: "a.swift")
+    #expect(split.row(of: removedB).flatMap { rows[$0].left?.text } == "let b = 2")
+    #expect(split.row(of: KeyArea(path: "a.swift", startLine: 40, reason: "", side: "old")).flatMap { rows[$0].left?.text } == "old")
+}
+
 @Test func commentAnchorsMapToTheirDiffRows() {
     let lines = Diff.parse(patch)
     let rows = Diff.sideBySide(lines)

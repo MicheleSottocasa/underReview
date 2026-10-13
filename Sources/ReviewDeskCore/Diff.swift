@@ -173,11 +173,13 @@ extension DiffRow {
 /// rows), built once per diff so jumps and steps don't scan it on every redraw.
 public struct DiffIndex: Sendable {
     private var newLines: [Int: Int] = [:]
+    private var oldLines: [Int: Int] = [:]
     private var anchors: [Anchor: Int] = [:]
 
     public init(lines: [DiffLine], path: String) {
         for (index, line) in lines.enumerated() {
             if line.kind != .removed, let new = line.newLine, newLines[new] == nil { newLines[new] = index }
+            if line.kind != .added, let old = line.oldLine, oldLines[old] == nil { oldLines[old] = index }
             if let anchor = line.anchor(path: path), anchors[anchor] == nil { anchors[anchor] = index }
         }
     }
@@ -185,6 +187,7 @@ public struct DiffIndex: Sendable {
     public init(rows: [DiffRow], path: String) {
         for (index, row) in rows.enumerated() {
             if let new = row.right?.newLine, newLines[new] == nil { newLines[new] = index }
+            if let old = row.left?.oldLine, oldLines[old] == nil { oldLines[old] = index }
             for anchor in [row.left, row.right].compactMap({ $0?.anchor(path: path) }) where anchors[anchor] == nil {
                 anchors[anchor] = index
             }
@@ -196,6 +199,16 @@ public struct DiffIndex: Sendable {
     public func row(ofNewLines range: ClosedRange<Int>) -> Int? {
         // ponytail: walks the range, which is a key area's tens of lines; a sorted array if areas get huge.
         range.lazy.compactMap { newLines[$0] }.first
+    }
+
+    /// The same for lines of the old file (removed or unchanged), as a key area about deleted code names them.
+    public func row(ofOldLines range: ClosedRange<Int>) -> Int? {
+        range.lazy.compactMap { oldLines[$0] }.first
+    }
+
+    /// The row a key area starts on: the first of its lines in the diff, on its side; nil for a whole file.
+    public func row(of area: KeyArea) -> Int? {
+        area.lines.flatMap { area.isOld ? row(ofOldLines: $0) : row(ofNewLines: $0) }
     }
 
     /// The row of the line a comment is anchored to, on either side; nil when it's no longer in the diff.
