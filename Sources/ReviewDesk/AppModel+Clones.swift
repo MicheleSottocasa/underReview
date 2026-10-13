@@ -13,8 +13,7 @@ extension AppModel {
         if let current = localClones[repo] { panel.directoryURL = URL(fileURLWithPath: current) }
         guard panel.runModal() == .OK, let url = panel.url else { return false }
         do {
-            try await clones.verify(url, repo: repo)
-            localClones[repo] = url.path
+            localClones[repo] = try await clones.verify(url, repo: repo).path
             return true
         } catch {
             report(error, "Couldn't link the clone")
@@ -27,7 +26,8 @@ extension AppModel {
     func checkOut(_ pr: PullRequest) async -> String? {
         guard !blockDemo(pr) else { return nil }
         if localClones[pr.repo] == nil, await !chooseClone(for: pr.repo) { return nil }
-        guard let path = localClones[pr.repo] else { return nil }
+        guard let path = localClones[pr.repo], checkingOut.insert(path).inserted else { return nil }
+        defer { checkingOut.remove(path) }
         do {
             return try await clones.checkout(pr.ref, in: URL(fileURLWithPath: path))
         } catch {

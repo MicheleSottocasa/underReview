@@ -6,13 +6,14 @@ import SwiftUI
 struct CheckOutButton: View {
     @Environment(AppModel.self) private var model
     let pr: PullRequest
-    @ViewState private var working = false
-    @ViewState private var checkedOut: String?
+    /// PR id → the branch its checkout ended on; keyed so a checkout finishing after a switch shows on its own PR.
+    @ViewState private var checkedOut: [String: String] = [:]
 
     var body: some View {
         let path = model.localClones[pr.repo]
+        let working = path.map(model.checkingOut.contains) ?? false
         HStack(spacing: 8) {
-            if let checkedOut {
+            if let checkedOut = checkedOut[pr.id] {
                 Label(checkedOut, systemImage: "checkmark.circle")
                     .font(.callout.monospaced())
                     .foregroundStyle(.secondary)
@@ -28,18 +29,13 @@ struct CheckOutButton: View {
                     }
                 }
             } primaryAction: {
-                working = true
-                Task {
-                    checkedOut = await model.checkOut(pr)
-                    working = false
-                }
+                Task { checkedOut[pr.id] = await model.checkOut(pr) }
             }
             .fixedSize()
             .disabled(working)
             .help(path.map { "Check out \(pr.headRefName) in \($0) with gh pr checkout" }
                 ?? "Link the local clone of \(pr.repo), then check out \(pr.headRefName) there")
         }
-        .onChange(of: pr.id) { checkedOut = nil }
     }
 }
 
@@ -72,7 +68,7 @@ struct CloneSettings: View {
             } header: {
                 Text("Local clones")
             } footer: {
-                Text("Check Out runs gh pr checkout in the clone. It refuses when tracked files have uncommitted changes.")
+                Text("Check Out runs gh pr checkout in the clone. It refuses when it could lose or mix up work: uncommitted changes, an unfinished merge, rebase or bisect, detached commits, or untracked and ignored files the pull request would overwrite.")
             }
         }
         .formStyle(.grouped)
