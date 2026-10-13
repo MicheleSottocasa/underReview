@@ -37,7 +37,8 @@ struct ChangesView: View {
             }
             if let files = changed {
                 HSplitView {
-                    FileTree(pr: pr, files: files, selection: $selectedPath) { path, line in
+                    FileTree(pr: pr, files: files, selection: $selectedPath, showsCommits: shown != nil,
+                             linesMoved: shown != nil && bounds?.head != pr.headRefOid) { path, line in
                         selectedPath = path
                         target = line.map { LineTarget(path: path, line: $0) }
                     }
@@ -337,6 +338,10 @@ struct FileTree: View {
     let pr: PullRequest
     let files: [FileChange]
     @Binding var selection: String?
+    /// Some commits are shown: Viewed marks a file in the whole pull request, so it's left alone here.
+    var showsCommits = false
+    /// The commits shown end before the head: key areas' line numbers don't apply.
+    var linesMoved = false
     /// A key area was clicked: open the file and, when it has lines, scroll there.
     let openArea: (String, Int?) -> Void
     @ViewState private var collapsed: Set<String> = []
@@ -399,7 +404,9 @@ struct FileTree: View {
                     }
                     .buttonStyle(.plain)
                     .padding(.leading, 22)
-                    .help(area.startLine == nil ? "Open the file" : "Jump to these lines")
+                    .disabled(linesMoved)
+                    .help(linesMoved ? "These lines are in the latest commit: pick All commits, or a range ending at it, to jump there"
+                          : area.startLine == nil ? "Open the file" : "Jump to these lines")
                 }
             }
         }
@@ -451,7 +458,9 @@ struct FileTree: View {
                 Toggle("Viewed", isOn: Binding(get: { viewed }, set: { _ in Task { await model.toggleViewed(file.filename, pr: pr) } }))
                     .toggleStyle(.checkbox)
                     .labelsHidden()
-                    .help(viewed ? "Viewed on GitHub. Uncheck to mark as not viewed." : "Mark as viewed on GitHub")
+                    .disabled(showsCommits)
+                    .help(showsCommits ? "Viewed applies to the whole pull request: pick All commits to change it"
+                          : viewed ? "Viewed on GitHub. Uncheck to mark as not viewed." : "Mark as viewed on GitHub")
             }
             Image(systemName: icon(file.status)).foregroundStyle(color(file.status)).frame(width: 14)
             Text(name).lineLimit(1).truncationMode(.middle).foregroundStyle(viewed ? .secondary : .primary)
