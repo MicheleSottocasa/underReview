@@ -57,30 +57,32 @@ struct DetailView: View {
         }
     }
 
+    /// Title and actions; then who and where (repo, number, author, branches, size); then where it stands
+    /// (state, merge, my review, reviewers).
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 Text(pr.title).font(.title2.bold()).textSelection(.enabled)
                 Spacer()
                 CheckOutButton(pr: pr)
+                if let stack = pr.stack { StackStepper(pr: pr, stack: stack) }
                 Button("Open on GitHub") { model.openOnGitHub(pr) }
             }
-            HStack(spacing: 8) {
-                StateBadge(pr: pr)
-                MergeBadges(pr: pr)
-                if model.hasOutdatedAnalysis(pr) {
-                    Button { model.detailTab = .ai } label: { Badge(text: "AI analysis outdated", color: .orange) }
-                        .buttonStyle(.plain)
-                        .help("The author pushed after the latest AI analysis. Open AI Review to run it again.")
+            HStack(spacing: 12) {
+                HStack(spacing: 4) {
+                    Text(pr.repo).foregroundStyle(.secondary)
+                    Text(verbatim: "#\(pr.number)").fontWeight(.semibold)
                 }
-                MyReviewStatus(pr: pr)
-                Text(verbatim: "\(pr.repo)#\(pr.number) by \(pr.author)")
-                Text("\(pr.headRefName) → \(pr.baseRefName)").font(.caption.monospaced())
+                .textSelection(.enabled)
+                Label(pr.author, systemImage: "person").foregroundStyle(.secondary).help("Author")
+                HStack(spacing: 4) {
+                    BranchChip(name: pr.headRefName)
+                    Image(systemName: "arrow.right").font(.caption).foregroundStyle(.secondary)
+                    BranchChip(name: pr.baseRefName)
+                }
+                .help("Merges \(pr.headRefName) into \(pr.baseRefName)")
                 if let head = URL(string: "https://github.com/\(pr.repo)/commit/\(pr.headRefOid)") {
                     Link(String(pr.headRefOid.prefix(7)), destination: head).font(.caption.monospaced()).foregroundStyle(.tint).help("The head commit, on GitHub")
-                }
-                if let position = pr.stackPosition, let stack = pr.stack {
-                    Text(verbatim: "Stack #\(stack.number): \(position) of \(stack.entries.count)")
                 }
                 if pr.changedFiles > 0 {
                     HStack(spacing: 4) {
@@ -92,9 +94,102 @@ struct DetailView: View {
                 }
             }
             .font(.callout)
-            .foregroundStyle(.secondary)
-            if let detail = model.details[pr.id] { ReviewersRow(pr: pr, detail: detail) }
+            .lineLimit(1)
+            // One line when it fits, the reviewers on their own line when it doesn't.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) { status; reviewers }
+                VStack(alignment: .leading, spacing: 6) { status; reviewers }
+            }
         }
+    }
+
+    private var status: some View {
+        HStack(spacing: 8) {
+            StateBadge(pr: pr)
+            MergeBadges(pr: pr)
+            if model.hasOutdatedAnalysis(pr) {
+                Button { model.detailTab = .ai } label: { Badge(text: "AI analysis outdated", color: .orange) }
+                    .buttonStyle(.plain)
+                    .help("The author pushed after the latest AI analysis. Open AI Review to run it again.")
+            }
+            MyReviewStatus(pr: pr)
+        }
+        .fixedSize()
+    }
+
+    @ViewBuilder private var reviewers: some View {
+        if let detail = model.details[pr.id] { ReviewersRow(pr: pr, detail: detail).fixedSize() }
+    }
+}
+
+/// A branch name; click to copy it.
+struct BranchChip: View {
+    let name: String
+    @ViewState private var copied = false
+
+    var body: some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(name, forType: .string)
+            copied = true
+            Task {
+                try? await Task.sleep(for: .seconds(1.5))
+                copied = false
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: copied ? "checkmark" : "arrow.triangle.branch")
+                Text(name).truncationMode(.middle)
+            }
+            .font(.caption.monospaced())
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
+        }
+        .buttonStyle(.plain)
+        .help(copied ? "Copied" : "Copy “\(name)”")
+    }
+}
+
+/// Position in the stack (as GitHub numbers it: 1 is closest to the base). The arrows step to the pull request
+/// below or above; the middle lists every member to jump to.
+struct StackStepper: View {
+    @Environment(AppModel.self) private var model
+    let pr: PullRequest
+    let stack: StackInfo
+
+    var body: some View {
+        let (below, above) = stack.neighbors(of: pr.id)
+        HStack(spacing: 2) {
+            step(below, symbol: "chevron.down", direction: "below")
+            Menu {
+                ForEach(stack.entries, id: \.id) { entry in
+                    Button("\(entry.position). #\(entry.number) \(model.prs[entry.id]?.title ?? "")") { go(entry) }
+                        .disabled(entry.id == pr.id || model.prs[entry.id] == nil)
+                }
+            } label: {
+                Text(verbatim: "Stack #\(stack.number) · \(pr.stackPosition ?? 0) of \(stack.entries.count)").monospacedDigit()
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Pull requests built on top of each other: 1 is closest to the base branch. Click to jump to another one.")
+            step(above, symbol: "chevron.up", direction: "above")
+        }
+        .padding(.horizontal, 4)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func step(_ entry: StackInfo.Entry?, symbol: String, direction: String) -> some View {
+        Button { entry.map(go) } label: { Image(systemName: symbol).frame(width: 16, height: 16) }
+            .buttonStyle(.borderless)
+            .disabled(entry.flatMap { model.prs[$0.id] } == nil)
+            .help(entry.map { "Go to #\($0.number), \(direction) this one in the stack" } ?? "Nothing \(direction) this one in the stack")
+    }
+
+    private func go(_ entry: StackInfo.Entry) {
+        guard let target = model.prs[entry.id] else { return }
+        model.reveal(target)
+        model.selection = [.pr(target.id)]
     }
 }
 
