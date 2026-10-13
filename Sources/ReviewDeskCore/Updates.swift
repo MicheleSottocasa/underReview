@@ -8,14 +8,19 @@ public struct Snapshot: Codable, Hashable, Sendable {
     public var reviewCount: Int
     public var threadCommentCount: Int
     public var reviewRequested: Bool
+    /// The viewer's own PR conflicts with its base. Nil in checkpoints saved before this was tracked.
+    public var ownConflicts: Bool?
 
-    public init(_ pr: PullRequest, viewer: String) {
+    /// `previous` keeps the conflict state while GitHub is still computing mergeability (UNKNOWN), so a
+    /// conflict → unknown → conflict round trip isn't notified twice.
+    public init(_ pr: PullRequest, viewer: String, previous: Snapshot? = nil) {
         headRefOid = pr.headRefOid
         state = pr.state
         commentCount = pr.commentCount
         reviewCount = pr.reviewCount
         threadCommentCount = pr.threadCommentCount
         reviewRequested = pr.requestedReviewers.contains(viewer)
+        ownConflicts = pr.mergeabilityPending ? previous?.ownConflicts : pr.viewerIsAuthor && pr.hasConflicts
     }
 }
 
@@ -26,6 +31,7 @@ public enum UpdateKind: Hashable, Sendable {
     case newReviews(Int)
     case newReplies(Int)
     case reviewRequested
+    case conflicts
 
     public var text: String {
         switch self {
@@ -35,6 +41,7 @@ public enum UpdateKind: Hashable, Sendable {
         case .newReviews(let n): n == 1 ? "1 new review" : "\(n) new reviews"
         case .newReplies(let n): n == 1 ? "1 new reply in threads" : "\(n) new replies in threads"
         case .reviewRequested: "Your review was requested"
+        case .conflicts: "Now has merge conflicts"
         }
     }
 }
@@ -50,6 +57,7 @@ public enum Updates {
         if new.reviewCount > old.reviewCount { kinds.append(.newReviews(new.reviewCount - old.reviewCount)) }
         if new.threadCommentCount > old.threadCommentCount { kinds.append(.newReplies(new.threadCommentCount - old.threadCommentCount)) }
         if new.reviewRequested, !old.reviewRequested { kinds.append(.reviewRequested) }
+        if new.ownConflicts == true, old.ownConflicts == false { kinds.append(.conflicts) }
         return kinds
     }
 
@@ -58,7 +66,7 @@ public enum Updates {
     public static func advance(_ checkpoints: inout [String: Snapshot], with prs: [PullRequest], viewer: String) -> [String: [UpdateKind]] {
         var events: [String: [UpdateKind]] = [:]
         for pr in prs {
-            let snapshot = Snapshot(pr, viewer: viewer)
+            let snapshot = Snapshot(pr, viewer: viewer, previous: checkpoints[pr.id])
             let kinds = kinds(old: checkpoints[pr.id], new: snapshot)
             if !kinds.isEmpty { events[pr.id] = kinds }
             checkpoints[pr.id] = snapshot
@@ -67,8 +75,9 @@ public enum Updates {
     }
 
     /// PR ids whose cached data is missing or older than GitHub's last update: only these get the full (costly) fetch.
+    /// So are PRs whose mergeability GitHub was still computing: it doesn't bump `updatedAt` when it's done.
     public static func changed(_ stamps: [String: Date], cached: [String: PullRequest]) -> [String] {
-        stamps.filter { cached[$0.key]?.updatedAt != $0.value }.map(\.key).sorted()
+        stamps.filter { cached[$0.key]?.updatedAt != $0.value || cached[$0.key]?.mergeabilityPending == true }.map(\.key).sorted()
     }
 
     public static let defaultForeground = 180, defaultBackground = 600

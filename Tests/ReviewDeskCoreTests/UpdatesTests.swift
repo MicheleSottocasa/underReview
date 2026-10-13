@@ -2,12 +2,43 @@ import Foundation
 import Testing
 @testable import ReviewDeskCore
 
-private func pr(head: String = "a", state: String = "OPEN", comments: Int = 0, reviews: Int = 0, replies: Int = 0, requested: [String] = []) -> PullRequest {
-    PullRequest(
+private func pr(head: String = "a", state: String = "OPEN", comments: Int = 0, reviews: Int = 0, replies: Int = 0, requested: [String] = [],
+                mine: Bool = false, mergeable: String? = "MERGEABLE") -> PullRequest {
+    var pr = PullRequest(
         id: "PR_1", number: 1, title: "", url: "", state: state, isDraft: false, updatedAt: .now,
         headRefOid: head, headRefName: "", baseRefName: "", author: "", repo: "o/r",
         commentCount: comments, reviewCount: reviews, threadCommentCount: replies, requestedReviewers: requested, stack: nil
     )
+    (pr.viewerIsAuthor, pr.mergeable) = (mine, mergeable)
+    return pr
+}
+
+@Test func notifiesOnceWhenMyPullRequestStartsToConflict() throws {
+    var checkpoints: [String: Snapshot] = [:]
+    _ = Updates.advance(&checkpoints, with: [pr(mine: true)], viewer: "me")
+    // GitHub is still computing: nothing yet, and the next poll asks again.
+    #expect(Updates.advance(&checkpoints, with: [pr(mine: true, mergeable: "UNKNOWN")], viewer: "me").isEmpty)
+    #expect(Updates.advance(&checkpoints, with: [pr(mine: true, mergeable: "CONFLICTING")], viewer: "me") == ["PR_1": [.conflicts]])
+    // Unknown again, then still conflicting: not a new conflict.
+    #expect(Updates.advance(&checkpoints, with: [pr(mine: true, mergeable: "UNKNOWN")], viewer: "me").isEmpty)
+    #expect(Updates.advance(&checkpoints, with: [pr(mine: true, mergeable: "CONFLICTING")], viewer: "me").isEmpty)
+    // Someone else's PR, or a checkpoint saved before conflicts were tracked: no notification.
+    var others: [String: Snapshot] = [:]
+    _ = Updates.advance(&others, with: [pr()], viewer: "me")
+    #expect(Updates.advance(&others, with: [pr(mergeable: "CONFLICTING")], viewer: "me").isEmpty)
+    let legacy = try JSONDecoder().decode(Snapshot.self, from: Data(#"""
+    {"headRefOid":"a","state":"OPEN","commentCount":0,"reviewCount":0,"threadCommentCount":0,"reviewRequested":false}
+    """#.utf8))
+    var upgraded = ["PR_1": legacy]
+    #expect(Updates.advance(&upgraded, with: [pr(mine: true, mergeable: "CONFLICTING")], viewer: "me").isEmpty)
+}
+
+@Test func refetchesPullRequestsWhoseMergeabilityIsUnknown() {
+    let unknown = pr(mergeable: "UNKNOWN")
+    #expect(Updates.changed(["PR_1": unknown.updatedAt], cached: ["PR_1": unknown]) == ["PR_1"])
+    var merged = unknown
+    merged.state = "MERGED"
+    #expect(Updates.changed(["PR_1": merged.updatedAt], cached: ["PR_1": merged]).isEmpty)
 }
 
 @Test func firstLoadProducesNoEvents() {

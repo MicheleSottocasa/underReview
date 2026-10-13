@@ -47,7 +47,7 @@ func prNode(id: String = "PR_1", number: Int = 1, head: String = "aaa", state: S
     return """
     {"id":"\(id)","number":\(number),"title":"T\(number)","url":"https://github.com/o/r/pull/\(number)","state":"\(state)",
      "isDraft":false,"updatedAt":"2026-10-12T14:27:55Z","headRefOid":"\(head)","headRefName":"h\(number)","baseRefName":"main",
-     "additions":120,"deletions":7,"changedFiles":3,
+     "additions":120,"deletions":7,"changedFiles":3,"mergeable":"CONFLICTING","mergeStateStatus":"DIRTY",
      "author":{"login":"alice"},"repository":{"nameWithOwner":"o/r"},
      "comments":{"totalCount":\(comments)},"reviews":{"totalCount":\(reviews)},
      "viewerDidAuthor":\(author),"viewerLatestReview":\(latestReview.map { #"{"state":"\#($0)","commit":{"oid":"\#(reviewedAt)"}}"# } ?? "null"),
