@@ -10,6 +10,7 @@ struct ChangesView: View {
     @Environment(AppModel.self) private var model
     let pr: PullRequest
     @AppStorage("diffMode") private var mode = DiffMode.split
+    @AppStorage("focusFilter") private var focusOnly = false
     @ViewState private var selection: ChangesItem?
     @ViewState private var target: LineTarget?
 
@@ -55,7 +56,7 @@ struct ChangesView: View {
                             FileDiffView(pr: pr, file: file, mode: ["added", "removed"].contains(file.status) ? .unified : mode, target: target?.path == file.filename ? target : nil,
                                          keyAreas: areas, selectedArea: selectedArea(in: areas),
                                          keyAreasOutdated: analysis?.isOutdated(for: pr) == true,
-                                         commitView: commitView)
+                                         commitView: commitView, fileStep: fileStep(files, current: file))
                                 .id(file.filename + (shown ?? ""))
                         } else {
                             ContentUnavailableView("No changed files", systemImage: "doc")
@@ -105,6 +106,13 @@ struct ChangesView: View {
         model.keyAreasRun(for: pr)?.result.keyAreas.filter { $0.path == path } ?? []
     }
 
+    /// Previous/next file in the order the file list shows them: the tree, or the Focus list.
+    private func fileStep(_ files: [FileChange], current: FileChange) -> StepControl {
+        let order = { focusOnly ? model.focus(for: pr).map(\.path) : FileNode.paths(FileNode.tree(files)) }
+        return StepControl(noun: "file", positions: { Array(order().indices) }, current: { order().firstIndex(of: selection?.path ?? current.filename) },
+                           modifiers: .command) { selection = .file(order()[$0]) }
+    }
+
     private func selectedArea(in areas: [KeyArea]) -> KeyArea? {
         guard case .area(_, let index)? = selection, areas.indices.contains(index) else { return nil }
         return areas[index]
@@ -133,6 +141,48 @@ struct LineTarget: Equatable {
     /// Left: `line` is in the old file, as for comments on removed lines.
     var side = DiffSide.right
     var id = UUID()
+}
+
+/// "⌃ File 2 of 9 ⌄": previous/next buttons with [ and ] shortcuts, shared by files, comments and key areas.
+struct StepControl: View {
+    let noun: String
+    /// Where each step can land (list indices or diff rows), in any order, and where we are. Closures, so a step
+    /// reads the state at the time of the key press: a shortcut's action can outlive the redraw that made it.
+    let positions: () -> [Int]
+    let current: () -> Int?
+    let modifiers: EventModifiers
+    let go: (Int) -> Void
+
+    var body: some View {
+        let positions = positions(), current = current()
+        let back = Navigation.step(positions, from: current, forward: false)
+        let next = Navigation.step(positions, from: current, forward: true)
+        let count = Set(positions).count
+        HStack(spacing: 2) {
+            Button { step(forward: false) } label: { Image(systemName: "chevron.up") }
+                .keyboardShortcut("[", modifiers: modifiers)
+                .disabled(back == nil)
+                .help("Previous \(noun) (\(keys)[)")
+            Text(current.flatMap { Set(positions).sorted().firstIndex(of: $0) }.map { "\(noun.capitalized) \($0 + 1) of \(count)" }
+                 ?? "\(count) \(noun)\(count == 1 ? "" : "s")")
+                .font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+            Button { step(forward: true) } label: { Image(systemName: "chevron.down") }
+                .keyboardShortcut("]", modifiers: modifiers)
+                .disabled(next == nil)
+                .help("Next \(noun) (\(keys)])")
+        }
+        .buttonStyle(.borderless)
+        .disabled(count == 0)
+    }
+
+    private func step(forward: Bool) {
+        Navigation.step(positions(), from: current(), forward: forward).map(go)
+    }
+
+    private var keys: String {
+        [(EventModifiers.control, "⌃"), (.option, "⌥"), (.shift, "⇧"), (.command, "⌘")]
+            .filter { modifiers.contains($0.0) }.map(\.1).joined()
+    }
 }
 
 // MARK: - Review bar
@@ -354,6 +404,11 @@ struct FileNode: Identifiable {
         build(files.map { ($0.filename.split(separator: "/").map(String.init), $0) }, prefix: "")
     }
 
+    /// File paths in the order the tree lists them, collapsed folders included.
+    static func paths(_ nodes: [FileNode]) -> [String] {
+        nodes.flatMap { node in node.file.map { [$0.filename] } ?? paths(node.children ?? []) }
+    }
+
     private static func build(_ entries: [([String], FileChange)], prefix: String) -> [FileNode] {
         let groups = Dictionary(grouping: entries) { $0.0.count == 1 ? "" : $0.0[0] }
         var nodes: [FileNode] = []
@@ -558,6 +613,7 @@ struct FileDiffView: View {
     var keyAreasOutdated = false
     /// Set when Changes shows some commits: comments go only where they map onto the whole PR's diff.
     var commitView: CommitView?
+    var fileStep: StepControl?
     @AppStorage("wrapLines") private var wrap = false
     @AppStorage("involvedFilter") private var involvedOnly = false
     @ViewState private var composing: ReviewDeskCore.Anchor?
@@ -591,6 +647,7 @@ struct FileDiffView: View {
                     .controlSize(.small)
                     .disabled(file.status == "removed")
                     .help("Open this file from the local clone in your editor, at the line shown or else at the first change")
+                fileStep
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
