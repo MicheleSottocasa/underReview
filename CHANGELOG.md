@@ -5,6 +5,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+- Switching pull request or tab while something loads no longer shows "The operation couldn't be completed (Swift.CancellationError error 1)": cancelled work isn't reported as an error anymore.
 ## 0.7.1
 
 - Pull requests you approved are left out of stack runs: the Follow-up stack list hides them ("N approved by you, hidden"), and *Review Stack* and *Check Stack* don't start agents on them.

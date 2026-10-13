@@ -106,7 +106,7 @@ extension AppModel {
                                          reviewedOid: sinceReview ? pr.viewerReviewedOid : nil, result: result))
         } catch is CancellationError {
         } catch {
-            if !Task.isCancelled { lastError = "\(engine.name): \(error.localizedDescription)" }
+            if !Task.isCancelled { report(error, engine.name) }
         }
     }
 

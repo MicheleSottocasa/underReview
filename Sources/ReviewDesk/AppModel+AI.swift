@@ -94,7 +94,7 @@ extension AppModel {
                     stackRuns[run]?.states[pr.id] = .failed("Over the token budget: review it on its own and deselect files")
                 }
             } catch {
-                stackRuns[run]?.states[pr.id] = .failed(error.localizedDescription)
+                stackRuns[run]?.states[pr.id] = error.userMessage.map { .failed($0) } ?? .cancelled
             }
         }
         aiStatus[pr.id] = nil
@@ -183,7 +183,7 @@ extension AppModel {
             aiRuns.append(run)
         } catch is CancellationError {
         } catch {
-            if !Task.isCancelled { lastError = "\(engine.name): \(error.localizedDescription)" }
+            if !Task.isCancelled { report(error, engine.name) }
         }
     }
 
@@ -195,7 +195,7 @@ extension AppModel {
             aiRuns.append(AIRun(prID: pr.id, engine: engine, headRefOid: pr.headRefOid, result: result))
         } catch is CancellationError {
         } catch {
-            if !Task.isCancelled { lastError = "\(engine.name): \(error.localizedDescription)" }
+            if !Task.isCancelled { report(error, engine.name) }
         }
     }
 
@@ -236,7 +236,7 @@ extension AppModel {
             return true
         } catch {
             if explanations[commentID]?.messages.last == ChatMessage(.reviewer, question) { explanations[commentID]?.messages.removeLast() }
-            lastError = "\(chat.engine.name): \(error.localizedDescription)"
+            report(error, chat.engine.name)
             return false
         }
     }
@@ -272,7 +272,7 @@ extension AppModel {
                 explanations[comment.id]?.isAnswering = false
             } catch {
                 explanations[comment.id] = nil
-                lastError = "\(engine.name): \(error.localizedDescription)"
+                report(error, engine.name)
             }
         }
     }
@@ -290,7 +290,7 @@ extension AppModel {
                 explanations[comment.id]?.isAnswering = false
             } catch {
                 explanations[comment.id] = nil
-                lastError = error.localizedDescription
+                report(error)
             }
         }
     }

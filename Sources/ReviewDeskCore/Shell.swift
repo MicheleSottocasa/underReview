@@ -199,3 +199,13 @@ public struct ProcessRunner: CommandRunner {
         )
     }
 }
+
+extension Error {
+    /// The message to show the user, or nil for a cancellation: the user (or a closed view) stopped the work,
+    /// so there's nothing to report.
+    public var userMessage: String? {
+        if self is CancellationError { return nil }
+        if let urlError = self as? URLError, urlError.code == .cancelled { return nil }
+        return localizedDescription
+    }
+}

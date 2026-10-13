@@ -80,3 +80,15 @@ private final class LineCollector: @unchecked Sendable {
     var firstSeen: Date? { lock.withLock { first } }
     func append(_ line: String) { lock.withLock { lines.append(line); first = first ?? Date() } }
 }
+
+@Test func cancellationsAreNotShownAsErrors() async throws {
+    // A view that goes away cancels its loading; the runner then throws a CancellationError.
+    let runner = ProcessRunner(paths: ["sh": "/bin/sh"])
+    let work = Task { try await runner.run("sh", ["-c", "sleep 5"], stdin: nil, cwd: nil, timeout: .seconds(10)) }
+    try await Task.sleep(for: .milliseconds(100))
+    work.cancel()
+    let error = await #expect(throws: CancellationError.self) { try await work.value }
+    #expect(error?.userMessage == nil)
+    #expect(URLError(.cancelled).userMessage == nil)
+    #expect(GitHubError.notFound("Pull request").userMessage == "Pull request not found or not accessible.")
+}

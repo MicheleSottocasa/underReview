@@ -16,7 +16,7 @@ extension AppModel {
         do {
             runningAgents = try await agents.list()
         } catch {
-            lastError = "Couldn't list Claude Code agents: \(error.localizedDescription)"
+            report(error, "Couldn't list Claude Code agents")
         }
         recentSessions = await agents.recent()
     }
@@ -49,7 +49,7 @@ extension AppModel {
     }
 
     func stop(_ agent: RunningAgent) async {
-        do { try await agents.stop(agent) } catch { lastError = error.localizedDescription }
+        do { try await agents.stop(agent) } catch { report(error) }
         await refreshAgents()
     }
 
@@ -62,6 +62,6 @@ extension AppModel {
             do script "claude attach \(id)"
         end tell
         """
-        do { _ = try await github.runner.output("osascript", ["-e", script]) } catch { lastError = error.localizedDescription }
+        do { _ = try await github.runner.output("osascript", ["-e", script]) } catch { report(error) }
     }
 }

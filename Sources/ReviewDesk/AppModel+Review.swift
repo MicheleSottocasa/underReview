@@ -79,7 +79,7 @@ extension AppModel {
             files[pr.id] = try await github.files(pr.ref)
             viewedFiles[pr.id] = try await viewed
         } catch {
-            lastError = error.localizedDescription
+            report(error)
         }
     }
 
@@ -92,7 +92,7 @@ extension AppModel {
             try await github.setViewed(prID: pr.id, path: path, viewed: viewed)
         } catch {
             viewedFiles[pr.id, default: []].formSymmetricDifference([path])
-            lastError = error.localizedDescription
+            report(error)
         }
     }
 
@@ -123,7 +123,7 @@ extension AppModel {
                 if let index = reviewDrafts.drafts.firstIndex(where: { $0.id == draft.id }) { reviewDrafts.drafts[index] = draft }
             }
         } catch {
-            lastError = error.localizedDescription
+            report(error)
         }
         await afterOwnWrite(pr)
     }
@@ -135,7 +135,7 @@ extension AppModel {
             try await reviewSync.delete(draft)
             deleteLocalDraft(draft.id)
         } catch {
-            lastError = error.localizedDescription
+            report(error)
         }
         await afterOwnWrite(pr)
     }
@@ -157,7 +157,7 @@ extension AppModel {
             reviewDrafts.bodies[pr.id] = nil
             return true
         } catch {
-            lastError = error.localizedDescription
+            report(error)
             return false
         }
     }
@@ -169,7 +169,7 @@ extension AppModel {
             try await reviewSync.reply(threadID: threadID, body: body, viewer: viewer)
             return true
         } catch {
-            lastError = error.localizedDescription
+            report(error)
             return false
         }
     }
@@ -204,7 +204,7 @@ extension AppModel {
             try await write()
             return true
         } catch {
-            lastError = error.localizedDescription
+            report(error)
             return false
         }
     }

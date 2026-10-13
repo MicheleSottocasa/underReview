@@ -38,7 +38,7 @@ extension AppModel {
             }
         } catch {
             lastUpdateCheck = .now // retry at the next interval, not on every poll
-            updateCheckError = error.localizedDescription
+            updateCheckError = error.userMessage
         }
     }
 
@@ -71,7 +71,7 @@ extension AppModel {
             } catch {
                 updateProgress = nil
                 try? FileManager.default.removeItem(at: folder)
-                lastError = "Couldn't install ReviewDesk \(release.version): \(error.localizedDescription)"
+                report(error, "Couldn't install ReviewDesk \(release.version)")
             }
         }
     }

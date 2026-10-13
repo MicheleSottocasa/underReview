@@ -126,7 +126,7 @@ struct AIView: View {
     private func prepare() {
         preparing = true
         Task {
-            do { context = try await model.prepareContext(pr, budget: budget) } catch { model.lastError = error.localizedDescription }
+            do { context = try await model.prepareContext(pr, budget: budget) } catch { model.report(error) }
             preparing = false
         }
     }

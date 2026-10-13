@@ -197,8 +197,8 @@ final class AppModel {
                     failures = 0
                 } catch {
                     failures += 1
-                    lastError = error.localizedDescription
-                    refreshError = error.localizedDescription
+                    report(error)
+                    if let message = error.userMessage { refreshError = message }
                 }
                 await checkForUpdatesIfDue()
                 let defaults = UserDefaults.standard
@@ -276,8 +276,8 @@ final class AppModel {
     func refreshNow() {
         Task {
             do { try await refresh() } catch {
-                lastError = error.localizedDescription
-                refreshError = error.localizedDescription
+                report(error)
+                if let message = error.userMessage { refreshError = message }
             }
         }
     }
@@ -303,13 +303,19 @@ final class AppModel {
         do {
             details[id] = try await github.detail(id: id)
         } catch {
-            lastError = error.localizedDescription
+            report(error)
         }
     }
 
     func openOnGitHub(_ pr: PullRequest) {
         guard !blockDemo(pr) else { return }
         if let url = URL(string: pr.url) { NSWorkspace.shared.open(url) }
+    }
+
+    /// Shows an error in the banner, prefixed with what failed; cancellations (a closed view, Cancel) are dropped.
+    func report(_ error: any Error, _ prefix: String? = nil) {
+        guard let message = error.userMessage else { return }
+        lastError = prefix.map { "\($0): \(message)" } ?? message
     }
 
     func save<T: Codable>(_ file: JSONFile<T>, _ value: T) {
