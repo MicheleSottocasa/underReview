@@ -17,6 +17,8 @@ public enum CommitSelection: Hashable, Sendable {
         case .range(let first, let last):
             // From the first commit's parent: GitHub's compare takes `sha^`, so the parent needn't be fetched with
             // every commit (that doubled the detail query's cost). A root commit has none: compare fails, whole diff.
+            // ponytail: a merge inside the range brings in its side branch's changes too, as `git diff first^ last` does;
+            // walking parent links would need the parents fetched again, which is what made the query cost double.
             guard commits.contains(where: { $0.oid == first }), commits.contains(where: { $0.oid == last }) else { return nil }
             return (first + "^", last)
         }
