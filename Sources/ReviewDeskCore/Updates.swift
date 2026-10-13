@@ -71,9 +71,9 @@ public enum Updates {
         stamps.filter { cached[$0.key]?.updatedAt != $0.value }.map(\.key).sorted()
     }
 
-    /// Poll interval: 60 s in foreground, 120 s in background, doubling per consecutive failure up to 15 min.
+    /// Poll interval: 180 s in foreground, 600 s in background, doubling per consecutive failure up to 30 min.
     public static func interval(foreground: Bool, failures: Int) -> Duration {
-        let base = foreground ? 60 : 120
-        return .seconds(min(base << min(failures, 4), 900))
+        let base = foreground ? 180 : 600
+        return .seconds(min(base << min(failures, 4), 1800))
     }
 }

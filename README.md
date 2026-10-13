@@ -44,7 +44,7 @@ Push a version tag: `git tag v0.2.0 && git push origin v0.2.0`. The `Release` wo
 - **Inbox:** PRs you authored, are assigned to, or were asked to review, plus any PR added by URL. Everything seen is monitored until you choose *Stop Monitoring*.
 - **Stacks:** these come from GitHub's native stacked PRs (`gh stack`) and are shown bottom first. Folders hold a standalone PR or a whole stack.
 - **Reviews:** drafts are local until *Save to GitHub as Pending*. They are then added to your existing pending review through GraphQL, never recreated. Publishing needs an explicit Comment, Approve or Request Changes choice. After a timeout, writes are reconciled against GitHub before a retry.
-- **Polling:** every 60 s while active and 120 s in the background, with backoff on errors. The first load raises no notifications. Closing the window keeps the menu bar item running, and *Quit* stops monitoring.
+- **Polling:** every 180 s while active and 600 s in the background, with backoff on errors (up to 30 min). The first load raises no notifications. Closing the window keeps the menu bar item running, and *Quit* stops monitoring.
 - **AI:** *Prepare Context* shows exactly which files go into a review, plus a token estimate and the budget. Nothing is truncated silently. The CLIs run in an empty temporary directory with tools, hooks, plugins and MCP disabled.
 
 ## Not in v1

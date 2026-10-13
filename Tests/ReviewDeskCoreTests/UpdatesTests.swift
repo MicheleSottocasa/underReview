@@ -40,10 +40,10 @@ private func pr(head: String = "a", state: String = "OPEN", comments: Int = 0, r
 }
 
 @Test func backoffDoublesAndCaps() {
-    #expect(Updates.interval(foreground: true, failures: 0) == .seconds(60))
-    #expect(Updates.interval(foreground: false, failures: 0) == .seconds(120))
-    #expect(Updates.interval(foreground: true, failures: 2) == .seconds(240))
-    #expect(Updates.interval(foreground: true, failures: 50) == .seconds(900))
+    #expect(Updates.interval(foreground: true, failures: 0) == .seconds(180))
+    #expect(Updates.interval(foreground: false, failures: 0) == .seconds(600))
+    #expect(Updates.interval(foreground: true, failures: 2) == .seconds(720))
+    #expect(Updates.interval(foreground: true, failures: 50) == .seconds(1800))
 }
 
 @Test func onlyNewOrUpdatedPRsNeedAFullFetch() {
