@@ -34,7 +34,6 @@ struct ConversationView: View {
                     }
                 }
                 .padding(20)
-                .frame(maxWidth: 900, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         } else {

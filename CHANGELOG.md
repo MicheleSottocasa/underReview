@@ -6,6 +6,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 ## Unreleased
 
 - Pull requests inside a stack show their number under the title in the sidebar, like standalone ones.
+- The Conversation tab uses the whole width of the window instead of stopping at 900 points, so long descriptions and comments wrap less.
 
 ## 0.8.1
 
