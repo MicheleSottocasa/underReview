@@ -328,10 +328,14 @@ struct FileTree: View {
     private func fileRow(_ file: FileChange, name: String, involved: Int? = nil) -> some View {
         let viewed = model.viewedFiles[pr.id]?.contains(file.filename) ?? false
         return HStack(spacing: 6) {
-            Toggle("Viewed", isOn: Binding(get: { viewed }, set: { _ in Task { await model.toggleViewed(file.filename, pr: pr) } }))
-                .toggleStyle(.checkbox)
-                .labelsHidden()
-                .help(viewed ? "Viewed on GitHub. Uncheck to mark as not viewed." : "Mark as viewed on GitHub")
+            if model.pending.contains(pr.id + file.filename) {
+                ProgressView().controlSize(.mini).frame(width: 14).help("Saving to GitHub…")
+            } else {
+                Toggle("Viewed", isOn: Binding(get: { viewed }, set: { _ in Task { await model.toggleViewed(file.filename, pr: pr) } }))
+                    .toggleStyle(.checkbox)
+                    .labelsHidden()
+                    .help(viewed ? "Viewed on GitHub. Uncheck to mark as not viewed." : "Mark as viewed on GitHub")
+            }
             Image(systemName: icon(file.status)).foregroundStyle(color(file.status)).frame(width: 14)
             Text(name).lineLimit(1).truncationMode(.middle).foregroundStyle(viewed ? .secondary : .primary)
             Spacer()

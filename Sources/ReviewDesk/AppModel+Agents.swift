@@ -13,12 +13,14 @@ struct AgentLink: Codable, Hashable {
 
 extension AppModel {
     func refreshAgents() async {
-        do {
-            runningAgents = try await agents.list()
-        } catch {
-            report(error, "Couldn't list Claude Code agents")
+        await whilePending("agents") {
+            do {
+                runningAgents = try await agents.list()
+            } catch {
+                report(error, "Couldn't list Claude Code agents")
+            }
+            recentSessions = await agents.recent()
         }
-        recentSessions = await agents.recent()
     }
 
     /// Stored sessions in the PR's repo that aren't running: named after the PR first, then newest.
@@ -45,12 +47,16 @@ extension AppModel {
     }
 
     func logs(_ agent: RunningAgent) async -> String {
-        do { return try await agents.logs(agent) } catch { return error.localizedDescription }
+        await whilePending(agent.sessionID) {
+            do { return try await agents.logs(agent) } catch { return error.localizedDescription }
+        }
     }
 
     func stop(_ agent: RunningAgent) async {
-        do { try await agents.stop(agent) } catch { report(error) }
-        await refreshAgents()
+        await whilePending(agent.sessionID) {
+            do { try await agents.stop(agent) } catch { report(error) }
+            await refreshAgents()
+        }
     }
 
     /// Background sessions open with `claude attach` in a new Terminal window.
@@ -62,6 +68,8 @@ extension AppModel {
             do script "claude attach \(id)"
         end tell
         """
-        do { _ = try await github.runner.output("osascript", ["-e", script]) } catch { report(error) }
+        await whilePending(agent.sessionID) {
+            do { _ = try await github.runner.output("osascript", ["-e", script]) } catch { report(error) }
+        }
     }
 }

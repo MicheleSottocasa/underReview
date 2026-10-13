@@ -88,11 +88,13 @@ extension AppModel {
         guard !blockDemo(pr) else { return }
         let viewed = !(viewedFiles[pr.id]?.contains(path) ?? false)
         viewedFiles[pr.id, default: []].formSymmetricDifference([path])
-        do {
-            try await github.setViewed(prID: pr.id, path: path, viewed: viewed)
-        } catch {
-            viewedFiles[pr.id, default: []].formSymmetricDifference([path])
-            report(error)
+        await whilePending(pr.id + path) {
+            do {
+                try await github.setViewed(prID: pr.id, path: path, viewed: viewed)
+            } catch {
+                viewedFiles[pr.id, default: []].formSymmetricDifference([path])
+                report(error)
+            }
         }
     }
 
@@ -135,13 +137,15 @@ extension AppModel {
     /// Deletes locally and, if it was saved, from the pending review.
     func deleteDraft(_ draft: Draft, pr: PullRequest) async {
         guard !blockDemo(pr) else { return }
-        do {
-            try await reviewSync.delete(draft)
-            deleteLocalDraft(draft.id)
-        } catch {
-            report(error)
+        await whilePending(draft.id.uuidString) {
+            do {
+                try await reviewSync.delete(draft)
+                deleteLocalDraft(draft.id)
+            } catch {
+                report(error)
+            }
+            await afterOwnWrite(pr)
         }
-        await afterOwnWrite(pr)
     }
 
     /// The user checked an outdated draft still points at the right line.
@@ -152,7 +156,7 @@ extension AppModel {
     }
 
     func publish(_ pr: PullRequest, event: ReviewEvent) async -> Bool {
-        await commentWrite(pr) {
+        await commentWrite(pr, pending: pr.id) {
             try await reviewSync.publish(pr: pr, event: event, body: reviewDrafts.bodies[pr.id] ?? "", viewer: viewer)
             // Saved drafts are now published comments; local-only ones stay for later.
             reviewDrafts.drafts.removeAll { $0.prID == pr.id && $0.remoteID != nil }
@@ -161,45 +165,47 @@ extension AppModel {
     }
 
     func reply(to threadID: String, body: String, pr: PullRequest) async -> Bool {
-        await commentWrite(pr) { try await reviewSync.reply(threadID: threadID, body: body, viewer: viewer) }
+        await commentWrite(pr, pending: threadID) { try await reviewSync.reply(threadID: threadID, body: body, viewer: viewer) }
     }
 
     func editComment(_ comment: Comment, body: String, pr: PullRequest) async -> Bool {
-        await commentWrite(pr) { try await github.editComment(comment, body: body) }
+        await commentWrite(pr, pending: comment.id) { try await github.editComment(comment, body: body) }
     }
 
     func deleteComment(_ comment: Comment, pr: PullRequest) async {
-        await commentWrite(pr) { try await github.deleteComment(comment) }
+        await commentWrite(pr, pending: comment.id) { try await github.deleteComment(comment) }
     }
 
     /// Adds the reaction, or removes it if the viewer already gave it.
     func toggleReaction(_ content: ReactionContent, on comment: Comment, pr: PullRequest) async {
         let reacted = comment.reactions.contains { $0.content == content && $0.viewerHasReacted }
-        await commentWrite(pr) { try await github.setReaction(content, on: comment.id, reacted: !reacted) }
+        await commentWrite(pr, pending: comment.id) { try await github.setReaction(content, on: comment.id, reacted: !reacted) }
     }
 
     func setResolved(_ thread: ReviewThread, _ resolved: Bool, pr: PullRequest) async {
-        await commentWrite(pr) { try await github.setResolved(threadID: thread.id, resolved: resolved) }
+        await commentWrite(pr, pending: thread.id) { try await github.setResolved(threadID: thread.id, resolved: resolved) }
     }
 
     func setHiddenAsResolved(_ comment: Comment, _ hidden: Bool, pr: PullRequest) async {
-        await commentWrite(pr) { try await github.setHiddenAsResolved(commentID: comment.id, hidden: hidden) }
+        await commentWrite(pr, pending: comment.id) { try await github.setHiddenAsResolved(commentID: comment.id, hidden: hidden) }
     }
 
     /// Writes, then waits for the PR to reload (even after a failure), so callers' progress lasts until the new state shows.
     @discardableResult
-    private func commentWrite(_ pr: PullRequest, _ write: () async throws -> Void) async -> Bool {
+    private func commentWrite(_ pr: PullRequest, pending id: String, _ write: () async throws -> Void) async -> Bool {
         guard !blockDemo(pr) else { return false }
-        let succeeded: Bool
-        do {
-            try await write()
-            succeeded = true
-        } catch {
-            report(error)
-            succeeded = false
+        return await whilePending(id) {
+            let succeeded: Bool
+            do {
+                try await write()
+                succeeded = true
+            } catch {
+                report(error)
+                succeeded = false
+            }
+            await afterOwnWrite(pr)
+            return succeeded
         }
-        await afterOwnWrite(pr)
-        return succeeded
     }
 
     /// Our own writes shouldn't come back as notifications: re-read the PR and move its checkpoint.

@@ -41,6 +41,8 @@ final class AppModel {
     var setupError: String?
     var lastError: String?
     var isRefreshing = false
+    /// Comment, thread, draft, file and agent ids with an action in flight, until its new state has loaded.
+    var pending: Set<String> = []
 
     /// Every PR we track, by node id.
     var prs: [String: PullRequest] = [:]
@@ -323,6 +325,13 @@ final class AppModel {
     func openOnGitHub(_ pr: PullRequest) {
         guard !blockDemo(pr) else { return }
         if let url = URL(string: pr.url) { NSWorkspace.shared.open(url) }
+    }
+
+    /// Marks `id` pending while `work` runs, so views can disable and dim the item and show a spinner.
+    func whilePending<T>(_ id: String, _ work: () async -> T) async -> T {
+        pending.insert(id)
+        defer { pending.remove(id) }
+        return await work()
     }
 
     /// Shows an error in the banner, prefixed with what failed; cancellations (a closed view, Cancel) are dropped.

@@ -142,7 +142,6 @@ struct ThreadView: View {
     @ViewState private var replying = false
     @ViewState private var reply = ""
     @ViewState private var sending = false
-    @ViewState private var resolving = false
 
     var body: some View {
         let comments = thread.comments.filter { !hidden.contains($0.id) }
@@ -226,12 +225,10 @@ struct ThreadView: View {
     @ViewBuilder
     private var resolveButton: some View {
         if thread.isResolved ? thread.viewerCanUnresolve : thread.viewerCanResolve {
+            let resolving = model.pending.contains(thread.id)
+            if resolving { ProgressView().controlSize(.small) }
             Button {
-                resolving = true
-                Task {
-                    await model.setResolved(thread, !thread.isResolved, pr: pr)
-                    resolving = false
-                }
+                Task { await model.setResolved(thread, !thread.isResolved, pr: pr) }
             } label: {
                 Label(thread.isResolved ? "Unresolve" : "Resolve conversation",
                       systemImage: thread.isResolved ? "arrow.uturn.backward.circle" : "checkmark.circle")
@@ -273,16 +270,24 @@ struct DraftView: View {
                             editing = true
                         } label: { Image(systemName: "pencil") }
                             .help("Edit draft")
-                        Button { Task { await model.deleteDraft(draft, pr: pr) } } label: { Image(systemName: "trash") }
-                            .help(draft.remoteID == nil ? "Delete draft" : "Delete draft, also from your pending review on GitHub")
+                        if deleting {
+                            ProgressView().controlSize(.small).help("Deleting…")
+                        } else {
+                            Button { Task { await model.deleteDraft(draft, pr: pr) } } label: { Image(systemName: "trash") }
+                                .help(draft.remoteID == nil ? "Delete draft" : "Delete draft, also from your pending review on GitHub")
+                        }
                     }
                     .buttonStyle(.borderless)
                     .foregroundStyle(.secondary)
+                    .disabled(deleting)
                 }
+                .opacity(deleting ? 0.5 : 1)
             }
         }
         .modifier(ThreadBox(accent: draft.isStale ? DiffColors.outdated : DiffColors.draft))
     }
+
+    private var deleting: Bool { model.pending.contains(draft.id.uuidString) }
 
     @ViewBuilder
     private var status: some View {
@@ -357,6 +362,7 @@ struct CommentMenu: View {
 
     var body: some View {
         HStack(spacing: 6) {
+            if model.pending.contains(comment.id) { ProgressView().controlSize(.small) }
             if comment.kind == .issue, comment.viewerCanMinimize {
                 Button { Task { await model.setHiddenAsResolved(comment, !comment.isMinimized, pr: pr) } } label: {
                     Image(systemName: comment.isMinimized ? "eye" : "checkmark.circle")
@@ -382,6 +388,7 @@ struct CommentMenu: View {
             }
         }
         .foregroundStyle(.secondary)
+        .disabled(model.pending.contains(comment.id))
     }
 }
 
@@ -406,7 +413,7 @@ struct EditableCommentBody: View {
             .disabled(saving)
             .onAppear { text = comment.body }
         } else {
-            MarkdownText(comment.body)
+            MarkdownText(comment.body).opacity(model.pending.contains(comment.id) ? 0.5 : 1)
         }
     }
 }
@@ -446,6 +453,7 @@ struct ReactionBar: View {
                         }
                 }
             }
+            .disabled(model.pending.contains(comment.id))
         }
     }
 

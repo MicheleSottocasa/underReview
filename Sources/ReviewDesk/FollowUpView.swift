@@ -186,6 +186,8 @@ private struct FollowUpItemView: View {
                     Button("Open in Changes") { model.openInChanges(thread.path, line: thread.line, side: thread.side, pr: pr) }
                     if item.status == "addressed", !thread.isResolved, thread.viewerCanResolve {
                         Button("Resolve Conversation") { Task { await model.setResolved(thread, true, pr: pr) } }
+                            .disabled(model.pending.contains(thread.id))
+                        if model.pending.contains(thread.id) { ProgressView().controlSize(.small) }
                     }
                     if thread.isResolved { Label("Resolved", systemImage: "checkmark.circle").foregroundStyle(.green).font(.callout) }
                 }
