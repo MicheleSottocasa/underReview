@@ -76,8 +76,8 @@ extension AppModel {
     }
 
     func setRead(_ area: KeyArea, read: Bool, pr: PullRequest) {
-        readAreas[pr.id, default: [:]][area.readKey] = read ? pr.headRefOid : nil
-        if readAreas[pr.id]?.isEmpty == true { readAreas[pr.id] = nil }
+        let marks = Focus.readMarks(readAreas[pr.id] ?? [:], setting: area.readKey, read: read, head: pr.headRefOid)
+        readAreas[pr.id] = marks.isEmpty ? nil : marks
     }
 
     /// Question 5 as a line in the review summary, so it's posted with the review.

@@ -113,7 +113,14 @@ struct ChangesView: View {
         let current: (path: String, index: Int)? = if case .area(let path, let index)? = selection { (path, index) } else { nil }
         guard let next = Focus.nextUnread(model.focus(for: pr), isRead: { model.isRead($0, pr: pr) }, after: current) else { return }
         focusOnly = true
-        selection = .area(next.path, next.index)
+        let item = ChangesItem.area(next.path, next.index)
+        if selection == item {
+            // Already selected (e.g. the only unread one, after scrolling elsewhere): no change to react to, so jump here.
+            let area = keyAreas(next.path)[next.index]
+            target = LineTarget(path: next.path, line: area.startLine ?? 0, endLine: area.endLine)
+        } else {
+            selection = item
+        }
     }
 
     /// Previous/next file in the order the file list shows them: the tree (narrowed by Involving Me), or the Focus list.
