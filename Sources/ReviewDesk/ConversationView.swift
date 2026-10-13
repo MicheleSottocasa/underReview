@@ -131,6 +131,7 @@ struct CommitList: View {
                     }
                     .buttonStyle(.plain)
                     .help("Review this commit's changes")
+                    .contextMenu { Button("Copy SHA") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(commit.oid, forType: .string) } }
                 }
             }
             .padding(.top, 4)
