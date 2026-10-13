@@ -14,7 +14,8 @@ struct ConversationView: View {
         if let detail {
             let items = Conversation.timeline(detail, viewer: model.viewer, filter: filter)
             let ids = ["description"] + items.map(\.id)
-            let hidden: Set<String> = []
+            // Comments synced from local drafts are hidden, as in Changes, which shows them once as drafts.
+            let hidden = Set(model.drafts(for: pr.id).compactMap(\.remoteID))
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     HStack {
