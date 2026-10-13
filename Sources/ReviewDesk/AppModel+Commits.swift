@@ -23,12 +23,14 @@ extension AppModel {
     /// Fetches a comparison once, when it's first shown: commits never change, so it's kept for the session.
     func loadComparison(_ pr: PullRequest, base: String, head: String) async {
         let key = Self.comparisonKey(pr, base: base, head: head)
-        guard comparisons[key] == nil, !missingComparisons.contains(key), !blockDemo(pr) else { return }
+        guard comparisons[key] == nil, missingComparisons[key] == nil, !blockDemo(pr) else { return }
         do {
             comparisons[key] = try await github.compareFiles(repo: pr.repo, from: base, to: head)
         } catch is CancellationError {
+        } catch GitHubError.rewritten {
+            missingComparisons[key] = "Those commits were rebased or rewritten since, so the whole pull request is shown."
         } catch {
-            missingComparisons.insert(key) // usually an older commit gone after a force-push: Changes shows the whole diff
+            missingComparisons[key] = "Those commits aren't on GitHub anymore (force-pushed?), so the whole pull request is shown."
         }
     }
 }
