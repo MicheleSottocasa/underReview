@@ -64,6 +64,9 @@ struct ConversationView: View {
                         Text(Self.emptyText(filter))
                             .font(.callout).foregroundStyle(.secondary).padding(.leading, 44)
                     }
+                    if !detail.commits.isEmpty {
+                        CommitList(pr: pr, commits: detail.commits).padding(.leading, 44)
+                    }
                 }
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -101,6 +104,36 @@ struct ConversationView: View {
         case "CHANGES_REQUESTED": .red
         default: .secondary
         }
+    }
+}
+
+/// The pull request's commits; each opens Changes on that commit.
+struct CommitList: View {
+    @Environment(AppModel.self) private var model
+    let pr: PullRequest
+    let commits: [PRCommit]
+
+    var body: some View {
+        DisclosureGroup("\(commits.count) commit\(commits.count == 1 ? "" : "s")\(commits.count == 100 ? " (the latest 100)" : "")") {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(commits) { commit in
+                    Button { model.openCommit(commit.oid, pr: pr) } label: {
+                        HStack(spacing: 8) {
+                            Text(commit.abbreviatedOid).font(.callout.monospaced()).foregroundStyle(.secondary)
+                            Text(commit.headline).lineLimit(1)
+                            Spacer()
+                            Text(commit.author + (commit.date.map { " · " + $0.formatted(.relative(presentation: .named)) } ?? ""))
+                                .foregroundStyle(.secondary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Review this commit's changes")
+                }
+            }
+            .padding(.top, 4)
+        }
+        .font(.callout)
     }
 }
 
