@@ -47,7 +47,7 @@ struct RiskView: View {
     private func intro(run: AIRun?) -> some View {
         let checked = RiskQuestion.allCases.filter { model.riskCheck($0, pr: pr) == pr.headRefOid }.count
         let engine = model.preferredEngine(for: pr)
-        let status = model.aiStatus[pr.id]
+        let busy = model.isAIBusy(pr)
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Review risk, not lines").font(.title3.bold())
@@ -67,12 +67,12 @@ struct RiskView: View {
                 model.runRiskAnalysis(pr)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(status != nil)
+            .disabled(busy)
             .help(engine.tool == "claude"
                   ? "Runs /code-review with \(engine.name) and the last used model and effort"
                   : "\(engine.name) needs its context approved in the AI tab first")
         }
-        if status != nil { AIStatusBox(pr: pr) }
+        AIProgress(pr: pr)
         if let run, let top = run.result.risks.max(by: { $0.rank < $1.rank }), top.rank > 0, let question = top.riskQuestion {
             Label("Highest risk: \(question.label) (\(top.level))", systemImage: "flame")
                 .font(.callout.bold()).foregroundStyle(RiskBadge.color(top.level))

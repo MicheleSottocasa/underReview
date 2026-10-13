@@ -270,6 +270,7 @@ struct AISettings: View {
     @AppStorage("reviewEffort") private var effort = "high"
     @AppStorage("ollamaModel") private var ollamaModel = "qwen2.5-coder"
     @AppStorage("aiBudget") private var budget = 150_000
+    @AppStorage("stackParallelAgents") private var parallelAgents = 3
 
     var body: some View {
         Form {
@@ -294,6 +295,11 @@ struct AISettings: View {
                 Picker("Effort", selection: $effort) {
                     ForEach(CodeReviewOptions.efforts, id: \.self) { Text($0.capitalized).tag($0) }
                 }
+            }
+            Section {
+                Stepper("Agents at once in a stack review: \(parallelAgents)", value: $parallelAgents, in: 1...8)
+            } footer: {
+                Text("Review Stack gives every pull request its own agent. More at once is faster but uses more of your plan at the same time; Ollama always runs one at a time.")
             }
             Section {
                 TextField("Ollama model", text: $ollamaModel)

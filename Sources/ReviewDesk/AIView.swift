@@ -18,10 +18,10 @@ struct AIView: View {
     private var options: CodeReviewOptions { CodeReviewOptions(model: claudeModel, effort: effort) }
 
     var body: some View {
-        let status = model.aiStatus[pr.id]
+        let busy = model.isAIBusy(pr)
         let runs = model.runs(for: pr.id)
         VStack(spacing: 0) {
-            toolbar(status: status)
+            toolbar(busy: busy)
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -29,7 +29,7 @@ struct AIView: View {
                         engineName = "linked"
                         start()
                     }
-                    if status != nil { AIStatusBox(pr: pr) }
+                    AIProgress(pr: pr)
                     if let context {
                         ContextPanel(context: Binding(get: { context }, set: { self.context = $0 }), engine: engine) {
                             model.startReview(pr, engine: engine, context: context)
@@ -37,7 +37,7 @@ struct AIView: View {
                         }
                     }
                     ForEach(runs) { RunView(pr: pr, run: $0) }
-                    if runs.isEmpty && context == nil && status == nil {
+                    if runs.isEmpty && context == nil && !busy && model.stackRun(for: pr) == nil {
                         ContentUnavailableView {
                             Label("No AI reviews yet", systemImage: "sparkles")
                         } description: {
@@ -57,7 +57,7 @@ struct AIView: View {
         .task { await model.refreshAgents() }
     }
 
-    private func toolbar(status: String?) -> some View {
+    private func toolbar(busy: Bool) -> some View {
         HStack(spacing: 10) {
             Picker("Engine", selection: $engineName) {
                 if let link = model.agentLinks[pr.id] { Text("Linked: \(link.name) · beta").tag("linked") }
@@ -99,12 +99,12 @@ struct AIView: View {
                 Button("Review Stack (\(stack.pullRequests.count))") {
                     model.startStackReview(stack.pullRequests.filter { $0.state == "OPEN" }, engine: engine, budget: budget, options: options, from: pr.id)
                 }
-                .disabled(status != nil)
-                .help("One review per open PR, bottom of the stack first")
+                .disabled(busy)
+                .help("One agent per open PR, several at once (Settings › AI), each reviewing its own PR")
             }
             Button(usesCodeReview ? "Run /code-review" : preparing ? "Preparing…" : "Prepare Context") { start() }
                 .buttonStyle(.borderedProminent)
-                .disabled(preparing || status != nil)
+                .disabled(preparing || busy)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
@@ -526,5 +526,112 @@ struct AIStatusBox: View {
         }
         .padding(10)
         .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+/// What's running for this PR: a stack review it started or is part of (one row per agent), or its own run.
+struct AIProgress: View {
+    @Environment(AppModel.self) private var model
+    let pr: PullRequest
+
+    var body: some View {
+        if let (root, run) = model.stackRun(for: pr) {
+            StackRunBox(root: root, run: run, current: pr.id)
+        } else if model.aiStatus[pr.id] != nil {
+            AIStatusBox(pr: pr)
+        }
+    }
+}
+
+/// A stack review: one row per PR with its agent's state and live log; click a row to open that PR.
+struct StackRunBox: View {
+    @Environment(AppModel.self) private var model
+    let root: String
+    let run: StackRun
+    let current: String
+    @ViewState private var expanded: Set<String> = []
+
+    var body: some View {
+        let done = run.states.values.filter { if case .done = $0 { true } else { false } }.count
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                if !run.isFinished { ProgressView().controlSize(.small) }
+                Text(run.isFinished ? "Stack reviewed: \(done) of \(run.members.count) done" : "Reviewing the stack: one agent per pull request")
+                    .font(.callout.bold())
+                Spacer()
+                Button(run.isFinished ? "Dismiss" : "Cancel All") { model.cancelStackRun(root) }
+            }
+            ForEach(run.members, id: \.self) { id in
+                row(id, state: run.states[id] ?? .waiting)
+            }
+        }
+        .padding(10)
+        .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    @ViewBuilder
+    private func row(_ id: String, state: StackRun.State) -> some View {
+        let pr = model.prs[id]
+        let steps = model.aiActivity[id] ?? []
+        // The running agents' logs are open; finished ones fold away unless opened.
+        let open = expanded.contains(id) != (state == .running)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                icon(state).frame(width: 16)
+                Button {
+                    model.selection = [.pr(id)]
+                } label: {
+                    Text(verbatim: pr.map { "#\($0.number) \($0.title)" } ?? id)
+                        .lineLimit(1)
+                        .fontWeight(id == current ? .semibold : .regular)
+                }
+                .buttonStyle(.link)
+                .help("Open this pull request's AI Review")
+                Spacer()
+                Text(detail(state, pr: id)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                if state == .running || state == .waiting {
+                    Button { model.cancelReview(id) } label: { Image(systemName: "xmark.circle") }
+                        .buttonStyle(.borderless)
+                        .help("Stop this agent only")
+                }
+                if !steps.isEmpty {
+                    Button { expanded.formSymmetricDifference([id]) } label: {
+                        Image(systemName: open ? "chevron.down" : "chevron.right")
+                    }
+                    .buttonStyle(.borderless)
+                    .help(open ? "Hide this agent's log" : "Show this agent's log")
+                }
+            }
+            if open, !steps.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(steps.suffix(6)) { step in
+                        MarkdownText(step.text).font(.caption)
+                            .foregroundStyle(step.id == steps.last?.id ? .primary : .secondary)
+                    }
+                }
+                .padding(.leading, 24)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func icon(_ state: StackRun.State) -> some View {
+        switch state {
+        case .waiting: Image(systemName: "clock").foregroundStyle(.secondary)
+        case .running: ProgressView().controlSize(.small)
+        case .done: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+        case .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+        case .cancelled: Image(systemName: "stop.circle").foregroundStyle(.secondary)
+        }
+    }
+
+    private func detail(_ state: StackRun.State, pr id: String) -> String {
+        switch state {
+        case .waiting: "Waiting for a free agent"
+        case .running: model.aiStatus[id] ?? "Running"
+        case .done(let findings): findings == 0 ? "No findings" : "\(findings) finding\(findings == 1 ? "" : "s")"
+        case .failed(let reason): reason
+        case .cancelled: "Stopped"
+        }
     }
 }

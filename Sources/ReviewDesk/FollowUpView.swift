@@ -20,14 +20,14 @@ struct FollowUpNotice: View {
                     model.detailTab = .followUp
                     model.startStackFollowUp(stackDue, from: pr.id)
                 }
-                .disabled(model.aiStatus[pr.id] != nil)
+                .disabled(model.isAIBusy(pr))
                 .help("Check every pull request of the stack with new commits or replies since your review, bottom first")
             }
             Button("Check if Addressed") {
                 model.detailTab = .followUp
                 model.startFollowUp(pr)
             }
-            .disabled(model.aiStatus[pr.id] != nil)
+            .disabled(model.isAIBusy(pr))
             .help("Ask \(model.preferredEngine(for: pr).name) whether the changes and replies handle each of your comments")
         }
         .padding(8)
@@ -55,10 +55,10 @@ struct FollowUpView: View {
                     Spacer()
                     Button(runs.isEmpty ? "Check Now" : "Check Again") { model.startFollowUp(pr) }
                         .buttonStyle(.borderedProminent)
-                        .disabled(model.aiStatus[pr.id] != nil || (threads.isEmpty && detail.map { FollowUp.reviewBodies(of: model.viewer, in: $0) }?.isEmpty != false))
+                        .disabled(model.isAIBusy(pr) || (threads.isEmpty && detail.map { FollowUp.reviewBodies(of: model.viewer, in: $0) }?.isEmpty != false))
                         .help("Uses \(model.preferredEngine(for: pr).name), the engine picked in the AI Review tab")
                 }
-                if model.aiStatus[pr.id] != nil { AIStatusBox(pr: pr) }
+                AIProgress(pr: pr)
                 let members = model.stackMembers(of: pr)
                 if members.count > 1 { StackFollowUp(pr: pr, members: members) }
                 if let run = runs.first {
@@ -92,7 +92,7 @@ private struct StackFollowUp: View {
                 Label("Stack #\(pr.stack?.number ?? 0)", systemImage: "square.stack.3d.up").font(.headline)
                 Spacer()
                 Button("Check Stack (\(due.count))") { model.startStackFollowUp(due, from: pr.id) }
-                    .disabled(due.isEmpty || model.aiStatus[pr.id] != nil)
+                    .disabled(due.isEmpty || model.isAIBusy(pr))
                     .help(due.isEmpty ? "Nothing new since your review in this stack"
                                       : "Check the \(due.count) pull request\(due.count == 1 ? "" : "s") with new commits or replies since your review, bottom first")
             }

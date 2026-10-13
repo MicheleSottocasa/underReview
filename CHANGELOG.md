@@ -5,7 +5,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
-- **Review Stack shows its progress:** the live steps of each pull request's review now appear in the progress box where the stack review started, under a line naming the pull request ("#1375 (2 of 3)"). Reviewing the pull request you started from no longer clears the box mid-run.
+- **Review Stack runs one agent per pull request, in parallel:** up to 3 at once by default (Settings › AI; Ollama one at a time). The progress box lists every pull request with its agent's state (waiting, running, done with its findings, failed, stopped) and live log, on the pull request you started from and on each member. Click a row to open that pull request, stop one agent alone, or *Cancel All*.
 - **Check a whole stack:** the Follow-up tab lists every pull request of the stack with its latest check, and *Check Stack* checks all those with new commits or replies since your review, bottom first.
 - **Install updates from the app:** *Install and Relaunch* downloads the new version, checks it against GitHub's checksum, replaces the app and relaunches it. Updates installed this way don't need the first install's right-click → Open.
 ## 0.6.0

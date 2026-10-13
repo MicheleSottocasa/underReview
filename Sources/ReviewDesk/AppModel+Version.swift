@@ -51,7 +51,7 @@ extension AppModel {
     /// Downloads the release, checks it, and swaps it in after quitting; ReviewDesk relaunches by itself.
     func installUpdate(_ release: AppRelease) {
         guard canInstallUpdates, release.installer != nil else { return openRelease(release) }
-        guard aiStatus.isEmpty else {
+        guard aiStatus.isEmpty, stackRuns.values.allSatisfy(\.isFinished) else {
             lastError = "An AI review is running: install the update when it's done (relaunching would cancel it)."
             return
         }

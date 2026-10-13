@@ -47,45 +47,101 @@ extension AppModel {
         }
     }
 
-    /// One review per PR, bottom of the stack first: `/code-review` for Claude Code, otherwise the full default context.
-    /// One review per PR, bottom of the stack first: `/code-review` for Claude Code, otherwise the full default context.
-    /// Progress and the live log show on `current`, the PR it was started from.
+    /// Reviews every PR of the stack with its own agent, several at once (Settings › AI), bottom of the stack first.
+    /// Each PR's status and live steps stay on that PR; `current`, where it started, shows them all.
     func startStackReview(_ prs: [PullRequest], engine: AIEngine, budget: Int, options: CodeReviewOptions, from current: String) {
         if let demo = prs.first(where: \.isDemo) { _ = blockDemo(demo); return }
-        aiTasks[current]?.cancel()
+        guard !prs.isEmpty else { return }
+        cancelStackRun(current)
+        stackRuns[current] = StackRun(members: prs.map(\.id), states: Dictionary(uniqueKeysWithValues: prs.map { ($0.id, .waiting) }))
+        for pr in prs {
+            aiActivity[pr.id] = []
+            aiStatus[pr.id] = "Waiting for a free agent…"
+        }
+        // ponytail: a fixed cap on parallel agents (Settings › AI); Ollama runs one at a time on this Mac.
+        let limit = engine.isLocal ? 1 : max(1, UserDefaults.standard.object(forKey: "stackParallelAgents") as? Int ?? 3)
         aiTasks[current] = Task {
-            aiActivity[current] = []
-            defer {
-                aiStatus[current] = nil
-                aiActivity[current] = nil
-                aiTasks[current] = nil
+            // Cancelling the stack review cancels every agent; Cancel on a row cancels just that one.
+            await Parallel.run(prs, limit: limit) { pr in
+                let member = Task { await self.reviewStackMember(pr, engine: engine, budget: budget, options: options, run: current) }
+                aiTasks[pr.id] = member
+                return member
             }
-            for (index, pr) in prs.enumerated() where !Task.isCancelled {
-                let position = "#\(pr.number) (\(index + 1) of \(prs.count))"
-                logStep("\(position) \(pr.title)", pr: current)
-                if engine.tool == "claude" {
-                    await codeReview(pr, engine: engine, options: options, key: current, label: position)
-                    continue
-                }
-                do {
-                    aiStatus[current] = "Preparing \(position)…"
-                    let context = try await prepareContext(pr, budget: budget)
-                    guard context.fitsBudget else {
-                        lastError = "#\(pr.number) is over the token budget; review it on its own and deselect files."
-                        logStep("#\(pr.number): over the token budget, skipped", pr: current)
-                        continue
-                    }
-                    aiStatus[current] = "Reviewing \(position) with \(engine.name)…"
-                    await review(pr, engine: engine, context: context)
-                } catch {
-                    lastError = error.localizedDescription
-                }
+            for pr in prs where stackRuns[current]?.states[pr.id] == .waiting {
+                stackRuns[current]?.states[pr.id] = .cancelled
+                aiStatus[pr.id] = nil
             }
-            logStep("Stack reviewed", pr: current)
+            stackRuns[current]?.isFinished = true
+            aiTasks[current] = nil
         }
     }
 
+    /// One PR of a stack review, with its own agent; its state and log stay on the PR.
+    private func reviewStackMember(_ pr: PullRequest, engine: AIEngine, budget: Int, options: CodeReviewOptions, run: String) async {
+        guard !Task.isCancelled, stackRuns[run]?.states[pr.id] == .waiting else { return } // stopped before its turn
+        stackRuns[run]?.states[pr.id] = .running
+        let before = aiRuns.count, errorBefore = lastError
+        if engine.tool == "claude" {
+            await codeReview(pr, engine: engine, options: options, key: pr.id)
+        } else {
+            do {
+                aiStatus[pr.id] = "Preparing the context…"
+                let context = try await prepareContext(pr, budget: budget)
+                if context.fitsBudget {
+                    aiStatus[pr.id] = "Reviewing with \(engine.name)…"
+                    await review(pr, engine: engine, context: context)
+                } else {
+                    stackRuns[run]?.states[pr.id] = .failed("Over the token budget: review it on its own and deselect files")
+                }
+            } catch {
+                stackRuns[run]?.states[pr.id] = .failed(error.localizedDescription)
+            }
+        }
+        aiStatus[pr.id] = nil
+        aiTasks[pr.id] = nil
+        guard stackRuns[run]?.states[pr.id] == .running else { return }
+        if Task.isCancelled {
+            stackRuns[run]?.states[pr.id] = .cancelled
+        } else if aiRuns.count > before, let result = aiRuns.last(where: { $0.prID == pr.id })?.result {
+            stackRuns[run]?.states[pr.id] = .done(findings: result.findings.count)
+        } else {
+            stackRuns[run]?.states[pr.id] = .failed(lastError != errorBefore ? lastError ?? "No result" : "No result")
+        }
+    }
+
+    /// The stack review this PR started or is part of, if any.
+    func stackRun(for pr: PullRequest) -> (root: String, run: StackRun)? {
+        if let run = stackRuns[pr.id] { return (pr.id, run) }
+        return stackRuns.first { $0.value.members.contains(pr.id) }.map { ($0.key, $0.value) }
+    }
+
+    /// An AI run is going on for this PR: its own, or a stack review it's part of.
+    func isAIBusy(_ pr: PullRequest) -> Bool {
+        aiStatus[pr.id] != nil || stackRun(for: pr).map { !$0.run.isFinished } == true
+    }
+
+    /// Stops a stack review's agents, or hides a finished one together with its agents' logs.
+    func cancelStackRun(_ root: String) {
+        guard let run = stackRuns[root] else { return }
+        if !run.isFinished {
+            aiTasks[root]?.cancel()
+            for id in run.members { aiTasks[id]?.cancel() }
+            return
+        }
+        stackRuns[root] = nil
+        for id in run.members where aiStatus[id] == nil { aiActivity[id] = nil }
+    }
+
     func cancelReview(_ prID: String) {
+        // A row of a stack review: stop only that agent (or skip it, if it hasn't started), keep its log in the list.
+        if let root = stackRuns.first(where: { $0.value.members.contains(prID) && !$0.value.isFinished })?.key {
+            if stackRuns[root]?.states[prID] == .waiting {
+                stackRuns[root]?.states[prID] = .cancelled
+                aiStatus[prID] = nil
+            }
+            aiTasks[prID]?.cancel()
+            return
+        }
         aiTasks[prID]?.cancel()
         aiTasks[prID] = nil
         aiStatus[prID] = nil
@@ -281,4 +337,17 @@ struct AIStep: Identifiable, Equatable {
     let id = UUID()
     let text: String
     let date = Date()
+}
+
+/// A stack review: one agent per PR, in stack order.
+struct StackRun: Equatable {
+    enum State: Equatable {
+        case waiting, running, cancelled
+        case done(findings: Int)
+        case failed(String)
+    }
+
+    var members: [String]
+    var states: [String: State]
+    var isFinished = false
 }

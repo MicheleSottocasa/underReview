@@ -106,6 +106,8 @@ final class AppModel {
     var aiStatus: [String: String] = [:]
     /// PR id → the latest steps of a running review, newest last; cleared when it ends.
     var aiActivity: [String: [AIStep]] = [:]
+    /// Stack reviews by the PR they were started from: one agent per PR, kept until dismissed so each log can be read.
+    var stackRuns: [String: StackRun] = [:]
     /// Comment id → AI explanation. In memory only: a fresh one is a click away.
     var explanations: [String: Explanation] = [:]
     var aiTasks: [String: Task<Void, Never>] = [:]
