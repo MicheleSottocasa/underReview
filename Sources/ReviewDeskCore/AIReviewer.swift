@@ -75,7 +75,8 @@ public struct AIRun: Codable, Hashable, Identifiable, Sendable {
     }
 
     /// The author pushed since this run: its findings, key areas and line numbers may no longer match the code.
-    public func isOutdated(for pr: PullRequest) -> Bool { headRefOid != pr.headRefOid }
+    /// An unknown head (GitHub returned none) isn't a push.
+    public func isOutdated(for pr: PullRequest) -> Bool { !pr.headRefOid.isEmpty && headRefOid != pr.headRefOid }
 
     /// What the stale-analysis banner says; `commits` is nil when GitHub couldn't count them (e.g. after a force-push).
     public func outdatedMessage(for pr: PullRequest, commits: Int?) -> String {
