@@ -151,7 +151,7 @@ struct ThreadView: View {
                             let resolver = thread.resolvedBy.map { " by \($0 == model.viewer ? "you" : $0)" } ?? ""
                             Text("Resolved\(resolver) · \(thread.participantList(viewer: model.viewer)) · \(comments.count) comment\(comments.count == 1 ? "" : "s")")
                                 .font(.callout)
-                            Text(thread.topic)
+                            Text(inlineMarkdown(thread.topic))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
