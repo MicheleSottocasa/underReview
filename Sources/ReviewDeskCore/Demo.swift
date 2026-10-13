@@ -86,7 +86,7 @@ public enum Demo {
                     ReviewThread(id: "DEMO_T_2", path: "app/invites/tasks.py", line: 11, side: .right, isResolved: true, isOutdated: false, comments: [
                         Comment(id: "DEMO_C_3", author: "lena.demo", body: "Could a retry send the email twice?", createdAt: ago(3), kind: .review),
                         Comment(id: "DEMO_C_4", author: "marco.demo", body: "Not anymore: it returns early once `sent_at` is set.", createdAt: ago(2), kind: .review),
-                    ]),
+                    ], resolvedBy: "lena.demo"),
                 ],
                 pendingReview: nil),
         ]

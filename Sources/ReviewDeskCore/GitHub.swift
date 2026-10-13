@@ -157,6 +157,25 @@ public struct ReviewThread: Hashable, Identifiable, Sendable {
     public var comments: [Comment]
     public var viewerCanResolve = false
     public var viewerCanUnresolve = false
+    public var resolvedBy: String?
+
+    /// Everyone who wrote in the thread, in order of their first comment.
+    public var participants: [String] {
+        comments.map(\.author).reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
+    }
+
+    /// "alice, bob, you +2": the first `limit` participants, the viewer as "you".
+    public func participantList(viewer: String, limit: Int = 3) -> String {
+        let names = participants.map { $0 == viewer ? "you" : $0 }
+        let shown = names.prefix(limit).joined(separator: ", ")
+        return names.count > limit ? "\(shown) +\(names.count - limit)" : shown
+    }
+
+    /// The first non-blank line of the first comment: what the thread is about, at a glance.
+    public var topic: String {
+        let lines = (comments.first?.body ?? "").split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+        return lines.first { !$0.isEmpty } ?? ""
+    }
 }
 
 public struct PendingComment: Hashable, Identifiable, Sendable {
@@ -295,7 +314,7 @@ public struct GitHub: Sendable {
           body
           comments(last: 100) { nodes { ...CommentFields } }
           reviews(last: 50) { nodes { id author { login } state body submittedAt } }
-          reviewThreads(first: 100) { nodes { id path line diffSide isResolved isOutdated viewerCanResolve viewerCanUnresolve
+          reviewThreads(first: 100) { nodes { id path line diffSide isResolved isOutdated viewerCanResolve viewerCanUnresolve resolvedBy { login }
             comments(first: 100) { nodes { ...CommentFields state } } } }
           \(Self.pendingField)
         } } }
@@ -323,7 +342,8 @@ public struct GitHub: Sendable {
                              isResolved: $0["isResolved"] as? Bool ?? false, isOutdated: $0["isOutdated"] as? Bool ?? false,
                              comments: Self.nodes($0["comments"]).map(Self.decodeComment),
                              viewerCanResolve: $0["viewerCanResolve"] as? Bool ?? false,
-                             viewerCanUnresolve: $0["viewerCanUnresolve"] as? Bool ?? false)
+                             viewerCanUnresolve: $0["viewerCanUnresolve"] as? Bool ?? false,
+                             resolvedBy: ($0["resolvedBy"] as? [String: Any])?["login"] as? String)
             },
             pendingReview: pending
         )

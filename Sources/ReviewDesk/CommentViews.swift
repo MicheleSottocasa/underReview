@@ -147,7 +147,16 @@ struct ThreadView: View {
                 if thread.isResolved && !expanded {
                     HStack {
                         Image(systemName: "checkmark.circle").foregroundStyle(.green)
-                        Text("Resolved conversation · \(comments.count) comment\(comments.count == 1 ? "" : "s")").font(.callout)
+                        VStack(alignment: .leading, spacing: 2) {
+                            let resolver = thread.resolvedBy.map { " by \($0 == model.viewer ? "you" : $0)" } ?? ""
+                            Text("Resolved\(resolver) · \(thread.participantList(viewer: model.viewer)) · \(comments.count) comment\(comments.count == 1 ? "" : "s")")
+                                .font(.callout)
+                            Text(thread.topic)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .help(comments.first?.body ?? "")
+                        }
                         Spacer()
                         resolveButton
                         Button("Show") { expanded = true }.buttonStyle(.link)
