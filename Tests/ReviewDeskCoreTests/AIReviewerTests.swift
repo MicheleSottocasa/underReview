@@ -5,6 +5,18 @@ import Testing
 private let review = #"{"summary":"ok","findings":[{"severity":"high","title":"t","rationale":"r","path":"a.py","line":3,"comment":"c"}]}"#
 private let subscribed = ok(#"{"loggedIn":true,"authMethod":"claude.ai"}"#)
 
+@Test func aRunIsOutdatedOnceTheAuthorPushes() {
+    let pr = PullRequest(id: "PR_1", number: 1, title: "T", url: "", state: "OPEN", isDraft: false, updatedAt: .now,
+                         headRefOid: "def5678aaaa", headRefName: "", baseRefName: "", author: "", repo: "o/r",
+                         commentCount: 0, reviewCount: 0, threadCommentCount: 0, requestedReviewers: [], stack: nil)
+    let run = AIRun(prID: pr.id, engine: .claudeCode, headRefOid: "abc1234bbbb", result: ReviewResult(summary: "", findings: []))
+    #expect(run.isOutdated(for: pr))
+    #expect(!AIRun(prID: pr.id, engine: .codex, headRefOid: pr.headRefOid, result: run.result).isOutdated(for: pr))
+    #expect(run.outdatedMessage(for: pr, commits: 3) == "The author pushed 3 commits since this analysis (abc1234 → def5678).")
+    #expect(run.outdatedMessage(for: pr, commits: 1).contains("pushed 1 commit since"))
+    #expect(run.outdatedMessage(for: pr, commits: nil).contains("pushed new commits since"))
+}
+
 @Test func claudeRunsWithToolsHooksAndMCPDisabled() async throws {
     let runner = FakeRunner { call in
         call.args.first == "auth" ? subscribed : ok(#"{"type":"result","is_error":false,"structured_output":\#(review)}"#)

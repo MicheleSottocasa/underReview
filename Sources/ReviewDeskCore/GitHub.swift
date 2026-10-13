@@ -522,6 +522,17 @@ public struct GitHub: Sendable {
         return try JSONDecoder().decode([FileChange].self, from: data)
     }
 
+    /// How many commits `head` has that `base` doesn't. Throws when `base` is gone (e.g. after a force-push).
+    public func commitsAhead(repo: String, from base: String, to head: String) async throws -> Int {
+        let data = try await runner.output("gh", ["api", "repos/\(repo)/compare/\(base)...\(head)", "--jq", ".ahead_by"])
+        return try JSONDecoder().decode(Int.self, from: data)
+    }
+
+    /// GitHub's page for the changes between two commits.
+    public static func compareURL(repo: String, from base: String, to head: String) -> URL? {
+        URL(string: "https://github.com/\(repo)/compare/\(base)...\(head)")
+    }
+
     // MARK: Decoding
 
     static let prFragment = """
