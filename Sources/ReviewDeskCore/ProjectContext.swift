@@ -138,12 +138,18 @@ public enum ProjectContext {
             + included.map { "\n### \($0.path)\n" + AIContext.fenced($0.content ?? "", info: "") + "\n" }.joined()
     }
 
-    /// Local sources that are folders, resolved: what `/code-review` may read through `--add-dir`.
-    public static func folders(_ sources: [ContextSource]) -> [String] {
-        sources.filter { $0.kind == .local }.compactMap { source in
-            let url = URL(fileURLWithPath: (source.location as NSString).expandingTildeInPath).standardizedFileURL.resolvingSymlinksInPath()
+    /// Local sources that are folders, resolved: what `/code-review` may read through `--add-dir`. Never the whole
+    /// disk, the home folder or a folder above it, and never a path whose characters would change the meaning of the
+    /// permission rules that hide its hidden files (`*`, `?`, `[`, `]`, `!`, `#`, `\`, `,`, parentheses).
+    public static func folders(_ sources: [ContextSource], home: String = NSHomeDirectory()) -> [String] {
+        let home = URL(fileURLWithPath: home).standardizedFileURL.resolvingSymlinksInPath().path
+        let special = CharacterSet(charactersIn: "*?[]!#\\,()")
+        return sources.filter { $0.kind == .local }.compactMap { source in
+            let path = URL(fileURLWithPath: (source.location as NSString).expandingTildeInPath).standardizedFileURL.resolvingSymlinksInPath().path
             var isFolder: ObjCBool = false
-            return FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder) && isFolder.boolValue ? url.path : nil
+            guard FileManager.default.fileExists(atPath: path, isDirectory: &isFolder), isFolder.boolValue,
+                  path != "/", path != home, !home.hasPrefix(path + "/"), path.rangeOfCharacter(from: special) == nil else { return nil }
+            return path
         }
     }
 }

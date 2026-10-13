@@ -148,6 +148,9 @@ public struct AIReviewer: Sendable {
                     "--restricted", "--strict-mcp-config", "--permission-prompts", "none",
                     "--tools", Self.codeReviewTools, "--allowedTools", Self.codeReviewAllowed]
         for folder in folders { args += ["--add-dir", folder] }
+        // Hidden files and folders (.env, .git…) stay unreadable in the added folders: deny rules beat the allow
+        // list, and Claude Code applies Read rules to Grep and Glob too. `//` starts an absolute path in a rule.
+        if !folders.isEmpty { args += ["--disallowedTools"] + folders.flatMap(Self.hiddenFileRules) }
         if !options.model.isEmpty { args += ["--model", options.model] }
         var cwd = dir
         var resumed: String?
@@ -205,6 +208,11 @@ public struct AIReviewer: Sendable {
         progress("Turning the review into findings, key areas and risk answers…")
         let prompt = AIContext.structurePrompt(report: report, context: context.fittingBudget(), instructions: structureInstructions)
         return try Self.decode(try await run(.claudeCode, prompt: prompt, schema: AIContext.schema, model: options.model, timeout: .seconds(300)))
+    }
+
+    /// Permission rules denying hidden files and everything under hidden folders inside `folder` (an absolute path).
+    static func hiddenFileRules(_ folder: String) -> [String] {
+        ["Read(/\(folder)/**/.*)", "Read(/\(folder)/**/.*/**)"]
     }
 
     static let codeReviewTools = "Read,Grep,Glob,Bash,Agent"

@@ -31,6 +31,13 @@ import Testing
     #expect(ProjectContext.readLocal(base.appendingPathComponent("missing").path).first?.excludedReason == "Not found")
     #expect(ProjectContext.folders([ContextSource(kind: .local, location: root.path), ContextSource(kind: .local, location: outside.path),
                                     ContextSource(kind: .repository, location: "o/r")]).count == 1)
+    // Never the whole disk, the home folder or a folder above it, nor a path that would bend the deny rules.
+    let home = base.appendingPathComponent("home")
+    let odd = base.appendingPathComponent("a*b")
+    try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: odd, withIntermediateDirectories: true)
+    #expect(ProjectContext.folders(["/", home.path, base.path, odd.path, root.path].map { ContextSource(kind: .local, location: $0) },
+                                   home: home.path).map { URL(fileURLWithPath: $0).lastPathComponent } == ["docs"])
 }
 
 @Test func readsARepositoryFolderAtARefAndListsWhatItLeavesOut() async throws {
