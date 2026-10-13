@@ -344,8 +344,7 @@ public struct GitHub: Sendable {
           comments(last: 100) { nodes { ...CommentFields } }
           reviews(last: 50) { nodes { id author { login } state body submittedAt } }
           reviewThreads(first: 100) { nodes { id path line diffSide isResolved isOutdated viewerCanResolve viewerCanUnresolve resolvedBy { login }
-            comments(first: 100) { nodes { ...CommentFields state pullRequestReview { id } } }
-            hunk: comments(first: 1) { nodes { diffHunk } } } }
+            comments(first: 100) { nodes { ...CommentFields state diffHunk pullRequestReview { id } } } } }
           \(Self.pendingField)
         } } }
         fragment CommentFields on Comment {
@@ -374,7 +373,7 @@ public struct GitHub: Sendable {
                              viewerCanResolve: $0["viewerCanResolve"] as? Bool ?? false,
                              viewerCanUnresolve: $0["viewerCanUnresolve"] as? Bool ?? false,
                              resolvedBy: ($0["resolvedBy"] as? [String: Any])?["login"] as? String,
-                             diffHunk: Self.nodes($0["hunk"]).first?["diffHunk"] as? String ?? "")
+                             diffHunk: Self.nodes($0["comments"]).first?["diffHunk"] as? String ?? "")
             },
             pendingReview: pending
         )
