@@ -380,13 +380,23 @@ struct SubmitReviewPopover: View {
                 get: { model.reviewDrafts.bodies[pr.id] ?? "" },
                 set: { model.reviewDrafts.bodies[pr.id] = $0.isEmpty ? nil : $0 }
             ), placeholder: "Leave a summary (optional)")
+            let allowed = ReviewEvent.allowed(for: pr)
             Picker("", selection: $event) {
                 option(.comment, "Comment", "Submit general feedback without explicit approval.")
-                option(.approve, "Approve", "Submit feedback and approve merging these changes.")
-                option(.requestChanges, "Request changes", "Submit feedback that must be addressed before merging.")
+                if allowed.contains(.approve) {
+                    option(.approve, "Approve", "Submit feedback and approve merging these changes.")
+                }
+                if allowed.contains(.requestChanges) {
+                    option(.requestChanges, "Request changes", "Submit feedback that must be addressed before merging.")
+                }
             }
             .pickerStyle(.radioGroup)
             .labelsHidden()
+            .onAppear { if allowed == [.comment] { event = .comment } }
+            if allowed == [.comment] {
+                Text("Your own pull request: GitHub only takes a comment review, so your comments and suggested changes are posted as review comments.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
             if unsaved.contains(where: \.isStale) {
                 Label("Outdated drafts are left out until you confirm or delete them.", systemImage: "exclamationmark.triangle")
                     .font(.caption).foregroundStyle(.orange)
