@@ -5,6 +5,8 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+## 0.9.0
+
 - **Key areas on removed code:** the AI can now point at code a pull request deletes (a dropped check, say), by its old line numbers. The diff marks those lines on the removed side, and Focus and Risk label them "Removed code, old lines …".
 - **Key Areas Only:** a toggle in Changes shows only the hunks with key areas or comments, folding the rest of each file behind an "N lines hidden" row you can click to open.
 - **Mark files Viewed as you read:** an option in Settings › General, off by default, marks a file as Viewed on GitHub once you've marked all its key areas as read.
@@ -21,7 +23,6 @@ Add a `## <version>` section here before tagging a release: the release workflow
 - In side-by-side mode, added and deleted files are shown in one full-width column instead of next to an empty half.
 - **Actions show progress until their result is on screen:** submitting a review, replying, resolving, editing, deleting, reacting to or hiding a comment keeps its *Submitting…*/*Sending…* state or a spinner until the reloaded pull request shows the change, instead of briefly showing the old state. Deleting a draft, marking a file viewed and the linked agent's actions (stop, logs, open in Terminal, refresh) show a spinner too, and the item can't be clicked again meanwhile. Failures still appear in the error banner.
 - With **Soft-wrap long lines** off, long diff lines scroll sideways (trackpad, or Shift with a mouse wheel) instead of being cut at the edge. Every line moves together, both halves in side-by-side mode; line numbers and comments stay in place.
-- **Check Out:** link a repository to its clone on this Mac (Settings › Repositories, or the first time you use it) and check a pull request's branch out there with one click, through `gh pr checkout`. ReviewDesk checks that the folder has a remote on that repository and refuses when tracked files have uncommitted changes.
 - **Open in Editor:** the Changes tab opens a changed file from the local clone in your editor (from the diff header, or by right-clicking it in the file tree), at the line you jumped to or else at its first change. Pick VS Code, Cursor, Windsurf, Zed, IntelliJ IDEA, PyCharm or your own link in Settings › Repositories; by default the file opens in your default text editor, never in the app that would run it.
 - **Check Out:** link a repository to its clone on this Mac (Settings › Repositories, or the first time you use it) and check a pull request's branch out there with one click, through `gh pr checkout`. ReviewDesk checks that the folder has a remote on that repository on github.com, and refuses to check out over uncommitted changes, an unfinished merge, rebase or bisect, detached commits no branch contains, or untracked and ignored files the pull request would overwrite.
 - After the author rebases, *Check if addressed* reads the whole diff instead of a comparison that mixed in the base branch's own changes.
