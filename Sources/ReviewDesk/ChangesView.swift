@@ -20,6 +20,8 @@ struct ChangesView: View {
         let missing = key.flatMap { model.missingComparisons[$0] }
         let shown = key.flatMap { missing == nil ? $0 : nil }
         let changed = if let shown { model.comparisons[shown] } else { model.files[pr.id] }
+        let notice = missing ?? (shown != nil && (changed?.count ?? 0) >= 300
+            ? "GitHub lists at most 300 files when comparing commits, so some may be missing here." : nil)
         VStack(spacing: 0) {
             ReviewBar(pr: pr, mode: $mode)
             Divider()
@@ -28,8 +30,8 @@ struct ChangesView: View {
                 OutdatedAnalysisBanner(pr: pr, run: analysis).padding(8)
                 Divider()
             }
-            if let missing {
-                Label(missing, systemImage: "exclamationmark.triangle")
+            if let notice {
+                Label(notice, systemImage: "exclamationmark.triangle")
                     .font(.callout).foregroundStyle(.orange)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12).padding(.vertical, 6)
