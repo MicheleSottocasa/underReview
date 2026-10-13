@@ -82,7 +82,10 @@ struct DetailView: View {
                 }
                 .help("Merges \(pr.headRefName) into \(pr.baseRefName)")
                 if let head = URL(string: "https://github.com/\(pr.repo)/commit/\(pr.headRefOid)") {
-                    Link(String(pr.headRefOid.prefix(7)), destination: head).font(.caption.monospaced()).foregroundStyle(.tint).help("The head commit, on GitHub")
+                    let headline = model.details[pr.id]?.commits.first { $0.oid == pr.headRefOid }?.headline
+                    Link(String(pr.headRefOid.prefix(7)), destination: head).font(.caption.monospaced()).foregroundStyle(.tint)
+                        .help(headline.map { "The head commit: \($0)" } ?? "The head commit")
+                        .contextMenu { Button("Copy SHA") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(pr.headRefOid, forType: .string) } }
                 }
                 if pr.changedFiles > 0 {
                     HStack(spacing: 4) {
