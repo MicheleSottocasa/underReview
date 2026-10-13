@@ -70,13 +70,13 @@ public struct ClaudeAgents: Sendable {
         return Self.repo(fromRemote: result.text)
     }
 
-    /// Also `ssh://git@ssh.github.com:443/o/r.git` and a trailing slash. SSH host aliases (`git@github-work:o/r`)
-    /// can't be told apart from other hosts, so they don't count.
+    /// Also `ssh://git@ssh.github.com:443/o/r.git`, `git@github.com:/o/r.git` and a trailing slash. SSH host
+    /// aliases (`git@github-work:o/r`) aren't resolved here: see `LocalClone.sshAlias`.
     static func repo(fromRemote url: String) -> String? {
         var trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
         while trimmed.hasSuffix("/") { trimmed.removeLast() }
         // Anchored at the start, so the host really is github.com and not e.g. `evil.example/github.com/o/r`.
-        let host = #"^(?:(?:https?|ssh|git)://)?(?:[^@/]+@)?(?:ssh\.)?github\.com(?::\d+)?[:/]"#
+        let host = #"^(?:(?:https?|ssh|git)://)?(?:[^@/]+@)?(?:ssh\.)?github\.com(?::\d+)?[:/]/*"#
         guard let range = trimmed.range(of: host, options: [.regularExpression, .caseInsensitive]) else { return nil }
         var path = String(trimmed[range.upperBound...])
         if path.hasSuffix(".git") { path.removeLast(4) }
