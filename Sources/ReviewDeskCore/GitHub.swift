@@ -297,12 +297,15 @@ public enum GitHubError: Error, LocalizedError, Equatable {
     case graphQL([String])
     case notLoggedIn(String)
     case notFound(String)
+    /// Two commits that aren't one history: the older one was rebased or rewritten away.
+    case rewritten
 
     public var errorDescription: String? {
         switch self {
         case .graphQL(let messages): messages.joined(separator: "\n")
         case .notLoggedIn(let detail): "GitHub CLI is not logged in. Run `gh auth login`.\n\(detail)"
         case .notFound(let what): "\(what) not found or not accessible."
+        case .rewritten: "The older commit isn't in the newer one's history anymore: the branch was rebased or rewritten."
         }
     }
 }
@@ -610,11 +613,18 @@ public struct GitHub: Sendable {
         return Set(try JSONDecoder().decode([String].self, from: data))
     }
 
-    /// The changed files and their patches between two commits. Throws when the older one is gone
-    /// (e.g. after a force-push), so callers can fall back to the whole PR diff.
+    /// The changed files and their patches between two commits. Throws when the older one is gone (e.g. after a
+    /// force-push) or no longer in the newer one's history (a rebase: GitHub then compares from their merge base,
+    /// mixing in the base branch's changes), so callers can fall back to the whole PR diff.
     public func compareFiles(repo: String, from base: String, to head: String) async throws -> [FileChange] {
-        let data = try await runner.output("gh", ["api", "repos/\(repo)/compare/\(base)...\(head)", "--jq", ".files"])
-        return try JSONDecoder().decode([FileChange].self, from: data)
+        struct Comparison: Decodable {
+            var status: String
+            var files: [FileChange]?
+        }
+        let data = try await runner.output("gh", ["api", "repos/\(repo)/compare/\(base)...\(head)", "--jq", "{status, files}"])
+        let comparison = try JSONDecoder().decode(Comparison.self, from: data)
+        guard ["ahead", "identical"].contains(comparison.status) else { throw GitHubError.rewritten }
+        return comparison.files ?? []
     }
 
     /// How many commits were pushed on top of `base` to reach `head`. Nil when `head` doesn't simply extend `base`

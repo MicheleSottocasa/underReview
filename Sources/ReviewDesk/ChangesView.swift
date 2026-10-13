@@ -17,8 +17,8 @@ struct ChangesView: View {
         // Some commits instead of the whole PR: their comparison, or the whole diff when GitHub can't make it.
         let bounds = model.commitSelection(for: pr).bounds(commits: model.details[pr.id]?.commits ?? [], pr: pr)
         let key = bounds.map { AppModel.comparisonKey(pr, base: $0.base, head: $0.head) }
-        let missing = key.map(model.missingComparisons.contains) ?? false
-        let shown = key.flatMap { missing ? nil : $0 }
+        let missing = key.flatMap { model.missingComparisons[$0] }
+        let shown = key.flatMap { missing == nil ? $0 : nil }
         let changed = if let shown { model.comparisons[shown] } else { model.files[pr.id] }
         VStack(spacing: 0) {
             ReviewBar(pr: pr, mode: $mode)
@@ -28,9 +28,8 @@ struct ChangesView: View {
                 OutdatedAnalysisBanner(pr: pr, run: analysis).padding(8)
                 Divider()
             }
-            if missing {
-                Label("Those commits aren't on GitHub anymore (force-pushed?), so the whole pull request is shown.",
-                      systemImage: "exclamationmark.triangle")
+            if let missing {
+                Label(missing, systemImage: "exclamationmark.triangle")
                     .font(.callout).foregroundStyle(.orange)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12).padding(.vertical, 6)

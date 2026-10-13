@@ -56,8 +56,16 @@ private func pr(head: String = "new", reviewed: String? = "old") -> PullRequest 
 }
 
 @Test func compareReturnsTheChangedFilesWithPatches() async throws {
-    let runner = FakeRunner { _ in ok(#"[{"filename":"a.py","status":"modified","additions":1,"deletions":0,"patch":"@@ -1 +1 @@\n+x"}]"#) }
+    let runner = FakeRunner { _ in ok(#"{"status":"ahead","files":[{"filename":"a.py","status":"modified","additions":1,"deletions":0,"patch":"@@ -1 +1 @@\n+x"}]}"#) }
     let files = try await GitHub(runner: runner).compareFiles(repo: "o/r", from: "old", to: "new")
     #expect(files.map(\.filename) == ["a.py"] && files[0].patch?.contains("+x") == true)
-    #expect(runner.calls.first?.args == ["api", "repos/o/r/compare/old...new", "--jq", ".files"])
+    #expect(runner.calls.first?.args == ["api", "repos/o/r/compare/old...new", "--jq", "{status, files}"])
+}
+
+@Test func compareRefusesCommitsFromARewrittenHistory() async throws {
+    // After a rebase GitHub still answers, from the merge base: the diff would include the base branch's changes.
+    let runner = FakeRunner { _ in ok(#"{"status":"diverged","files":[{"filename":"upstream.py","status":"modified","additions":9,"deletions":0}]}"#) }
+    await #expect(throws: GitHubError.rewritten) { try await GitHub(runner: runner).compareFiles(repo: "o/r", from: "old", to: "new") }
+    let same = FakeRunner { _ in ok(#"{"status":"identical","files":[]}"#) }
+    #expect(try await GitHub(runner: same).compareFiles(repo: "o/r", from: "a", to: "a").isEmpty)
 }
