@@ -113,12 +113,14 @@ public struct ReviewContext: Sendable {
     public var budget: Int
     /// The repository's rule files (AGENTS.md, CONTRIBUTING.md…), shown and sent like files.
     public var rules: [ContextFile] = []
+    /// The project's extra context (docs, folders, other repositories), shown and sent like files.
+    public var extra: [ContextFile] = []
 
-    public init(title: String, body: String, files: [ContextFile], budget: Int, rules: [ContextFile] = []) {
-        (self.title, self.body, self.files, self.budget, self.rules) = (title, body, files, budget, rules)
+    public init(title: String, body: String, files: [ContextFile], budget: Int, rules: [ContextFile] = [], extra: [ContextFile] = []) {
+        (self.title, self.body, self.files, self.budget, self.rules, self.extra) = (title, body, files, budget, rules, extra)
     }
 
-    public var tokens: Int { (files + rules).filter(\.included).reduce(AIContext.estimateTokens(title + body)) { $0 + $1.tokens } }
+    public var tokens: Int { (files + rules + extra).filter(\.included).reduce(AIContext.estimateTokens(title + body)) { $0 + $1.tokens } }
 
     /// Keeps files in order while they fit the budget; the rest are left out and named in the prompt.
     /// Rules always stay: they're short, and reviewing against them is the point.
@@ -286,6 +288,7 @@ public enum AIContext {
 
         """
         text += RepoRules.section(context.rules)
+        text += ProjectContext.section(context.extra)
         for file in context.files where file.included {
             text += "\n## Diff: \(file.path)\n```diff\n\(file.patch ?? "")\n```\n"
             if let content = file.content {
@@ -309,7 +312,7 @@ public enum AIContext {
     """
 
     public static func explainPrompt(title: String, body: String, path: String?, line: Int?, patch: String?,
-                                     conversation: [Comment], comment: Comment,
+                                     conversation: [Comment], comment: Comment, extra: [ContextFile] = [],
                                      instructions: String = defaultExplainInstructions) -> String {
         var text = """
         \(instructions)
@@ -319,6 +322,7 @@ public enum AIContext {
         \(body)
 
         """
+        text += ProjectContext.section(extra)
         if let path {
             text += "\n## Code: \(path)\(line.map { ", line \($0)" } ?? "")\n"
             text += patch.map { "```diff\n\($0)\n```\n" } ?? "(diff not available)\n"
@@ -391,7 +395,7 @@ public enum AIContext {
     }
 
     /// A fenced block that can't be closed early by backticks in the code.
-    private static func fenced(_ code: String, info: String) -> String {
+    static func fenced(_ code: String, info: String) -> String {
         let code = code.hasSuffix("\n") ? String(code.dropLast()) : code
         let fence = String(repeating: "`", count: max(3, (code.components(separatedBy: "\n").map { $0.prefix { $0 == "`" }.count }.max() ?? 0) + 1))
         return "\(fence)\(info)\n\(code)\n\(fence)"

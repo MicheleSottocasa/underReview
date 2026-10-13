@@ -206,6 +206,19 @@ private final class Steps: @unchecked Sendable {
     #expect(!runner.calls.contains { $0.args.contains("--model") })
 }
 
+@Test func codeReviewReadsProjectFoldersThroughAddDirWithTheSameReadOnlyTools() async throws {
+    let runner = codeReviewRunner()
+    _ = try await AIReviewer(runner: runner).codeReview(.claudeCode, prURL: "u", context: context, options: CodeReviewOptions(),
+                                                        folders: ["/docs/api", "/src/lib"])
+    let args = try #require(runner.calls.first { $0.args.contains("--restricted") }?.args)
+    #expect(args.indices.filter { args[$0] == "--add-dir" }.map { args[$0 + 1] } == ["/docs/api", "/src/lib"])
+    #expect(args[args.firstIndex(of: "--tools")! + 1] == "Read,Grep,Glob,Bash,Agent")
+    #expect(args[args.firstIndex(of: "--allowedTools")! + 1] == AIReviewer.codeReviewAllowed)
+    #expect(args[args.firstIndex(of: "--append-system-prompt")! + 1].hasSuffix("/docs/api, /src/lib"))
+    // The tool-less structuring pass never gets the folders.
+    #expect(!(runner.calls.first { $0.args.contains("--json-schema") }?.args.contains("--add-dir") ?? true))
+}
+
 @Test func codeReviewFailsWhenTheCommandProducesNoReport() async {
     let runner = codeReviewRunner(report: "Command completed")
     await #expect(throws: AIError.invalidOutput("/code-review returned no report")) {

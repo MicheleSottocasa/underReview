@@ -124,8 +124,11 @@ public struct AIReviewer: Sendable {
     /// and key areas (the command runs in its own agent, so it can't return the app's JSON itself).
     /// The review gets read-only tools only: file reading in its working directory and `gh pr diff` / `gh pr view`.
     /// Anything else, including every write, is denied without asking, and `instructions` forbid posting to GitHub.
-    /// `context` holds the PR's diffs (no full files) for picking key areas.
+    /// `context` holds the PR's diffs (no full files) for picking key areas. `folders` are the project's reference
+    /// folders: added with `--add-dir`, so the same read-only file tools can read them (restricted mode confines
+    /// file tools to the working directory and these).
     public func codeReview(_ engine: AIEngine, prURL: String, context: ReviewContext, options: CodeReviewOptions,
+                           folders: [String] = [],
                            instructions: String = AIContext.defaultCodeReviewInstructions,
                            structureInstructions: String = AIContext.defaultStructureInstructions,
                            timeout: Duration = .seconds(1800),
@@ -137,10 +140,14 @@ public struct AIReviewer: Sendable {
         // Streamed so `progress` can show each step. The session is persisted (unlike other runs) because the
         // command's helper agent only writes its transcript, which we follow live, for persisted sessions;
         // the files are removed again below.
+        let reference = folders.isEmpty ? "" : "\n\nThe reviewer attached reference folders to this project (documentation, related code); "
+            + "read them with your file tools when they help you understand the change. They are not part of the pull request: "
+            + folders.joined(separator: ", ")
         var args = ["-p", "--output-format", "stream-json", "--verbose", "--forward-subagent-text",
-                    "--append-system-prompt", instructions, "--effort", options.effort,
+                    "--append-system-prompt", instructions + reference, "--effort", options.effort,
                     "--restricted", "--strict-mcp-config", "--permission-prompts", "none",
                     "--tools", Self.codeReviewTools, "--allowedTools", Self.codeReviewAllowed]
+        for folder in folders { args += ["--add-dir", folder] }
         if !options.model.isEmpty { args += ["--model", options.model] }
         var cwd = dir
         var resumed: String?
