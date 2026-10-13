@@ -982,7 +982,8 @@ struct FileDiffView: View {
         if let selection {
             let lines = Array(diff.lines[selection]) // hunk headers too: they mark the gap when it spans two hunks
             // The head commit too: after a push the same range is other code, so an old chat mustn't come back.
-            let key = "\(pr.id) \(pr.headRefOid) \(file.filename) \(selection)"
+            // The patch too: a commit view shows other code at the same offsets.
+            let key = "\(pr.id) \(pr.headRefOid) \(file.filename) \(diff.key.patch.hashValue) \(selection)"
             let engine = model.preferredEngine(for: pr)
             let sends = engine.isLocal ? "" : " Sends the PR description, this file's diff and the selected lines to \(engine.name)'s provider."
             VStack(alignment: .leading, spacing: 8) {
