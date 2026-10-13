@@ -30,15 +30,9 @@ extension AppModel {
                 model: defaults.string(forKey: "claudeModel") ?? "", effort: defaults.string(forKey: "reviewEffort") ?? "high"))
             return
         }
-        let defaults = UserDefaults.standard
-        if case .ollama(let model) = run.engine {
-            defaults.set("ollama", forKey: "aiEngine")
-            defaults.set(model, forKey: "ollamaModel")
-        } else {
-            defaults.set("codex", forKey: "aiEngine")
-        }
+        // The run's engine travels with the request: the AI tab's own engine choice stays as the user left it.
         detailTab = .ai
-        contextRequest = pr.id
+        contextRequest = ContextRequest(prID: pr.id, engine: run.engine)
     }
 
     /// GitHub's compare view between the analysed commit and the current head.
