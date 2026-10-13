@@ -64,6 +64,16 @@ private func cQuoted(_ path: Substring) -> String {
     }
 }
 
+@Test func verifyIgnoresAPushURLOnTheRepo() async throws {
+    let top = try tempClone()
+    defer { try? FileManager.default.removeItem(at: top) }
+    // `origin` fetches another repo and only pushes to o/r: fetching the PR from it would fail or get the wrong one.
+    let remotes = "origin\tgit@github.com:me/r.git (fetch)\norigin\tgit@github.com:o/r.git (push)\n"
+    await #expect(throws: LocalClone.Failure.otherRepo(folder: top.path, repo: "o/r")) {
+        try await LocalClone(runner: fake(top, remotes: remotes)).verify(top, repo: "o/r")
+    }
+}
+
 @Test func verifyRejectsAFolderThatIsNotAClone() async {
     let folder = URL(fileURLWithPath: "/Users/me/code/r")
     let runner = FakeRunner { _ in CommandResult(status: 128, stdout: Data(), stderr: "not a git repository") }

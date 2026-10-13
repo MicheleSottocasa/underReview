@@ -50,9 +50,9 @@ public struct LocalClone: Sendable {
         let top = try await runner.run("git", ["-C", folder.path, "rev-parse", "--show-toplevel"])
         let remotes = try await runner.run("git", ["-C", folder.path, "remote", "-v"])
         guard top.status == 0, remotes.status == 0 else { throw Failure.notAClone(folder: folder.path) }
-        // Each line is "<name>\t<url> (fetch|push)".
+        // Each line is "<name>\t<url> (fetch|push)". Only the fetch URL counts: that's where the PR is fetched from.
         let remote = remotes.text.split(separator: "\n").first { line in
-            line.split(whereSeparator: \.isWhitespace).dropFirst().first
+            line.hasSuffix("(fetch)") && line.split(whereSeparator: \.isWhitespace).dropFirst().first
                 .flatMap { ClaudeAgents.repo(fromRemote: String($0)) }?.caseInsensitiveCompare(repo) == .orderedSame
         }?.split(whereSeparator: \.isWhitespace).first
         guard let remote else { throw Failure.otherRepo(folder: folder.path, repo: repo) }
