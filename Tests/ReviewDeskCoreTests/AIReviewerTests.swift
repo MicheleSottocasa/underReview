@@ -12,6 +12,9 @@ private let subscribed = ok(#"{"loggedIn":true,"authMethod":"claude.ai"}"#)
     let run = AIRun(prID: pr.id, engine: .claudeCode, headRefOid: "abc1234bbbb", result: ReviewResult(summary: "", findings: []))
     #expect(run.isOutdated(for: pr))
     #expect(!AIRun(prID: pr.id, engine: .codex, headRefOid: pr.headRefOid, result: run.result).isOutdated(for: pr))
+    var unknown = pr
+    unknown.headRefOid = "" // GitHub gave no head: no banner
+    #expect(!run.isOutdated(for: unknown))
     #expect(run.outdatedMessage(for: pr, commits: 3) == "The author pushed 3 commits since this analysis (abc1234 → def5678).")
     #expect(run.outdatedMessage(for: pr, commits: 1).contains("pushed 1 commit since"))
     #expect(run.outdatedMessage(for: pr, commits: nil).contains("pushed new commits since"))
