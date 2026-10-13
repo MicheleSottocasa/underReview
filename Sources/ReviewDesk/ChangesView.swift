@@ -720,6 +720,12 @@ struct FileDiffView: View {
                                        description: Text("GitHub doesn't provide a diff for binary or very large files."))
             }
         }
+        .onDisappear {
+            // Moving to another file (⌘[ / ⌘], the tree) or tab keeps an unsent comment as a local draft.
+            if let composing, !draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                _ = model.addDraft(pr, anchor: composing, body: draftText)
+            }
+        }
     }
 
     private var allThreads: [ReviewThread] {
