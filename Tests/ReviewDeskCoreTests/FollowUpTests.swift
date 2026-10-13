@@ -55,6 +55,26 @@ private func pr(head: String = "new", reviewed: String? = "old") -> PullRequest 
     #expect(result.items.map(\.status) == ["addressed", "not_addressed"] && result.items[1].threadID == nil)
 }
 
+@Test func resolveAllAddressedPicksOpenResolvableAddressedThreadsOfACurrentRun() {
+    var open = mine, done = resolved, other = others
+    open.viewerCanResolve = true
+    done.viewerCanResolve = true
+    other.viewerCanResolve = true
+    let detail = PRDetail(body: "", comments: [], reviews: [], threads: [open, waiting, done, other], pendingReview: nil)
+    func item(_ thread: String?, _ status: String = "addressed") -> FollowUpItem {
+        FollowUpItem(threadID: thread, request: "", status: status, explanation: "")
+    }
+    let items = [item("T4"), item("T1"), item("T1"), // T1 listed once
+                 item("T2"),                          // the viewer can't resolve it
+                 item("T3"),                          // already resolved
+                 item("T9"),                          // no longer on the PR
+                 item(nil),                           // the review summary
+                 item("T4", "partial")]
+    let run = FollowUpRun(prID: "PR_1", engine: .claudeCode, headRefOid: "new", reviewedOid: "old", result: FollowUpResult(summary: "", items: items))
+    #expect(FollowUp.resolvable(run, in: detail, head: "new").map(\.id) == ["T4", "T1"])
+    #expect(FollowUp.resolvable(run, in: detail, head: "newer").isEmpty) // an outdated check resolves nothing
+}
+
 @Test func compareReturnsTheChangedFilesWithPatches() async throws {
     let runner = FakeRunner { _ in ok(#"{"status":"ahead","files":[{"filename":"a.py","status":"modified","additions":1,"deletions":0,"patch":"@@ -1 +1 @@\n+x"}]}"#) }
     let files = try await GitHub(runner: runner).compareFiles(repo: "o/r", from: "old", to: "new")
