@@ -56,3 +56,9 @@ func prNode(id: String = "PR_1", number: Int = 1, head: String = "aaa", state: S
      "stack":\(stack)}
     """
 }
+
+/// The events of a `/code-review` that read the diff successfully: a `gh pr diff` call and its result.
+let diffReadEvents = [
+    #"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu_diff","name":"Bash","input":{"command":"gh pr diff 1 -R o/r"}}]}}"#,
+    #"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tu_diff","is_error":false,"content":"diff --git a/a.py b/a.py"}]}}"#,
+].joined(separator: "\n")

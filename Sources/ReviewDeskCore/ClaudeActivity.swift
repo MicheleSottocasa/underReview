@@ -167,14 +167,14 @@ final class LiveReview: @unchecked Sendable {
         return FileManager.default.fileExists(atPath: url.path)
     }
 
-    func start(_ files: ClaudeSessionFiles, task: String, progress: @escaping @Sendable (String) -> Void) {
+    func start(_ files: ClaudeSessionFiles, task: String, onLine: @escaping @Sendable (String) -> Void) {
         lock.withLock {
             guard follower == nil else { return }
             started = files.session
             let url = files.transcript(task: task)
             transcript = url
             follower = Task.detached {
-                await followLines(of: url) { line in ClaudeActivity.describe(line).forEach(progress) }
+                await followLines(of: url, onLine: onLine)
             }
         }
     }
@@ -183,5 +183,33 @@ final class LiveReview: @unchecked Sendable {
         let task = lock.withLock { follower }
         task?.cancel()
         await task?.value
+    }
+}
+
+/// Whether a `/code-review` run read the pull request's diff: a `gh pr diff` call that succeeded. Without it the
+/// review can only come back empty (e.g. `gh` missing or refused), which must not pass for a clean pull request.
+final class DiffRead: @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls: Set<String> = []
+    private var succeeded = false
+
+    var happened: Bool { lock.withLock { succeeded } }
+
+    /// Feed every event line, from the stream and the helper agent's transcript.
+    func observe(_ line: String) {
+        guard let event = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
+              let content = (event["message"] as? [String: Any])?["content"] as? [[String: Any]] else { return }
+        lock.withLock {
+            for item in content {
+                if item["type"] as? String == "tool_use", item["name"] as? String == "Bash", let id = item["id"] as? String,
+                   ((item["input"] as? [String: Any])?["command"] as? String)?.trimmingCharacters(in: .whitespaces).hasPrefix("gh pr diff") == true {
+                    calls.insert(id)
+                }
+                if item["type"] as? String == "tool_result", let id = item["tool_use_id"] as? String, calls.contains(id),
+                   item["is_error"] as? Bool != true {
+                    succeeded = true
+                }
+            }
+        }
     }
 }

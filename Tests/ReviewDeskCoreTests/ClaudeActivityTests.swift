@@ -67,7 +67,9 @@ let streamedReview = [
     defer { try? FileManager.default.removeItem(at: config) }
     let transcript = [
         #"{"type":"user","message":{"content":[{"type":"text","text":"Review target"}]}}"#,
-        #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"gh pr diff 1 -R o/r"}}]}}"#,
+        #"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t_diff","name":"Bash","input":{"command":"gh pr diff 1 -R o/r"}}]}}"#,
+        // Read in the helper's transcript only: that counts as having seen the diff.
+        #"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t_diff","is_error":false,"content":"diff --git"}]}}"#,
     ]
     let runner = FakeRunner { call in
         if call.args.first == "auth" { return ok(#"{"loggedIn":true,"authMethod":"claude.ai"}"#) }

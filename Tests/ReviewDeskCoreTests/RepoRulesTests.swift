@@ -38,7 +38,7 @@ import Testing
         if call.args.contains("--json-schema") {
             return ok(#"{"type":"result","is_error":false,"structured_output":{"summary":"ok","findings":[],"keyAreas":[],"risks":[]}}"#)
         }
-        return ok(#"{"type":"result","is_error":false,"result":"No problems."}"#)
+        return ok(diffReadEvents + "\n" + #"{"type":"result","is_error":false,"result":"No problems."}"#)
     }
     let rules = RepoRules.contextFiles(["AGENTS.md": "Every endpoint needs a permission check."], changed: [])
     let context = ReviewContext(title: "T", body: "", files: [], budget: 1000, rules: rules)

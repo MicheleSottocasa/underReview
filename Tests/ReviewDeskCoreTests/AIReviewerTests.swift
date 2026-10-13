@@ -122,7 +122,7 @@ private func codeReviewRunner(report: String = "1. a.py:3 off by one") -> FakeRu
         if call.args.contains("--json-schema") {
             return ok(#"{"type":"result","is_error":false,"structured_output":{"summary":"ok","findings":[],"keyAreas":[{"path":"a.py","startLine":3,"endLine":9,"reason":"r","risk":"data"}]}}"#)
         }
-        return ok(#"{"type":"result","is_error":false,"result":"\#(report)"}"#)
+        return ok(diffReadEvents + "\n" + #"{"type":"result","is_error":false,"result":"\#(report)"}"#)
     }
 }
 
@@ -164,7 +164,7 @@ private func codeReviewRunner(report: String = "1. a.py:3 off by one") -> FakeRu
         if call.args.contains("--json-schema") {
             return ok(#"{"type":"result","is_error":false,"structured_output":{"summary":"ok","findings":[],"keyAreas":[],"risks":[]}}"#)
         }
-        return ok(streamedReview.joined(separator: "\n"))
+        return ok(([diffReadEvents] + streamedReview).joined(separator: "\n"))
     }
     let steps = Steps()
     _ = try await AIReviewer(runner: runner).codeReview(.claudeCode, prURL: "u", context: context, options: CodeReviewOptions()) { steps.append($0) }
@@ -210,4 +210,20 @@ private final class Steps: @unchecked Sendable {
 @Test func reviewsSavedBeforeKeyAreasStillLoad() throws {
     let old = try JSONDecoder().decode(ReviewResult.self, from: Data(#"{"summary":"s","findings":[]}"#.utf8))
     #expect(old.keyAreas.isEmpty)
+}
+
+@Test func codeReviewFailsWhenItNeverReadTheDiff() async throws {
+    // Issue #30: opened from Finder, `gh` wasn't on PATH, so `gh pr diff` failed and the review "found nothing".
+    let refused = [
+        #"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"gh pr diff 1 -R o/r"}}]}}"#,
+        #"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":"command not found: gh"}]}}"#,
+        #"{"type":"result","is_error":false,"result":"No review was done: gh was not installed."}"#,
+    ].joined(separator: "\n")
+    for output in [refused, #"{"type":"result","is_error":false,"result":"No findings."}"#] {
+        let runner = FakeRunner { call in call.args.first == "auth" ? subscribed : ok(output) }
+        await #expect(throws: AIError.self) {
+            try await AIReviewer(runner: runner).codeReview(.claudeCode, prURL: "u", context: context, options: CodeReviewOptions())
+        }
+        #expect(!runner.calls.contains { $0.args.contains("--json-schema") }) // no structuring pass on an empty review
+    }
 }

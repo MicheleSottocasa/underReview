@@ -147,6 +147,7 @@ public struct AIReviewer: Sendable {
         progress("Starting /code-review (\(options.effort))…")
         let started = Date()
         let live = LiveReview()
+        let diff = DiffRead()
         let project = ClaudeSessionFiles.projectDirectory(configDirectory: claudeConfigDirectory, cwd: cwd)
         defer {
             if resumed == nil {
@@ -161,8 +162,12 @@ public struct AIReviewer: Sendable {
         do {
             result = try await runner.stream("claude", args, stdin: Data("/code-review \(options.effort) \(prURL)".utf8),
                                              cwd: cwd, timeout: timeout) { line in
+                diff.observe(line)
                 if let task = ClaudeActivity.taskStarted(line) {
-                    live.start(ClaudeSessionFiles(projectDirectory: project, session: task.session), task: task.task, progress: progress)
+                    live.start(ClaudeSessionFiles(projectDirectory: project, session: task.session), task: task.task) { line in
+                        diff.observe(line)
+                        ClaudeActivity.describe(line).forEach(progress)
+                    }
                 }
                 // Once the transcript is followed, the copies Claude Code forwards at the end would repeat it.
                 if live.isFollowing, ClaudeActivity.isFromHelper(line) { return }
@@ -176,6 +181,10 @@ public struct AIReviewer: Sendable {
         if let final = ClaudeActivity.result(in: result.stdout) { result.stdout = final }
         let report = String(decoding: try Self.parseClaude(result), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !report.isEmpty, report != "Command completed" else { throw AIError.invalidOutput("/code-review returned no report") }
+        // A review that never saw the diff can only be empty: say so instead of showing it as a clean pull request.
+        guard diff.happened else {
+            throw AIError.failed("/code-review couldn't read the pull request's diff, so there is no real review. Check that `gh` is installed and logged in (Settings › Tools). It said: \(report.prefix(300))")
+        }
         progress("Turning the review into findings, key areas and risk answers…")
         let prompt = AIContext.structurePrompt(report: report, context: context.fittingBudget(), instructions: structureInstructions)
         return try Self.decode(try await run(.claudeCode, prompt: prompt, schema: AIContext.schema, model: options.model, timeout: .seconds(300)))
