@@ -17,7 +17,7 @@ struct RiskView: View {
                 intro(run: run)
                 notesCard(notes)
                 ForEach(Array(RiskQuestion.allCases.enumerated()), id: \.element) { index, question in
-                    QuestionCard(pr: pr, number: index + 1, question: question,
+                    QuestionCard(pr: pr, number: index + 1, question: question, assessment: run?.result.risk(question),
                                  notes: notes?.byQuestion[question] ?? [],
                                  areas: areas.filter { $0.question == question },
                                  unflaggedDataFiles: question == .data && run != nil && !areas.contains { $0.question == .data }
@@ -43,24 +43,48 @@ struct RiskView: View {
         }
     }
 
+    @ViewBuilder
     private func intro(run: AIRun?) -> some View {
         let checked = RiskQuestion.allCases.filter { model.riskCheck($0, pr: pr) == pr.headRefOid }.count
-        return HStack(alignment: .firstTextBaseline) {
+        let engine = model.preferredEngine(for: pr)
+        let status = model.aiStatus[pr.id]
+        HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Review risk, not lines").font(.title3.bold())
                 Group {
                     if let run {
-                        Text("Key areas from \(run.engine.name), \(run.date.formatted(.relative(presentation: .named)))")
+                        Text("Analysis by \(run.engine.name), \(run.date.formatted(.relative(presentation: .named)))")
                             + Text(run.headRefOid == pr.headRefOid ? "" : " · from an older commit, lines may have moved").foregroundColor(.orange)
                     } else {
-                        Text("Run an AI review to get key areas for each question.")
+                        Text("Let the AI answer each question and point at the code to read, then check them off yourself.")
                     }
                 }
                 .font(.callout).foregroundStyle(.secondary)
             }
             Spacer()
             Text("\(checked)/\(RiskQuestion.allCases.count) checked").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
-            Button(run == nil ? "Run AI Review…" : "AI Review…") { model.detailTab = .ai }
+            Button(engine.tool == "claude" ? (run == nil ? "Run Risk Analysis" : "Run Again") : "Prepare in AI Tab…") {
+                model.runRiskAnalysis(pr)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(status != nil)
+            .help(engine.tool == "claude"
+                  ? "Runs /code-review with \(engine.name) and the last used model and effort"
+                  : "\(engine.name) needs its context approved in the AI tab first")
+        }
+        if let status {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(status)
+                Spacer()
+                Button("Cancel") { model.cancelReview(pr.id) }
+            }
+            .padding(10)
+            .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        }
+        if let run, let top = run.result.risks.max(by: { $0.rank < $1.rank }), top.rank > 0, let question = top.riskQuestion {
+            Label("Highest risk: \(question.label) (\(top.level))", systemImage: "flame")
+                .font(.callout.bold()).foregroundStyle(RiskBadge.color(top.level))
         }
     }
 
@@ -103,6 +127,7 @@ private struct QuestionCard: View {
     let pr: PullRequest
     let number: Int
     let question: RiskQuestion
+    let assessment: RiskAssessment?
     let notes: [String]
     let areas: [KeyArea]
     let unflaggedDataFiles: [String]
@@ -113,13 +138,20 @@ private struct QuestionCard: View {
         card(accent: checkedAt == pr.headRefOid ? .green : nil) {
             HStack(alignment: .firstTextBaseline) {
                 Text("\(number). \(question.title)").font(.headline)
+                if let assessment { RiskBadge(level: assessment.level) }
                 Spacer()
                 if stale { Badge(text: "Checked before the last push", color: .orange) }
                 Toggle("Checked", isOn: Binding(get: { checkedAt == pr.headRefOid },
                                                 set: { model.setRiskCheck(question, checked: $0, pr: pr) }))
                 .toggleStyle(.checkbox)
             }
-            Text(question.guidance).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if let assessment {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "sparkles").foregroundStyle(.purple)
+                    MarkdownText(assessment.answer).font(.callout)
+                }
+            }
+            Text(question.guidance).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if !notes.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Author says").font(.caption.bold()).foregroundStyle(.secondary)
@@ -145,6 +177,24 @@ private struct QuestionCard: View {
                     .disabled(asked)
                     .help("Adds \"\(AppModel.explainRequest)\" to the summary posted with your review")
             }
+        }
+    }
+}
+
+/// The AI's risk level for a question.
+struct RiskBadge: View {
+    let level: String
+
+    var body: some View {
+        Badge(text: level == "none" ? "NOT TOUCHED" : "\(level.uppercased()) RISK", color: Self.color(level))
+    }
+
+    static func color(_ level: String) -> Color {
+        switch level {
+        case "high": .red
+        case "medium": .orange
+        case "low": .green
+        default: .secondary
         }
     }
 }

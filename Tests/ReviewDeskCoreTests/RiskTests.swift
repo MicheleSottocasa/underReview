@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import ReviewDeskCore
 
@@ -43,4 +44,23 @@ import Testing
     #expect(KeyArea(path: "a", reason: "", risk: "access").question == .access)
     #expect(KeyArea(path: "a", reason: "", risk: "other").question == nil)
     #expect(KeyArea(path: "a", reason: "").question == nil)
+}
+
+@Test func reviewsAnswerEachRiskQuestion() throws {
+    let json = #"{"summary":"s","findings":[],"keyAreas":[],"risks":[{"question":"data","level":"high","answer":"Backfills 2M rows."},{"question":"scale","level":"none","answer":"No queries."}]}"#
+    let result = try JSONDecoder().decode(ReviewResult.self, from: Data(json.utf8))
+    #expect(result.risk(.data)?.rank == 3)
+    #expect(result.risk(.scale)?.level == "none")
+    #expect(result.risk(.access) == nil)
+    // Reviews saved before risk answers still load.
+    #expect(try JSONDecoder().decode(ReviewResult.self, from: Data(#"{"summary":"s","findings":[]}"#.utf8)).risks.isEmpty)
+}
+
+@Test func schemaRequiresRiskAnswersForEveryQuestion() throws {
+    let schema = try #require(try JSONSerialization.jsonObject(with: Data(AIContext.schema.utf8)) as? [String: Any])
+    #expect((schema["required"] as? [String])?.contains("risks") == true)
+    let risks = (schema["properties"] as? [String: Any])?["risks"] as? [String: Any]
+    let item = (risks?["items"] as? [String: Any])?["properties"] as? [String: Any]
+    let questions = (item?["question"] as? [String: Any])?["enum"] as? [String]
+    #expect(questions == RiskQuestion.allCases.map(\.rawValue))
 }

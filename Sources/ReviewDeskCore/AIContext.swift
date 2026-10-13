@@ -40,23 +40,50 @@ public struct KeyArea: Codable, Hashable, Sendable {
     }
 }
 
+/// The AI's answer to one risk question for this PR.
+public struct RiskAssessment: Codable, Hashable, Sendable {
+    public static let levels = ["none", "low", "medium", "high"]
+
+    /// A `RiskQuestion` raw value.
+    public var question: String
+    /// none (the PR doesn't touch it), low, medium or high.
+    public var level: String
+    public var answer: String
+
+    public init(question: String, level: String, answer: String) {
+        (self.question, self.level, self.answer) = (question, level, answer)
+    }
+
+    public var riskQuestion: RiskQuestion? { RiskQuestion(rawValue: question) }
+    /// 0 for none up to 3 for high; unknown levels sort as none.
+    public var rank: Int { Self.levels.firstIndex(of: level) ?? 0 }
+}
+
 public struct ReviewResult: Codable, Hashable, Sendable {
     public var summary: String
     public var findings: [Finding]
     public var keyAreas: [KeyArea]
+    public var risks: [RiskAssessment]
 
-    public init(summary: String, findings: [Finding], keyAreas: [KeyArea] = []) {
+    public init(summary: String, findings: [Finding], keyAreas: [KeyArea] = [], risks: [RiskAssessment] = []) {
         self.summary = summary
         self.findings = findings
         self.keyAreas = keyAreas
+        self.risks = risks
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         summary = try container.decode(String.self, forKey: .summary)
         findings = try container.decode([Finding].self, forKey: .findings)
-        // Reviews saved before key areas existed have none.
+        // Reviews saved before key areas or risk answers existed have none.
         keyAreas = try container.decodeIfPresent([KeyArea].self, forKey: .keyAreas) ?? []
+        risks = try container.decodeIfPresent([RiskAssessment].self, forKey: .risks) ?? []
+    }
+
+    /// The answer to one question, if the review gave one.
+    public func risk(_ question: RiskQuestion) -> RiskAssessment? {
+        risks.first { $0.question == question.rawValue }
     }
 }
 
@@ -97,8 +124,13 @@ public struct ReviewContext: Sendable {
 public enum AIContext {
     /// Strict-mode friendly (Codex requires every property listed and no extras).
     public static let schema = """
-    {"type":"object","additionalProperties":false,"required":["summary","findings","keyAreas"],"properties":{
+    {"type":"object","additionalProperties":false,"required":["summary","findings","keyAreas","risks"],"properties":{
       "summary":{"type":"string"},
+      "risks":{"type":"array","items":{"type":"object","additionalProperties":false,
+        "required":["question","level","answer"],"properties":{
+          "question":{"type":"string","enum":["data","access","scale","failure","explain"]},
+          "level":{"type":"string","enum":["none","low","medium","high"]},
+          "answer":{"type":"string"}}}},
       "keyAreas":{"type":"array","items":{"type":"object","additionalProperties":false,
         "required":["path","startLine","endLine","reason","risk"],"properties":{
           "path":{"type":"string"},
@@ -138,6 +170,11 @@ public enum AIContext {
     the author should explain) or `other`. If the PR description has Risk notes, make every item the author is unsure
     about a key area. Never flag formatting, naming or style. Give line ranges on the NEW side of the diff; use null
     lines for a whole file. `reason` says in one sentence what to check there.
+    In `risks`, answer each of these questions about this PR exactly once, in this order: `data` (what changes about
+    the data?), `access` (who is allowed to do this?), `scale` (what happens at 100x the data?), `failure` (what
+    happens when it fails?), `explain` (can the author explain it: is the design non-obvious enough to ask?). `level`
+    is none when the PR doesn't touch it, otherwise low, medium or high by how likely and how costly a mistake would
+    be. `answer` gives the evidence in one to three sentences, naming the files or functions involved.
     """
 
     /// Editable in Settings. The JSON schema is always appended, so a custom prompt can't break parsing.

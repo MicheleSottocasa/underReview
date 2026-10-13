@@ -13,9 +13,22 @@ extension AppModel {
         reviewDrafts.drafts.filter { $0.prID == prID }.sorted { ($0.anchor.path, $0.anchor.line) < ($1.anchor.path, $1.anchor.line) }
     }
 
-    /// The latest AI review that named key areas; its line numbers may predate the current head.
+    /// The latest AI review with key areas or risk answers; its line numbers may predate the current head.
     func keyAreasRun(for pr: PullRequest) -> AIRun? {
-        runs(for: pr.id).first { !$0.result.keyAreas.isEmpty }
+        runs(for: pr.id).first { !$0.result.keyAreas.isEmpty || !$0.result.risks.isEmpty }
+    }
+
+    /// Runs the risk analysis with the AI tab's engine. Claude Code starts `/code-review` with the last used model
+    /// and effort; Codex and Ollama go to the AI tab, where the context is shown before anything is sent.
+    func runRiskAnalysis(_ pr: PullRequest) {
+        let engine = preferredEngine(for: pr)
+        guard engine.tool == "claude" else {
+            detailTab = .ai
+            return
+        }
+        let defaults = UserDefaults.standard
+        startCodeReview(pr, engine: engine, options: CodeReviewOptions(model: defaults.string(forKey: "claudeModel") ?? "",
+                                                                      effort: defaults.string(forKey: "reviewEffort") ?? "high"))
     }
 
     /// What to read before submitting: the AI's key areas, then files with comments not submitted yet.
