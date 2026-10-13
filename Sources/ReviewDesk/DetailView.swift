@@ -115,6 +115,10 @@ struct MyReviewStatus: View {
             if let state = pr.viewerReviewState, let label = ReviewIndicator.label(state) {
                 Pill(text: "You: \(label.text)", symbol: label.symbol, color: label.color)
                     .help("Your latest review")
+                if requested {
+                    Pill(text: "re-requested", symbol: "eye", color: .secondary)
+                        .help("Your review was requested again after you reviewed")
+                }
             } else if requested {
                 Pill(text: "Your review is requested", symbol: "eye", color: .secondary)
             }
