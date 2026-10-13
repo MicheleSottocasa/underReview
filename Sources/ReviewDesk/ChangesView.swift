@@ -997,7 +997,9 @@ struct FileDiffView: View {
                         Label("Ask", systemImage: "bubble.left.and.text.bubble.right")
                     }
                     .disabled(model.explanations[key] != nil)
-                    .help("Ask \(engine.name) your own question about these lines.\(sends)")
+                    .help("Ask \(engine.name) your own question about these lines.\(sends)"
+                          + (engine.isLocal || model.contextSources(for: pr) == nil ? ""
+                             : " Your first question also sends the project's extra context, listed in the chat first (what fits the token budget)."))
                     Spacer()
                     Button { self.selection = nil } label: { Image(systemName: "xmark") }
                         .help("Clear the selection")

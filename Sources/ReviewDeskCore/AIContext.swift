@@ -457,14 +457,14 @@ public enum AIContext {
     /// The PR description, the file's whole diff, then the selected lines again with where they are.
     /// `selected` holds the parsed lines the reviewer picked, in diff order.
     public static func selectionPrompt(title: String, body: String, path: String, patch: String, selected: [DiffLine],
-                                       instructions: String = defaultSelectionInstructions) -> String {
+                                       extra: [ContextFile] = [], instructions: String = defaultSelectionInstructions) -> String {
         """
         \(instructions)
 
         # \(title)
 
         \(body)
-
+        \(ProjectContext.section(extra))
         ## Diff: \(path)
         \(fenced(patch, info: "diff"))
 
