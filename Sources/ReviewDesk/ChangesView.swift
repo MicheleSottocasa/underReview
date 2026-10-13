@@ -980,7 +980,7 @@ struct FileDiffView: View {
     @ViewBuilder
     private func selectionChat(_ diff: RenderedDiff) -> some View {
         if let selection {
-            let lines = diff.lines[selection].filter { $0.kind != .hunk }
+            let lines = Array(diff.lines[selection]) // hunk headers too: they mark the gap when it spans two hunks
             // The head commit too: after a push the same range is other code, so an old chat mustn't come back.
             let key = "\(pr.id) \(pr.headRefOid) \(file.filename) \(selection)"
             let engine = model.preferredEngine(for: pr)

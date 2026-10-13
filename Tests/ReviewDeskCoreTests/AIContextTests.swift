@@ -68,6 +68,12 @@ private func finding(_ path: String?, _ line: Int?) -> Finding {
     #expect(prompt.contains("## Selected lines: a.swift, lines 1–2\n```diff\n ctx\n-old\n+new\n```"))
 }
 
+@Test func aSelectionAcrossHunksKeepsTheHunkHeader() {
+    let patch = "@@ -1,1 +1,1 @@\n-a\n+b\n@@ -40,1 +40,1 @@\n-c\n+d"
+    let prompt = AIContext.selectionPrompt(title: "T", body: "", path: "a.py", patch: patch, selected: Array(Diff.parse(patch)[2...4]))
+    #expect(prompt.contains("## Selected lines: a.py, line 1\n```diff\n+b\n@@ -40,1 +40,1 @@\n-c\n```"))
+}
+
 @Test func fencesOutgrowEveryBacktickRunInTheCode() {
     // An indented fence closes a block too, and so would a run in the middle of a line.
     #expect(AIContext.fenced("+    ```\n+x", info: "diff") == "````diff\n+    ```\n+x\n````")
