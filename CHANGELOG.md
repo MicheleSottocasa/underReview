@@ -5,6 +5,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+- **Linked commits and pull requests say what they are:** hovering a paragraph names the commits of the pull request and the pull requests ReviewDesk follows that it links to (headline, or title and state), the header's short SHA shows the head commit's headline, and right-clicking it or a listed commit copies the full SHA.
 - **A clearer pull request header:** the repository, number and author stand apart, the branches are chips you click to copy, and the stack position steps to the pull request below or above (or jumps to any of them from its menu). Status badges and reviewers share their own line.
 - **Merge conflicts show up:** a red triangle marks a pull request (and its stack) that conflicts with its base, the header shows *Conflicts* (click to resolve them on GitHub) or *Behind <base>*, and you're notified when one of your own pull requests starts to conflict.
 - **Color themes:** Settings › Appearance picks, edits and previews the diff and syntax colors (light and dark), and imports or exports them as a JSON theme file. Colors a file leaves out keep the default.
