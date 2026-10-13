@@ -113,7 +113,8 @@ public enum ProjectContext {
     public static func readRepository(_ source: ContextSource, github: GitHub) async -> [ContextFile] {
         let ref = source.ref.isEmpty ? "HEAD" : source.ref
         let prefix = source.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let name = { (path: String) in "\(source.location):\(path)" }
+        // The ref is part of the name: the same repository at two refs gives two different files.
+        let name = { (path: String) in "\(source.location)\(source.ref.isEmpty ? "" : "@\(source.ref)"):\(path)" }
         do {
             let blobs = try await github.tree(repo: source.location, ref: ref)
                 .filter { prefix.isEmpty || $0.path == prefix || $0.path.hasPrefix(prefix + "/") }
