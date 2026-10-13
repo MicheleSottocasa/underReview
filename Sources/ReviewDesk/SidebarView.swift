@@ -39,6 +39,7 @@ struct SidebarView: View {
             let keys = model.itemKeys(model.selection)
             if !keys.isEmpty { confirmingStop = keys }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) { RefreshFooter() }
         .overlay {
             if model.prs.isEmpty && !model.isRefreshing {
                 ContentUnavailableView {
@@ -255,7 +256,7 @@ struct StateIcon: View {
         let (symbol, color): (String, Color) = switch pr.state {
         case "MERGED": ("arrow.triangle.merge", .purple)
         case "CLOSED": ("xmark.circle", .red)
-        default: ("arrow.triangle.pull", pr.isDraft ? .secondary : .green)
+        default: ("arrow.triangle.pull", pr.isDraft ? .secondary : pr.needsReReview ? .orange : .green)
         }
         Image(systemName: symbol).foregroundStyle(color).frame(width: 16)
     }
@@ -335,6 +336,9 @@ struct ReviewIndicator: View {
                 Label(status.toSend > 0 ? "\(status.toSend)" : "", systemImage: "paperplane.fill")
                     .foregroundStyle(.orange)
                     .help(status.toSend == 1 ? "1 review comment not sent yet" : "\(status.toSend) review comments not sent yet")
+            } else if status.changedSinceReview {
+                Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(.orange)
+                    .help("New commits since your review: review the changes")
             } else if let submitted = status.submitted, let (symbol, color, text) = Self.submitted(submitted) {
                 Image(systemName: symbol).foregroundStyle(color).help(text)
             }
@@ -389,7 +393,7 @@ struct StateBadge: View {
         let (text, color): (String, Color) = switch pr.state {
         case "MERGED": ("Merged", .purple)
         case "CLOSED": ("Closed", .red)
-        default: pr.isDraft ? ("Draft", .gray) : ("Open", .green)
+        default: pr.isDraft ? ("Draft", .gray) : pr.needsReReview ? ("Changed since your review", .orange) : ("Open", .green)
         }
         Text(text)
             .font(.caption2.weight(.semibold))
@@ -442,5 +446,49 @@ struct AddPRSheet: View {
                 .disabled(link.isEmpty || working)
             }
         }
+    }
+}
+
+/// Bottom of the sidebar: when the PR list was last fetched, a spinner while it runs, and why it failed if it did.
+struct RefreshFooter: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Divider()
+            // Re-rendered every 30 s so "2 minutes ago" stays true between fetches.
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                HStack(spacing: 6) {
+                    if model.isRefreshing {
+                        ProgressView().controlSize(.mini)
+                        Text("Updating…")
+                    } else if let error = model.refreshError {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        Text(model.lastRefresh.map { "Update failed · last \(Self.ago($0, now: context.date))" } ?? "Update failed")
+                            .help(error)
+                    } else if let date = model.lastRefresh {
+                        Text("Updated \(Self.ago(date, now: context.date))")
+                            .help("Last fetched from GitHub at \(date.formatted(date: .omitted, time: .standard))")
+                    } else {
+                        Text("Not updated yet")
+                    }
+                    Spacer()
+                    Button { model.refreshNow() } label: { Image(systemName: "arrow.clockwise") }
+                        .buttonStyle(.borderless)
+                        .disabled(model.isRefreshing)
+                        .help("Refresh now")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+            }
+        }
+        .background(.bar)
+    }
+
+    static func ago(_ date: Date, now: Date) -> String {
+        now.timeIntervalSince(date) < 60 ? "just now" : date.formatted(.relative(presentation: .named, unitsStyle: .wide))
     }
 }

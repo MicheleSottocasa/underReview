@@ -239,10 +239,13 @@ struct ReviewStatus: Equatable {
     /// Latest submitted review state, when nothing is waiting to be sent.
     var submitted: String?
     var awaitingReply = 0
+    /// New commits since the viewer's review.
+    var changedSinceReview = false
 
     static func + (a: ReviewStatus, b: ReviewStatus) -> ReviewStatus {
         ReviewStatus(toSend: a.toSend + b.toSend, hasPendingReview: a.hasPendingReview || b.hasPendingReview,
-                     submitted: nil, awaitingReply: a.awaitingReply + b.awaitingReply)
+                     submitted: nil, awaitingReply: a.awaitingReply + b.awaitingReply,
+                     changedSinceReview: a.changedSinceReview || b.changedSinceReview)
     }
 }
 
@@ -254,7 +257,8 @@ extension AppModel {
             toSend: local + (pr.pendingReviewComments ?? 0),
             hasPendingReview: pr.pendingReviewComments != nil || local > 0,
             submitted: pr.viewerReviewState,
-            awaitingReply: pr.threadsAwaitingReply
+            awaitingReply: pr.threadsAwaitingReply,
+            changedSinceReview: pr.needsReReview
         )
     }
 }

@@ -12,13 +12,15 @@ struct RecentEvent: Identifiable {
 
 /// Sidebar state filter; Draft is an open PR marked as draft.
 enum PRStateFilter: String, CaseIterable {
-    case open, draft, merged, closed
+    case open, changed, draft, merged, closed
 
-    var title: String { rawValue.capitalized }
+    var title: String { self == .changed ? "Changed Since Review" : rawValue.capitalized }
 
+    /// One category per PR: an open PR with new commits since the viewer's review is "changed", not "open".
     func matches(_ pr: PullRequest) -> Bool {
         switch self {
-        case .open: pr.state == "OPEN" && !pr.isDraft
+        case .open: pr.state == "OPEN" && !pr.isDraft && !pr.needsReReview
+        case .changed: pr.needsReReview && !pr.isDraft
         case .draft: pr.state == "OPEN" && pr.isDraft
         case .merged: pr.state == "MERGED"
         case .closed: pr.state == "CLOSED"
@@ -66,9 +68,12 @@ final class AppModel {
     var selectedPRID: String?
     var filter = ""
     /// States shown in the sidebar. Persisted; all by default.
-    var stateFilter: Set<PRStateFilter> = Set((UserDefaults.standard.stringArray(forKey: "stateFilter") ?? PRStateFilter.allCases.map(\.rawValue)).compactMap(PRStateFilter.init)) {
+    var stateFilter: Set<PRStateFilter> = AppModel.savedStateFilter() {
         didSet { UserDefaults.standard.set(stateFilter.map(\.rawValue), forKey: "stateFilter") }
     }
+    /// When the PR list last refreshed successfully, and why the latest refresh failed, if it did.
+    var lastRefresh: Date?
+    var refreshError: String?
     /// Expansion keys that differ from the default (folders open, stacks closed). Persisted.
     var toggledExpansion: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "toggledExpansion") ?? []) {
         didSet { UserDefaults.standard.set(Array(toggledExpansion), forKey: "toggledExpansion") }
@@ -136,6 +141,19 @@ final class AppModel {
 
     // MARK: Lifecycle
 
+    /// The saved filter, upgraded once for "changed since review": those PRs used to count as open, so a filter
+    /// showing open PRs keeps showing them.
+    static func savedStateFilter() -> Set<PRStateFilter> {
+        let defaults = UserDefaults.standard
+        guard var saved = defaults.stringArray(forKey: "stateFilter") else { return Set(PRStateFilter.allCases) }
+        if !defaults.bool(forKey: "stateFilter.hasChanged") {
+            if saved.contains(PRStateFilter.open.rawValue) { saved.append(PRStateFilter.changed.rawValue) }
+            defaults.set(saved, forKey: "stateFilter")
+            defaults.set(true, forKey: "stateFilter.hasChanged")
+        }
+        return Set(saved.compactMap(PRStateFilter.init))
+    }
+
     func start() {
         guard pollTask == nil else { return }
         notifier.onOpen = { [weak self] id in self?.open(prID: id) }
@@ -157,6 +175,7 @@ final class AppModel {
                 } catch {
                     failures += 1
                     lastError = error.localizedDescription
+                    refreshError = error.localizedDescription
                 }
                 let defaults = UserDefaults.standard
                 try? await Task.sleep(for: Updates.interval(
@@ -200,6 +219,8 @@ final class AppModel {
         if updated != org { org = updated }
         prs = fresh.filter { !org.unfollowed.contains($0.key) }
         lastError = nil
+        lastRefresh = .now
+        refreshError = nil
         await didRefresh(Array(prs.values))
         save(checkpointFile, checkpoints)
         // The open PR's conversation is reloaded only when GitHub says it changed.
@@ -229,7 +250,10 @@ final class AppModel {
 
     func refreshNow() {
         Task {
-            do { try await refresh() } catch { lastError = error.localizedDescription }
+            do { try await refresh() } catch {
+                lastError = error.localizedDescription
+                refreshError = error.localizedDescription
+            }
         }
     }
 

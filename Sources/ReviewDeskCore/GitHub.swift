@@ -64,6 +64,8 @@ public struct PullRequest: Codable, Hashable, Identifiable, Sendable {
     public var viewerIsAuthor = false
     /// The viewer's latest submitted review: APPROVED, CHANGES_REQUESTED, COMMENTED or DISMISSED.
     public var viewerReviewState: String?
+    /// The commit that review was made on.
+    public var viewerReviewedOid: String?
     /// Comments in the viewer's unsubmitted review on GitHub; nil when there is no pending review.
     public var pendingReviewComments: Int?
     /// Unresolved threads the viewer is part of (their PR, or a thread they started) where someone else spoke last.
@@ -71,6 +73,13 @@ public struct PullRequest: Codable, Hashable, Identifiable, Sendable {
 
     public var ref: PRRef { PRRef(nameWithOwner: repo, number: number) }
     public var stackPosition: Int? { stack?.entries.first { $0.id == id }?.position }
+
+    /// Open, not the viewer's own, already reviewed by them, and the head moved since: new commits to look at.
+    /// A dismissed review counts too (stale approvals are usually dismissed because of new pushes).
+    public var needsReReview: Bool {
+        state == "OPEN" && !viewerIsAuthor && viewerReviewState != nil
+            && viewerReviewedOid.map { $0 != headRefOid } == true
+    }
 }
 
 public struct Comment: Hashable, Identifiable, Sendable {
@@ -434,7 +443,7 @@ public struct GitHub: Sendable {
       id number title url state isDraft updatedAt headRefOid headRefName baseRefName
       author { login } repository { nameWithOwner }
       comments { totalCount } reviews { totalCount }
-      viewerDidAuthor viewerLatestReview { state }
+      viewerDidAuthor viewerLatestReview { state commit { oid } }
       pendingReview: reviews(states: PENDING, first: 1) { nodes { comments { totalCount } } }
       reviewThreads(first: 100) { nodes { isResolved
         comments(last: 1) { totalCount nodes { viewerDidAuthor } }
@@ -477,6 +486,7 @@ public struct GitHub: Sendable {
             stack: stack,
             viewerIsAuthor: node["viewerDidAuthor"] as? Bool ?? false,
             viewerReviewState: (node["viewerLatestReview"] as? [String: Any])?["state"] as? String,
+            viewerReviewedOid: ((node["viewerLatestReview"] as? [String: Any])?["commit"] as? [String: Any])?["oid"] as? String,
             pendingReviewComments: nodes(node["pendingReview"]).first.map { total($0["comments"]) },
             threadsAwaitingReply: awaitingReply(nodes(node["reviewThreads"]), viewerIsAuthor: node["viewerDidAuthor"] as? Bool ?? false)
         )

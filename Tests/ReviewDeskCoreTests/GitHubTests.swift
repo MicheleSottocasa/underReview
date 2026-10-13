@@ -229,3 +229,18 @@ import Testing
     #expect(queries[3].contains("unminimizeComment("))
     #expect(GitHub.decodeComment(["id": "IC_1", "isMinimized": true, "viewerCanMinimize": true]).isMinimized)
 }
+
+@Test func flagsPullRequestsChangedSinceTheViewersReview() async throws {
+    let nodes = [
+        prNode(id: "MOVED", head: "bbb", latestReview: "APPROVED", reviewedAt: "aaa"),
+        prNode(id: "SAME", head: "aaa", latestReview: "COMMENTED", reviewedAt: "aaa"),
+        prNode(id: "NEVER", head: "bbb"),
+        prNode(id: "MINE", head: "bbb", author: true, latestReview: "COMMENTED", reviewedAt: "aaa"),
+        prNode(id: "MERGED", head: "bbb", state: "MERGED", latestReview: "APPROVED", reviewedAt: "aaa"),
+        prNode(id: "DISMISSED", head: "bbb", latestReview: "DISMISSED", reviewedAt: "aaa"),
+    ]
+    let runner = FakeRunner { _ in data(#"{"nodes":[\#(nodes.joined(separator: ","))]}"#) }
+    let prs = try await GitHub(runner: runner).pullRequests(ids: ["x"])
+    #expect(prs.first?.viewerReviewedOid == "aaa")
+    #expect(prs.filter(\.needsReReview).map(\.id) == ["MOVED", "DISMISSED"])
+}

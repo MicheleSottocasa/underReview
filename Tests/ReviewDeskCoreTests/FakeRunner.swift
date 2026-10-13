@@ -38,7 +38,7 @@ func data(_ json: String) -> CommandResult { ok(#"{"data":\#(json)}"#) }
 /// `threads` entries: (comments, resolved, last comment is the viewer's, viewer started it).
 func prNode(id: String = "PR_1", number: Int = 1, head: String = "aaa", state: String = "OPEN", comments: Int = 0,
             reviews: Int = 0, threadComments: [Int] = [], requested: [String] = [], stack: String = "null",
-            author: Bool = false, latestReview: String? = nil, pending: Int? = nil,
+            author: Bool = false, latestReview: String? = nil, reviewedAt: String = "aaa", pending: Int? = nil,
             threads: [(comments: Int, resolved: Bool, lastMine: Bool, startedByMe: Bool)] = []) -> String {
     let allThreads = threadComments.map { ($0, false, true, true) } + threads.map { ($0.comments, $0.resolved, $0.lastMine, $0.startedByMe) }
     let threadJSON = allThreads.map { count, resolved, lastMine, mine in
@@ -49,7 +49,7 @@ func prNode(id: String = "PR_1", number: Int = 1, head: String = "aaa", state: S
      "isDraft":false,"updatedAt":"2026-10-12T14:27:55Z","headRefOid":"\(head)","headRefName":"h\(number)","baseRefName":"main",
      "author":{"login":"alice"},"repository":{"nameWithOwner":"o/r"},
      "comments":{"totalCount":\(comments)},"reviews":{"totalCount":\(reviews)},
-     "viewerDidAuthor":\(author),"viewerLatestReview":\(latestReview.map { #"{"state":"\#($0)"}"# } ?? "null"),
+     "viewerDidAuthor":\(author),"viewerLatestReview":\(latestReview.map { #"{"state":"\#($0)","commit":{"oid":"\#(reviewedAt)"}}"# } ?? "null"),
      "pendingReview":{"nodes":[\(pending.map { #"{"comments":{"totalCount":\#($0)}}"# } ?? "")]},
      "reviewThreads":{"nodes":[\(threadJSON)]},
      "reviewRequests":{"nodes":[\(requested.map { #"{"requestedReviewer":{"login":"\#($0)"}}"# }.joined(separator: ","))]},
