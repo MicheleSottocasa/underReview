@@ -11,14 +11,17 @@ extension AppModel {
         pr.state == "OPEN" && runs(for: pr.id).first?.isOutdated(for: pr) == true
     }
 
-    /// Counts the commits pushed since `run`, once per pair of heads. A failure (the old head was force-pushed
-    /// away) leaves it unknown, and the banner says "new commits" instead.
+    /// Counts the commits pushed since `run`, once per pair of heads. A failure or a diverged head (rebase,
+    /// force-push) is cached too, as unknown, so the banner says "new commits" without asking GitHub again.
     func loadCommitsSince(_ run: AIRun, pr: PullRequest) async {
-        let key = "\(run.headRefOid)...\(pr.headRefOid)"
-        guard !pr.isDemo, commitsSince[key] == nil,
-              let count = try? await github.commitsAhead(repo: pr.repo, from: run.headRefOid, to: pr.headRefOid) else { return }
-        commitsSince[key] = count
+        let key = AppModel.headPair(run, pr)
+        guard !pr.isDemo, commitsSince.index(forKey: key) == nil else { return }
+        let count: Int? = try? await github.commitsAhead(repo: pr.repo, from: run.headRefOid, to: pr.headRefOid)
+        commitsSince.updateValue(count, forKey: key) // a nil count is stored, not removed
     }
+
+    /// The key of `commitsSince`: the analysed head and the current one.
+    static func headPair(_ run: AIRun, _ pr: PullRequest) -> String { "\(run.headRefOid)..\(pr.headRefOid)" }
 
     /// Runs `run`'s analysis again on the current head, with the same engine (and model and effort, for /code-review).
     /// Codex and Ollama show their context in the AI tab first, as always.

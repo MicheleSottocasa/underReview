@@ -358,7 +358,7 @@ struct OutdatedAnalysisBanner: View {
             HStack(spacing: 10) {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(run.outdatedMessage(for: pr, commits: model.commitsSince["\(run.headRefOid)...\(pr.headRefOid)"]))
+                    Text(run.outdatedMessage(for: pr, commits: model.commitsSince[AppModel.headPair(run, pr)] ?? nil))
                         .font(.callout.bold())
                     Text("Findings, risk answers and key areas may point at code that has changed.")
                         .font(.caption).foregroundStyle(.secondary)
@@ -374,7 +374,7 @@ struct OutdatedAnalysisBanner: View {
             .padding(10)
             .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.orange.opacity(0.4)))
-            .task(id: pr.headRefOid) { await model.loadCommitsSince(run, pr: pr) }
+            .task(id: AppModel.headPair(run, pr)) { await model.loadCommitsSince(run, pr: pr) }
         }
     }
 }
