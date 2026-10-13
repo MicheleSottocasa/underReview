@@ -122,6 +122,21 @@ import Testing
     #expect(Definitions.find("g", path: "a.swift", source: source).first.map { $0.doc == nil } == true)
 }
 
+@Test func callsWithCallbacksAndTypeImportsAreNoDefinitions() {
+    let spec = """
+    import type Store from './store'
+    describe('Store', function () {
+      it("loads", () => {
+      })
+    })
+    """
+    #expect(Definitions.find("describe", path: "store.test.ts", source: spec).isEmpty)
+    #expect(Definitions.find("it", path: "store.test.ts", source: spec).isEmpty)
+    #expect(Definitions.find("Store", path: "store.test.ts", source: spec).isEmpty)
+    // A Python import scan doesn't run on from one line into the next.
+    #expect(Definitions.imports("from x\nimport y", path: "a.py") == ["y.py", "y/__init__.py"])
+}
+
 @Test func minifiedLinesAreSkipped() {
     let minified = "function load(a){" + String(repeating: "a(b);", count: 500) + "}"
     #expect(Definitions.find("load", path: "app.min.js", source: minified).isEmpty)
