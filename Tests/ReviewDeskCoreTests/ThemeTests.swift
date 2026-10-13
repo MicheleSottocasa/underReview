@@ -37,15 +37,19 @@ import Testing
     #expect(theme.color(.keyword, dark: true) == Theme.builtIn[.keyword]?.dark)
     #expect(theme.color(.draft, dark: true) == nil) // follows the system accent
 
-    let empty = try Theme.decode(Data(#"{"name": "Empty", "colors": {}}"#.utf8))
-    for key in ThemeKey.allCases { #expect(empty.color(key, dark: false) == Theme.default.color(key, dark: false)) }
+    for file in [#"{"name": "Empty", "colors": {}}"#, #"{"name": "No colors"}"#, "{}"] {
+        let empty = try Theme.decode(Data(file.utf8))
+        #expect(empty.colors.isEmpty)
+        for key in ThemeKey.allCases { #expect(empty.color(key, dark: false) == Theme.default.color(key, dark: false)) }
+    }
+    #expect(try Theme.decode(Data("{}".utf8)).name == "")
 }
 
 @Test func invalidThemeFilesThrow() {
     let bad = [
         ##"{"name": "X", "colors": {"editor.background": {"dark": "#12"}}}"##, // bad hex
         ##"{"name": "X", "colors": {"editor.background": "#123456"}}"##, // wrong shape
-        #"{"colors": {}}"#, // no name
+        #"{"name": 3}"#, // wrong type
         "not json",
     ]
     for file in bad { #expect(throws: (any Error).self) { try Theme.decode(Data(file.utf8)) } }
@@ -82,6 +86,15 @@ import Testing
     }
     #expect(message(##"{"name": "X", "colors": {"editor.text": {"dark": "#12"}}}"##)?.contains("editor.text.dark") == true)
     #expect(message(##"{"name": "X", "colors": {"editor.text": {"dark": "#12"}}}"##)?.contains("isn't a hex color") == true)
-    #expect(message(#"{"colors": {}}"#) == "“name” is missing.")
+    #expect(message(#"{"name": 3}"#)?.hasPrefix("Unexpected value at “name”") == true)
     #expect(message("not json") == "This isn't a JSON file.")
+}
+
+@Test func importRefusesFilesTooLargeToBeThemes() throws {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("theme-\(UUID()).json")
+    defer { try? FileManager.default.removeItem(at: url) }
+    try Data(count: Theme.maxFileSize + 1).write(to: url)
+    #expect(throws: ThemeFileError("This file is too large to be a theme.")) { try Theme.fileData(url) }
+    try Data(#"{"name": "Small"}"#.utf8).write(to: url)
+    #expect(try Theme.decode(Theme.fileData(url)).name == "Small")
 }
