@@ -26,7 +26,8 @@ public enum Definitions {
         var patterns: [(kind: String?, template: String)]
         /// The body opener a declaration ends before (constants and variables run to the end of the statement).
         var opener: Character
-        var comments: [String]
+        /// Prefixes of lines that never declare anything: comments, and JS/TS imports (`import type X from`).
+        var skipped: [String]
         /// Line prefixes of doc comments directly above a declaration.
         var lineDocs: [String]
         var blockDocs = false
@@ -42,26 +43,27 @@ public enum Definitions {
                 ("function", #"^\s*(?:async\s+)?def\s+NAME\s*[\[(]"#),
                 ("class", #"^\s*class\s+NAME\b"#),
                 ("variable", #"^NAME\s*(?::[^=]+)?=(?!=)"#),
-            ], opener: ":", comments: ["#"], lineDocs: ["#"], docstrings: true)
+            ], opener: ":", skipped: ["#"], lineDocs: ["#"], docstrings: true)
         case "swift":
             Language(patterns: [
                 ("function", #"\bfunc\s+NAME\s*[<(]"#),
                 (nil, #"\b(class|struct|enum|protocol|actor|typealias)\s+NAME\b"#),
                 (nil, #"\b(let|var)\s+NAME\b"#),
-            ], opener: "{", comments: ["//", "/*", "*"], lineDocs: ["///"], blockDocs: true)
+            ], opener: "{", skipped: ["//", "/*", "*"], lineDocs: ["///"], blockDocs: true)
         case "js", "jsx", "ts", "tsx", "mjs", "cjs":
             Language(patterns: [
                 ("function", #"\bfunction\s*\*?\s*NAME\s*[<(]"#),
                 (nil, #"\b(class|interface|enum|type)\s+NAME\b"#),
                 (nil, #"\b(const|let|var)\s+NAME\b"#),
-                ("method", #"^\s*(?:(?:public|private|protected|static|async|readonly|get|set|override)\s+)*NAME\s*(?:<[^>]*>)?\s*\([^;]*\)\s*(?::[^{;]*)?\{"#),
-            ], opener: "{", comments: ["//", "/*", "*"], lineDocs: ["//"], blockDocs: true)
+                // Not a call taking a callback, such as `describe('x', function () {` or `it("y", () => {`.
+                ("method", #"^(?!.*(?:\bfunction\b|=>))\s*(?:(?:public|private|protected|static|async|readonly|get|set|override)\s+)*NAME\s*(?:<[^>]*>)?\s*\([^;'"`]*\)\s*(?::[^{;]*)?\{"#),
+            ], opener: "{", skipped: ["//", "/*", "*", "import "], lineDocs: ["//"], blockDocs: true)
         case "go":
             Language(patterns: [
                 ("function", #"^func\s+(\([^)]*\)\s*)?NAME\s*[\[(]"#),
                 ("type", #"^\s*type\s+NAME\b"#),
                 (nil, #"^\s*(const|var)\s+NAME\b"#),
-            ], opener: "{", comments: ["//", "/*", "*"], lineDocs: ["//"], blockDocs: true)
+            ], opener: "{", skipped: ["//", "/*", "*"], lineDocs: ["//"], blockDocs: true)
         default: nil
         }
     }
@@ -84,7 +86,7 @@ public enum Definitions {
         // Minified or generated lines are skipped: nobody declares things there, and the patterns get slow on them.
         for (index, line) in lines.enumerated() where line.text.utf16.count <= 2_000 && line.text.contains(name) {
             let trimmed = line.text.trimmingCharacters(in: .whitespaces)
-            guard !language.comments.contains(where: trimmed.hasPrefix) else { continue }
+            guard !language.skipped.contains(where: trimmed.hasPrefix) else { continue }
             let text = line.text as NSString
             for (fixed, regex) in patterns {
                 guard let match = regex.firstMatch(in: line.text, range: NSRange(location: 0, length: text.length)) else { continue }
@@ -218,7 +220,7 @@ public enum Definitions {
         switch (path as NSString).pathExtension.lowercased() {
         case "py", "pyi":
             // Names come on one line or in parentheses over several.
-            for match in matches(#"(?m)^\s*from\s+(\.*)([\w.]*)\s+import\s+(?:\(([\w\s,]+)\)|([\w ,]*))"#, in: source) {
+            for match in matches(#"(?m)^[ \t]*from[ \t]+(\.*)([\w.]*)[ \t]+import[ \t]+(?:\(([\w\s,]+)\)|([\w ,]*))"#, in: source) {
                 let base = match[1].isEmpty ? "" : ([folder] + Array(repeating: "..", count: match[1].count - 1)).joined(separator: "/")
                 let module = join(base, match[2].replacingOccurrences(of: ".", with: "/"))
                 if !match[2].isEmpty { paths += [module + ".py", join(module, "__init__.py")] }
@@ -227,7 +229,7 @@ public enum Definitions {
                     paths.append(join(module, word + ".py"))
                 }
             }
-            for match in matches(#"(?m)^\s*import\s+([\w.]+)"#, in: source) {
+            for match in matches(#"(?m)^[ \t]*import[ \t]+([\w.]+)"#, in: source) {
                 let module = match[1].replacingOccurrences(of: ".", with: "/")
                 paths += [module + ".py", module + "/__init__.py"]
             }
