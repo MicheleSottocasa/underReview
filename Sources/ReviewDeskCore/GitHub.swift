@@ -122,6 +122,15 @@ public enum ReactionContent: String, CaseIterable, Hashable, Sendable {
         case .eyes: "👀"
         }
     }
+
+    /// GitHub's name for the reaction, shown as its tooltip.
+    public var name: String {
+        switch self {
+        case .thumbsUp: "+1"
+        case .thumbsDown: "-1"
+        default: rawValue.capitalized
+        }
+    }
 }
 
 public struct Reaction: Hashable, Sendable {
