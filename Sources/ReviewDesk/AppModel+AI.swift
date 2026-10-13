@@ -8,7 +8,8 @@ extension AppModel {
 
     /// The latest analysis of an open PR predates its head: the author pushed since.
     func hasOutdatedAnalysis(_ pr: PullRequest) -> Bool {
-        pr.state == "OPEN" && runs(for: pr.id).first?.isOutdated(for: pr) == true
+        // Every sidebar row asks on every redraw: one pass for the latest run, no sort.
+        pr.state == "OPEN" && aiRuns.filter { $0.prID == pr.id }.max { $0.date < $1.date }?.isOutdated(for: pr) == true
     }
 
     /// Counts the commits pushed since `run`, once per pair of heads. A failure or a diverged head (rebase,
