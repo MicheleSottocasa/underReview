@@ -432,12 +432,27 @@ extension AppModel {
     }
 
     /// The same chat about lines selected in a file's diff (`key` names the selection): the PR description,
-    /// the file's diff and the selected lines go to the engine. Tool-less, like every chat.
+    /// the file's diff and the selected lines go to the engine. Tool-less, like every chat. As for a comment,
+    /// only Ask adds the project's context, listed in the chat before the first question.
     func chatAboutLines(_ lines: [DiffLine], file: FileChange, pr: PullRequest, key: String, answerFirst: Bool) {
         guard answerFirst || explanations[key] == nil else { return }
-        let prompt = AIContext.selectionPrompt(title: pr.title, body: details[pr.id]?.body ?? "", path: file.filename,
-                                               patch: file.patch ?? "", selected: lines, instructions: Prompts.selection)
-        startChat(key, pr: pr, answerFirst: answerFirst) { prompt }
+        let body = details[pr.id]?.body ?? ""
+        let prompt = { (extra: [ContextFile]) in
+            AIContext.selectionPrompt(title: pr.title, body: body, path: file.filename, patch: file.patch ?? "",
+                                      selected: lines, extra: extra, instructions: Prompts.selection)
+        }
+        startChat(key, pr: pr, answerFirst: answerFirst) {
+            answerFirst ? prompt([]) : prompt(await self.chatExtra(key, pr: pr, fitting: prompt([])))
+        }
+    }
+
+    /// The project's extra context that fits the token budget next to `base`, noted on the chat so it lists
+    /// what it sends and what it leaves out.
+    private func chatExtra(_ key: String, pr: PullRequest, fitting base: String) async -> [ContextFile] {
+        let budget = UserDefaults.standard.object(forKey: "aiBudget") as? Int ?? 150_000
+        let extra = ProjectContext.fitting(await extraContext(for: pr), budget: budget - AIContext.estimateTokens(base))
+        explanations[key]?.extra = extra
+        return extra
     }
 
     /// Opens the chat under `key` once `context` is ready; with `answerFirst` the AI answers it straight away,
@@ -473,10 +488,7 @@ extension AppModel {
                 patch: thread.flatMap { thread in self.files[pr.id]?.first { $0.filename == thread.path }?.patch },
                 conversation: conversation, comment: comment, extra: extra, instructions: Prompts.explain)
         }
-        let budget = UserDefaults.standard.object(forKey: "aiBudget") as? Int ?? 150_000
-        let extra = projectContext ? ProjectContext.fitting(await extraContext(for: pr), budget: budget - AIContext.estimateTokens(prompt([]))) : []
-        explanations[comment.id]?.extra = extra
-        return prompt(extra)
+        return projectContext ? prompt(await chatExtra(comment.id, pr: pr, fitting: prompt([]))) : prompt([])
     }
 }
 

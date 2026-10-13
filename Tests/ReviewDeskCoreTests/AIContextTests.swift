@@ -68,6 +68,17 @@ private func finding(_ path: String?, _ line: Int?) -> Finding {
     #expect(prompt.contains("## Selected lines: a.swift, lines 1–2\n```diff\n ctx\n-old\n+new\n```"))
 }
 
+@Test func selectionPromptCarriesProjectContextOnlyWhenGiven() {
+    let patch = "@@ -1 +1 @@\n-a\n+b"
+    let plain = AIContext.selectionPrompt(title: "T", body: "B", path: "a.py", patch: patch, selected: Diff.parse(patch))
+    #expect(plain.contains("B\n\n## Diff: a.py"))
+    #expect(!plain.contains("## Project context"))
+    let doc = ContextFile(path: "docs/arch.md", patch: nil, content: "Layers", included: true)
+    let withDocs = AIContext.selectionPrompt(title: "T", body: "B", path: "a.py", patch: patch, selected: Diff.parse(patch), extra: [doc])
+    #expect(withDocs.contains("## Project context"))
+    #expect(withDocs.contains("### docs/arch.md\n```\nLayers\n```"))
+}
+
 @Test func aSelectionAcrossHunksKeepsTheHunkHeader() {
     let patch = "@@ -1,1 +1,1 @@\n-a\n+b\n@@ -40,1 +40,1 @@\n-c\n+d"
     let prompt = AIContext.selectionPrompt(title: "T", body: "", path: "a.py", patch: patch, selected: Array(Diff.parse(patch)[2...4]))
