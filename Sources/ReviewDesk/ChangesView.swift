@@ -966,9 +966,10 @@ struct FileDiffView: View {
     private func code(_ line: DiffLine?, text: [DiffLine: AttributedString]) -> some View {
         Group {
             if let line {
-                let code = Text(text[line] ?? AttributedString(line.text)).textSelection(.enabled)
+                let code = SymbolText(pr: pr, path: file.filename, line: line.text,
+                                      text: text[line] ?? AttributedString(line.text), wrap: wrap)
                 if wrap {
-                    code.fixedSize(horizontal: false, vertical: true)
+                    code
                 } else {
                     // Full length over a one-line placeholder, so a long line scrolls instead of widening the row.
                     Text(" ").hidden().frame(maxWidth: .infinity, alignment: .leading)
