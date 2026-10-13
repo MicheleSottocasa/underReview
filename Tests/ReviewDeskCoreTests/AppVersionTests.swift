@@ -58,6 +58,14 @@ Intro text.
     #expect(AppVersion.notes(in: "no sections", after: "0.1.0", through: "0.6.0").isEmpty)
 }
 
+@Test func showsChangesOnlyAfterAnUpdate() {
+    #expect(AppVersion.updated(from: "0.7.1", to: "0.8.1") == "0.7.1")
+    #expect(AppVersion.updated(from: nil, to: "0.8.1") == nil)       // fresh install: the tour covers it
+    #expect(AppVersion.updated(from: "0.8.1", to: "0.8.1") == nil)
+    #expect(AppVersion.updated(from: "0.9.0", to: "0.8.1") == nil)   // downgrade
+    #expect(AppVersion.updated(from: "0.7.1", to: "dev") == nil)
+}
+
 @Test func readsReleaseNotesFromTheChangelogAtTheLatestTag() async throws {
     let runner = FakeRunner { call in
         if call.args.last!.hasPrefix("repos/o/r/releases") {
