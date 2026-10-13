@@ -614,6 +614,7 @@ struct FileDiffView: View {
         .padding(.vertical, 2)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .clipped()
+        .contentShape(Rectangle()) // clipping doesn't stop a scrolled line taking clicks meant for the gutter or the other half
     }
 
     /// `tokens` come from the whole diff, so strings opened on earlier lines (docstrings) keep their color.
