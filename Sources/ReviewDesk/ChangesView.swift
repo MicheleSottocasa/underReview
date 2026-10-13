@@ -85,7 +85,9 @@ struct ChangesView: View {
             // Sent here from another tab (e.g. Risk): open the file and, when there's a line, scroll to it.
             guard let next = model.changesTarget else { return }
             let areas = keyAreas(next.path)
-            let area = areas.firstIndex { next.line > 0 && next.side == .right && $0.startLine == next.line }
+            let named = next.areaIndex.flatMap { areas.indices.contains($0) ? $0 : nil }
+            let area = named ?? areas.firstIndex { next.line > 0 && next.side == .right && $0.startLine == next.line }
+            if named != nil { focusOnly = true } // a key area from Risk: show it in the same reading list
             selection = area.map { .area(next.path, $0) } ?? .file(next.path)
             target = next.line > 0 ? LineTarget(path: next.path, line: next.line, endLine: area.flatMap { areas[$0].endLine }, side: next.side) : nil
             model.changesTarget = nil
@@ -166,6 +168,8 @@ struct LineTarget: Equatable {
     var endLine: Int?
     /// Left: `line` is in the old file, as for comments on removed lines.
     var side = DiffSide.right
+    /// A key area to select in the Focus list, as an index into its file's areas.
+    var areaIndex: Int?
     var id = UUID()
 }
 
@@ -537,13 +541,22 @@ struct FileTree: View {
             Text("Run an AI review to list the key files to read. Files with comments you haven't submitted show here too.")
                 .font(.caption).foregroundStyle(.secondary)
         }
+        let reading = Focus.readingList(focus)
         ForEach(focus, id: \.path) { item in
             if let file = files.first(where: { $0.filename == item.path }) {
                 fileRow(file, name: item.path).tag(ChangesItem.file(file.filename))
                 // Ids unique across files: offsets alone repeat in every file, and the list then mixed up their rows.
                 ForEach(item.areas.enumerated().map { (ChangesItem.area(item.path, $0.offset), $0.element) }, id: \.0) { tag, area in
+                    // Numbered in reading order, as the Risk tab numbers the same areas.
+                    let number = (reading.firstIndex { ChangesItem.area($0.path, $0.index) == tag } ?? 0) + 1
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(Self.lines(area) + (area.question.map { " · \($0.label)" } ?? "")).font(.caption.monospaced()).foregroundStyle(.secondary)
+                        HStack(spacing: 4) {
+                            if model.isRead(area, pr: pr) {
+                                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).help("Marked as read")
+                            }
+                            Text("\(number). " + Self.lines(area) + (area.question.map { " · \($0.label)" } ?? ""))
+                        }
+                        .font(.caption.monospaced()).foregroundStyle(.secondary)
                         Text(inlineMarkdown(area.reason)).font(.caption).lineLimit(3).multilineTextAlignment(.leading)
                     }
                     .padding(.leading, 22)

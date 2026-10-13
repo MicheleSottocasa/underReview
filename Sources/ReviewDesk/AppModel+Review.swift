@@ -59,6 +59,12 @@ extension AppModel {
         detailTab = .changes
     }
 
+    /// Opens Changes on a key area, selected in the Focus list. `index` is its position in its file's areas.
+    func openInChanges(_ area: KeyArea, index: Int, pr: PullRequest) {
+        openInChanges(area.path, line: area.startLine, pr: pr)
+        changesTarget?.areaIndex = index
+    }
+
     /// The commit a risk question was checked at, if it was.
     func riskCheck(_ question: RiskQuestion, pr: PullRequest) -> String? {
         riskChecks[pr.id]?[question.rawValue]

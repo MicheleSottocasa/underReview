@@ -25,11 +25,17 @@ public enum Focus {
         return order.map { FocusFile(path: $0, areas: areas[$0] ?? [], pendingComments: pending[$0] ?? 0) }
     }
 
+    /// Every key area in reading order, the one list Focus walks and Risk groups by question. `index` is the area's
+    /// position in its file's `areas`, which selects it in Changes.
+    public static func readingList(_ files: [FocusFile]) -> [(path: String, index: Int, area: KeyArea)] {
+        files.flatMap { file in file.areas.indices.map { (path: file.path, index: $0, area: file.areas[$0]) } }
+    }
+
     /// The next unread key area in reading order (the Focus list's), after `current` and wrapping around to the
     /// start; nil when every area is read. `index` is the area's position in its file's `areas`.
     public static func nextUnread(_ files: [FocusFile], isRead: (KeyArea) -> Bool,
                                   after current: (path: String, index: Int)?) -> (path: String, index: Int)? {
-        let all = files.flatMap { file in file.areas.indices.map { (path: file.path, index: $0, area: file.areas[$0]) } }
+        let all = readingList(files)
         let start = current.flatMap { current in all.firstIndex { $0.path == current.path && $0.index == current.index } }.map { $0 + 1 } ?? 0
         return (all[start...] + all[..<start]).first { !isRead($0.area) }.map { ($0.path, $0.index) }
     }
