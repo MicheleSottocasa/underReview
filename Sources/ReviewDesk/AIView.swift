@@ -29,16 +29,7 @@ struct AIView: View {
                         engineName = "linked"
                         start()
                     }
-                    if let status {
-                        HStack(spacing: 8) {
-                            ProgressView().controlSize(.small)
-                            Text(status)
-                            Spacer()
-                            Button("Cancel") { model.cancelReview(pr.id) }
-                        }
-                        .padding(10)
-                        .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-                    }
+                    if status != nil { AIStatusBox(pr: pr) }
                     if let context {
                         ContextPanel(context: Binding(get: { context }, set: { self.context = $0 }), engine: engine) {
                             model.startReview(pr, engine: engine, context: context)
@@ -478,4 +469,48 @@ struct AgentStatus: View {
 private struct LogText: Identifiable {
     let text: String
     var id: String { text }
+}
+
+/// A running review: what it's doing, how long it's been going, and its latest steps as they stream in.
+struct AIStatusBox: View {
+    @Environment(AppModel.self) private var model
+    let pr: PullRequest
+
+    var body: some View {
+        let steps = model.aiActivity[pr.id] ?? []
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(model.aiStatus[pr.id] ?? "Working…")
+                Spacer()
+                // Counted from the first step, kept in the model, so switching tabs doesn't restart it.
+                if let started = steps.first?.date {
+                    Text(started, style: .timer).font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                }
+                Button("Cancel") { model.cancelReview(pr.id) }
+            }
+            if !steps.isEmpty {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(steps) { step in
+                                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                    Text(step.date, format: .dateTime.hour().minute().second())
+                                        .font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
+                                    MarkdownText(step.text).font(.callout)
+                                        .foregroundStyle(step.id == steps.last?.id ? .primary : .secondary)
+                                }
+                                .id(step.id)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 160)
+                    .onChange(of: steps.last?.id) { _, last in withAnimation { proxy.scrollTo(last, anchor: .bottom) } }
+                }
+            }
+        }
+        .padding(10)
+        .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+    }
 }

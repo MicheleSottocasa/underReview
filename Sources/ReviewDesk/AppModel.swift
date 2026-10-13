@@ -84,6 +84,8 @@ final class AppModel {
     var aiRuns: [AIRun] { didSet { save(aiRunsFile, aiRuns) } }
     /// PR id → what the AI is doing right now.
     var aiStatus: [String: String] = [:]
+    /// PR id → the latest steps of a running review, newest last; cleared when it ends.
+    var aiActivity: [String: [AIStep]] = [:]
     /// Comment id → AI explanation. In memory only: a fresh one is a click away.
     var explanations: [String: Explanation] = [:]
     var aiTasks: [String: Task<Void, Never>] = [:]

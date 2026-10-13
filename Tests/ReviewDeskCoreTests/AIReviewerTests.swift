@@ -143,7 +143,9 @@ private func codeReviewRunner(report: String = "1. a.py:3 off by one") -> FakeRu
     #expect(value(command, "--append-system-prompt") == "be kind")
     #expect(value(command, "--permission-prompts") == "none")
     #expect(value(command, "--allowedTools") == "Read,Grep,Glob,Agent,Bash(gh pr diff:*),Bash(gh pr view:*)")
-    for flag in ["--restricted", "--strict-mcp-config", "--no-session-persistence"] { #expect(command.args.contains(flag)) }
+    for flag in ["--restricted", "--strict-mcp-config"] { #expect(command.args.contains(flag)) }
+    // Persisted so the helper's transcript can be followed live; the files are removed after the run.
+    #expect(!command.args.contains("--no-session-persistence"))
     // A schema makes print mode skip the command's report, so only the second pass uses one.
     #expect(!command.args.contains("--json-schema"))
     #expect(!command.args.contains("--disable-slash-commands"))
@@ -154,6 +156,33 @@ private func codeReviewRunner(report: String = "1. a.py:3 off by one") -> FakeRu
     let prompt = String(decoding: structure.stdin ?? Data(), as: UTF8.self)
     #expect(prompt.contains("1. a.py:3 off by one"))
     #expect(prompt.contains("## Diff: a.py"))
+}
+
+@Test func codeReviewStreamsItsStepsAndReadsTheFinalResult() async throws {
+    let runner = FakeRunner { call in
+        if call.args.first == "auth" { return subscribed }
+        if call.args.contains("--json-schema") {
+            return ok(#"{"type":"result","is_error":false,"structured_output":{"summary":"ok","findings":[],"keyAreas":[],"risks":[]}}"#)
+        }
+        return ok(streamedReview.joined(separator: "\n"))
+    }
+    let steps = Steps()
+    _ = try await AIReviewer(runner: runner).codeReview(.claudeCode, prURL: "u", context: context, options: CodeReviewOptions()) { steps.append($0) }
+    #expect(steps.value.first == "Starting /code-review (high)…")
+    #expect(steps.value.contains("Reading `cmd/setdefault.go`"))
+    #expect(steps.value.last == "Turning the review into findings, key areas and risk answers…")
+    let command = try #require(runner.calls.first { $0.args.contains("-p") })
+    #expect(command.args.contains("stream-json") && command.args.contains("--verbose") && command.args.contains("--forward-subagent-text"))
+    // The structuring pass got the report from the final result event.
+    let structure = try #require(runner.calls.last)
+    #expect(String(decoding: structure.stdin ?? Data(), as: UTF8.self).contains("## Review from /code-review\n\nNo problems found."))
+}
+
+private final class Steps: @unchecked Sendable {
+    private let lock = NSLock()
+    private var steps: [String] = []
+    var value: [String] { lock.withLock { steps } }
+    func append(_ step: String) { lock.withLock { steps.append(step) } }
 }
 
 @Test func codeReviewKeepsTheCLIDefaultModelWhenNoneIsChosen() async throws {

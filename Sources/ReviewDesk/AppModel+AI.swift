@@ -65,11 +65,24 @@ extension AppModel {
         aiTasks[prID]?.cancel()
         aiTasks[prID] = nil
         aiStatus[prID] = nil
+        aiActivity[prID] = nil
+    }
+
+    /// Adds a step to the live log, skipping repeats (the helper agent's text is forwarded twice).
+    func logStep(_ text: String, pr prID: String) {
+        var steps = aiActivity[prID] ?? []
+        guard steps.last?.text != text else { return }
+        steps.append(AIStep(text: text))
+        aiActivity[prID] = Array(steps.suffix(40))
     }
 
     private func codeReview(_ pr: PullRequest, engine: AIEngine, options: CodeReviewOptions) async {
         aiStatus[pr.id] = "Running /code-review (\(options.effort)) with \(engine.name)…"
-        defer { aiStatus[pr.id] = nil }
+        aiActivity[pr.id] = []
+        defer {
+            aiStatus[pr.id] = nil
+            aiActivity[pr.id] = nil
+        }
         do {
             if files[pr.id] == nil { files[pr.id] = try await github.files(pr.ref) }
             if details[pr.id] == nil { await loadDetail(pr.id) }
@@ -77,7 +90,9 @@ extension AppModel {
             let context = AIContext.build(pr: pr, body: details[pr.id]?.body ?? "", files: files[pr.id] ?? [], contents: [:],
                                           budget: UserDefaults.standard.object(forKey: "aiBudget") as? Int ?? 150_000)
             let result = try await reviewer.codeReview(engine, prURL: pr.url, context: context, options: options,
-                                                       instructions: Prompts.codeReview, structureInstructions: Prompts.structure)
+                                                       instructions: Prompts.codeReview, structureInstructions: Prompts.structure) { step in
+                Task { @MainActor in self.logStep(step, pr: pr.id) }
+            }
             var run = AIRun(prID: pr.id, engine: engine, headRefOid: pr.headRefOid, result: result)
             run.options = options
             aiRuns.append(run)
@@ -180,4 +195,11 @@ enum Prompts {
         let custom = UserDefaults.standard.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return custom.isEmpty ? fallback : custom
     }
+}
+
+/// One line of a running review's live log.
+struct AIStep: Identifiable, Equatable {
+    let id = UUID()
+    let text: String
+    let date = Date()
 }

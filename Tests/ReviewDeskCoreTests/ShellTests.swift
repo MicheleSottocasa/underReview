@@ -59,3 +59,24 @@ import Testing
     #expect(ProcessRunner.discover([tool], fallbacks: [dir.path]) == [tool: path])
     #expect(ProcessRunner.discover([tool], fallbacks: []) == [:])
 }
+
+@Test func streamingHandsOverLinesWhileTheToolRuns() async throws {
+    let runner = ProcessRunner(paths: ["sh": "/bin/sh"])
+    let lines = LineCollector()
+    // The second line arrives a second later: it must be seen before the tool exits, with nothing lost.
+    let result = try await runner.stream("sh", ["-c", "echo one; sleep 1; printf 'two\\nthree'"], stdin: nil, cwd: nil,
+                                         timeout: .seconds(10)) { lines.append($0) }
+    let finished = Date()
+    #expect(lines.value == ["one", "two", "three"])
+    #expect(finished.timeIntervalSince(try #require(lines.firstSeen)) > 0.5) // "one" came during the sleep
+    #expect(result.text == "one\ntwo\nthree")
+}
+
+private final class LineCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lines: [String] = []
+    private var first: Date?
+    var value: [String] { lock.withLock { lines } }
+    var firstSeen: Date? { lock.withLock { first } }
+    func append(_ line: String) { lock.withLock { lines.append(line); first = first ?? Date() } }
+}

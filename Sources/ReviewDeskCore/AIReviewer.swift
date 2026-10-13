@@ -79,8 +79,13 @@ public struct AIRun: Codable, Hashable, Identifiable, Sendable {
 /// the working directory is empty, and API-key env vars are stripped by `ProcessRunner`.
 public struct AIReviewer: Sendable {
     public let runner: any CommandRunner
+    /// Where Claude Code keeps sessions: read to follow `/code-review` live, cleaned after each run.
+    public let claudeConfigDirectory: URL
 
-    public init(runner: any CommandRunner) { self.runner = runner }
+    public init(runner: any CommandRunner, claudeConfigDirectory: URL = ClaudeSessionFiles.defaultConfigDirectory) {
+        self.runner = runner
+        self.claudeConfigDirectory = claudeConfigDirectory
+    }
 
     public func checkAuth(_ engine: AIEngine) async throws {
         switch engine {
@@ -113,28 +118,65 @@ public struct AIReviewer: Sendable {
     public func codeReview(_ engine: AIEngine, prURL: String, context: ReviewContext, options: CodeReviewOptions,
                            instructions: String = AIContext.defaultCodeReviewInstructions,
                            structureInstructions: String = AIContext.defaultStructureInstructions,
-                           timeout: Duration = .seconds(1800)) async throws -> ReviewResult {
+                           timeout: Duration = .seconds(1800),
+                           progress: @escaping @Sendable (String) -> Void = { _ in }) async throws -> ReviewResult {
         try await checkAuth(engine)
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("reviewdesk-ai-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
-        var args = ["-p", "--output-format", "json", "--append-system-prompt", instructions, "--effort", options.effort,
-                    "--restricted", "--strict-mcp-config", "--permission-prompts", "none", "--no-session-persistence",
+        // Streamed so `progress` can show each step. The session is persisted (unlike other runs) because the
+        // command's helper agent only writes its transcript, which we follow live, for persisted sessions;
+        // the files are removed again below.
+        var args = ["-p", "--output-format", "stream-json", "--verbose", "--forward-subagent-text",
+                    "--append-system-prompt", instructions, "--effort", options.effort,
+                    "--restricted", "--strict-mcp-config", "--permission-prompts", "none",
                     "--tools", Self.codeReviewTools, "--allowedTools", Self.codeReviewAllowed]
         if !options.model.isEmpty { args += ["--model", options.model] }
         var cwd = dir
+        var resumed: String?
         switch engine {
         case .claudeCode: break
         case .claudeSession(let id, _, let path):
-            // Forked and not saved, like `review`: the session's context helps, its history stays untouched.
+            // Forked, like `review`: the session's context helps, its history stays untouched.
             args += ["--resume", id, "--fork-session"]
             cwd = URL(fileURLWithPath: path)
+            resumed = id
         case .codex, .ollama:
             throw AIError.failed("/code-review is a Claude Code command")
         }
-        let result = try await runner.run("claude", args, stdin: Data("/code-review \(options.effort) \(prURL)".utf8), cwd: cwd, timeout: timeout)
+        progress("Starting /code-review (\(options.effort))…")
+        let started = Date()
+        let live = LiveReview()
+        let project = ClaudeSessionFiles.projectDirectory(configDirectory: claudeConfigDirectory, cwd: cwd)
+        defer {
+            if resumed == nil {
+                // Our own temporary folder: its whole project entry in Claude Code belongs to this run.
+                try? FileManager.default.removeItem(at: project)
+            } else if let session = live.session, session != resumed {
+                // The linked session's real folder: only files this run created, never the session it forked.
+                ClaudeSessionFiles(projectDirectory: project, session: session).remove(createdSince: started)
+            }
+        }
+        var result: CommandResult
+        do {
+            result = try await runner.stream("claude", args, stdin: Data("/code-review \(options.effort) \(prURL)".utf8),
+                                             cwd: cwd, timeout: timeout) { line in
+                if let task = ClaudeActivity.taskStarted(line) {
+                    live.start(ClaudeSessionFiles(projectDirectory: project, session: task.session), task: task.task, progress: progress)
+                }
+                // Once the transcript is followed, the copies Claude Code forwards at the end would repeat it.
+                if live.isFollowing, ClaudeActivity.isFromHelper(line) { return }
+                ClaudeActivity.describe(line).forEach(progress)
+            }
+        } catch {
+            await live.stop() // a failed or cancelled run must not leave the follower polling
+            throw error
+        }
+        await live.stop()
+        if let final = ClaudeActivity.result(in: result.stdout) { result.stdout = final }
         let report = String(decoding: try Self.parseClaude(result), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !report.isEmpty, report != "Command completed" else { throw AIError.invalidOutput("/code-review returned no report") }
+        progress("Turning the review into findings, key areas and risk answers…")
         let prompt = AIContext.structurePrompt(report: report, context: context.fittingBudget(), instructions: structureInstructions)
         return try Self.decode(try await run(.claudeCode, prompt: prompt, schema: AIContext.schema, model: options.model, timeout: .seconds(300)))
     }
@@ -157,6 +199,9 @@ public struct AIReviewer: Sendable {
         let workdir = dir.appendingPathComponent("empty")
         try FileManager.default.createDirectory(at: workdir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
+        // Claude Code files even unsaved runs under its projects folder; this entry is unique to the run.
+        let project = ClaudeSessionFiles.projectDirectory(configDirectory: claudeConfigDirectory, cwd: workdir)
+        defer { if engine == .claudeCode { try? FileManager.default.removeItem(at: project) } }
         let input = Data(prompt.utf8)
 
         switch engine {

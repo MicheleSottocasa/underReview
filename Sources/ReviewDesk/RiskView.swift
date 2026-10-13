@@ -72,16 +72,7 @@ struct RiskView: View {
                   ? "Runs /code-review with \(engine.name) and the last used model and effort"
                   : "\(engine.name) needs its context approved in the AI tab first")
         }
-        if let status {
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text(status)
-                Spacer()
-                Button("Cancel") { model.cancelReview(pr.id) }
-            }
-            .padding(10)
-            .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-        }
+        if status != nil { AIStatusBox(pr: pr) }
         if let run, let top = run.result.risks.max(by: { $0.rank < $1.rank }), top.rank > 0, let question = top.riskQuestion {
             Label("Highest risk: \(question.label) (\(top.level))", systemImage: "flame")
                 .font(.callout.bold()).foregroundStyle(RiskBadge.color(top.level))

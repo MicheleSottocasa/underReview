@@ -31,6 +31,19 @@ public enum CommandError: Error, Equatable, LocalizedError {
 /// Seam for tests: everything external (gh, claude, codex, ollama) goes through here.
 public protocol CommandRunner: Sendable {
     func run(_ tool: String, _ args: [String], stdin: Data?, cwd: URL?, timeout: Duration) async throws -> CommandResult
+    /// Like `run`, also handing each complete line of stdout to `onLine` while the tool is still running.
+    func stream(_ tool: String, _ args: [String], stdin: Data?, cwd: URL?, timeout: Duration,
+                onLine: @escaping @Sendable (String) -> Void) async throws -> CommandResult
+}
+
+extension CommandRunner {
+    /// Runners that can't stream hand the lines over at the end, which is all tests need.
+    public func stream(_ tool: String, _ args: [String], stdin: Data?, cwd: URL?, timeout: Duration,
+                       onLine: @escaping @Sendable (String) -> Void) async throws -> CommandResult {
+        let result = try await run(tool, args, stdin: stdin, cwd: cwd, timeout: timeout)
+        for line in result.text.split(separator: "\n") { onLine(String(line)) }
+        return result
+    }
 }
 
 extension CommandRunner {
@@ -100,11 +113,42 @@ public struct ProcessRunner: CommandRunner {
         output.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.last { $0.hasPrefix("/") }
     }
 
+    /// Reads lines appended to `url` until cancelled, then drains what's left so no line is lost.
+    static func follow(_ url: URL, onLine: @Sendable (String) -> Void) async {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return }
+        defer { try? handle.close() }
+        var buffer = Data()
+        while true {
+            let chunk = handle.availableData
+            if chunk.isEmpty {
+                if Task.isCancelled { break }
+                try? await Task.sleep(for: .milliseconds(250))
+                continue
+            }
+            buffer.append(chunk)
+            while let newline = buffer.firstIndex(of: UInt8(ascii: "\n")) {
+                onLine(String(decoding: buffer[buffer.startIndex..<newline], as: UTF8.self))
+                buffer.removeSubrange(buffer.startIndex...newline)
+            }
+        }
+        if !buffer.isEmpty { onLine(String(decoding: buffer, as: UTF8.self)) }
+    }
+
     public static func childEnvironment(_ base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
         base.filter { !strippedEnvironment.contains($0.key) }
     }
 
     public func run(_ tool: String, _ args: [String], stdin: Data?, cwd: URL?, timeout: Duration) async throws -> CommandResult {
+        try await execute(tool, args, stdin: stdin, cwd: cwd, timeout: timeout, onLine: nil)
+    }
+
+    public func stream(_ tool: String, _ args: [String], stdin: Data?, cwd: URL?, timeout: Duration,
+                       onLine: @escaping @Sendable (String) -> Void) async throws -> CommandResult {
+        try await execute(tool, args, stdin: stdin, cwd: cwd, timeout: timeout, onLine: onLine)
+    }
+
+    private func execute(_ tool: String, _ args: [String], stdin: Data?, cwd: URL?, timeout: Duration,
+                         onLine: (@Sendable (String) -> Void)?) async throws -> CommandResult {
         guard let path = paths[tool] else { throw CommandError.toolNotFound(tool) }
         // Temp files instead of pipes: no buffer deadlocks, no reader threads.
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("reviewdesk-\(UUID().uuidString)")
@@ -124,6 +168,8 @@ public struct ProcessRunner: CommandRunner {
         process.standardOutput = try FileHandle(forWritingTo: outURL)
         process.standardError = try FileHandle(forWritingTo: errURL)
 
+        // Streaming follows the output file instead of using a pipe, keeping the no-pipe design above.
+        let tail = onLine.map { onLine in Task.detached { await Self.follow(outURL, onLine: onLine) } }
         let start = ContinuousClock.now
         let watchdog = Task {
             try await Task.sleep(for: timeout)
@@ -140,6 +186,8 @@ public struct ProcessRunner: CommandRunner {
             // terminate() on a process that never launched raises an Objective-C exception.
             if process.isRunning { process.terminate() }
         }
+        tail?.cancel()
+        await tail?.value
         try Task.checkCancellation()
         if process.terminationReason == .uncaughtSignal, ContinuousClock.now - start >= timeout {
             throw CommandError.timedOut(tool)
