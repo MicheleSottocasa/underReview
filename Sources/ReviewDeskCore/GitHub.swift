@@ -265,6 +265,34 @@ public struct GitHub: Sendable {
         return try JSONDecoder().decode([[FileChange]].self, from: data).flatMap { $0 }
     }
 
+    /// Paths the viewer marked as viewed on GitHub. A file changed since it was marked (DISMISSED) counts as unviewed.
+    public func viewedFiles(prID: String) async throws -> Set<String> {
+        let query = """
+        query($id: ID!, $after: String) { node(id: $id) { ... on PullRequest {
+          files(first: 100, after: $after) { nodes { path viewerViewedState } pageInfo { hasNextPage endCursor } }
+        } } }
+        """
+        var viewed: Set<String> = []
+        var after: String?
+        repeat {
+            var variables: [String: any Sendable] = ["id": prID]
+            if let after { variables["after"] = after }
+            let data = try await graphql(query, variables)
+            let files = (data["node"] as? [String: Any])?["files"] as? [String: Any]
+            viewed.formUnion(Self.nodes(files).filter { $0["viewerViewedState"] as? String == "VIEWED" }.compactMap { $0["path"] as? String })
+            let page = files?["pageInfo"] as? [String: Any]
+            after = page?["hasNextPage"] as? Bool == true ? page?["endCursor"] as? String : nil
+        } while after != nil
+        return viewed
+    }
+
+    public func setViewed(prID: String, path: String, viewed: Bool) async throws {
+        let mutation = viewed ? "markFileAsViewed" : "unmarkFileAsViewed"
+        try await graphql("""
+        mutation($id: ID!, $path: String!) { \(mutation)(input: {pullRequestId: $id, path: $path}) { clientMutationId } }
+        """, ["id": prID, "path": path])
+    }
+
     public func fileContent(repo: String, path: String, ref: String) async throws -> String {
         let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path
         let data = try await runner.output("gh", ["api", "repos/\(repo)/contents/\(encoded)?ref=\(ref)", "-H", "Accept: application/vnd.github.raw"])

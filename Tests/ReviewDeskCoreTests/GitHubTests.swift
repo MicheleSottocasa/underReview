@@ -125,3 +125,22 @@ import Testing
     // Someone else's PR: only threads I started count.
     #expect(prs[3].threadsAwaitingReply == 1)
 }
+
+@Test func readsViewedFilesAcrossPages() async throws {
+    let runner = FakeRunner { call in
+        call.variables["after"] == nil
+            ? data(#"{"node":{"files":{"nodes":[{"path":"a","viewerViewedState":"VIEWED"},{"path":"b","viewerViewedState":"DISMISSED"}],"pageInfo":{"hasNextPage":true,"endCursor":"c1"}}}}"#)
+            : data(#"{"node":{"files":{"nodes":[{"path":"c","viewerViewedState":"VIEWED"},{"path":"d","viewerViewedState":"UNVIEWED"}],"pageInfo":{"hasNextPage":false,"endCursor":"c2"}}}}"#)
+    }
+    #expect(try await GitHub(runner: runner).viewedFiles(prID: "PR_1") == ["a", "c"])
+    #expect(runner.calls.map { $0.variables["after"] as? String } == [nil, "c1"])
+}
+
+@Test func marksAndUnmarksFilesAsViewed() async throws {
+    let runner = FakeRunner { _ in data(#"{"x":{"clientMutationId":null}}"#) }
+    let github = GitHub(runner: runner)
+    try await github.setViewed(prID: "PR_1", path: "a.swift", viewed: true)
+    try await github.setViewed(prID: "PR_1", path: "a.swift", viewed: false)
+    #expect(runner.calls.map { $0.query.contains("unmarkFileAsViewed") } == [false, true])
+    #expect(runner.calls.first?.variables["path"] as? String == "a.swift")
+}

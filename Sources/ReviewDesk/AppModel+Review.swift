@@ -15,8 +15,22 @@ extension AppModel {
 
     func loadFiles(_ pr: PullRequest) async {
         do {
+            async let viewed = github.viewedFiles(prID: pr.id)
             files[pr.id] = try await github.files(pr.ref)
+            viewedFiles[pr.id] = try await viewed
         } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    /// Flips the file's Viewed checkbox here and on GitHub, rolling back if GitHub refuses.
+    func toggleViewed(_ path: String, pr: PullRequest) async {
+        let viewed = !(viewedFiles[pr.id]?.contains(path) ?? false)
+        viewedFiles[pr.id, default: []].formSymmetricDifference([path])
+        do {
+            try await github.setViewed(prID: pr.id, path: path, viewed: viewed)
+        } catch {
+            viewedFiles[pr.id, default: []].formSymmetricDifference([path])
             lastError = error.localizedDescription
         }
     }

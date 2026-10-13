@@ -46,6 +46,8 @@ final class AppModel {
     var details: [String: PRDetail] = [:]
     /// Changed files per PR, fetched on demand and kept in memory only.
     var files: [String: [FileChange]] = [:]
+    /// Paths marked as viewed on GitHub, per PR. GitHub is the source of truth; nothing is stored locally.
+    var viewedFiles: [String: Set<String>] = [:]
 
     /// Sidebar multi-selection. The detail follows the last single-selected PR and stays put otherwise.
     var selection: Set<SidebarID> = [] {
