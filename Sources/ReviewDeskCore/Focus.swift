@@ -33,6 +33,16 @@ public enum Focus {
         let start = current.flatMap { current in all.firstIndex { $0.path == current.path && $0.index == current.index } }.map { $0 + 1 } ?? 0
         return (all[start...] + all[..<start]).first { !isRead($0.area) }.map { ($0.path, $0.index) }
     }
+
+    /// Where stepping through key areas goes past either end of `path`'s: the first area of the next file in the list
+    /// that has some, or the last area of the previous one. A file outside the list starts from the list's first (or
+    /// last) file with areas. Nil past either end of the list.
+    public static func area(beyond path: String, in files: [FocusFile], forward: Bool) -> (path: String, index: Int)? {
+        let current = files.firstIndex { $0.path == path }
+        let candidates = (current.map { forward ? files[($0 + 1)...] : files[..<$0] } ?? files[...]).filter { !$0.areas.isEmpty }
+        guard let file = forward ? candidates.first : candidates.last else { return nil }
+        return (file.path, forward ? 0 : file.areas.count - 1)
+    }
 }
 
 extension Focus {

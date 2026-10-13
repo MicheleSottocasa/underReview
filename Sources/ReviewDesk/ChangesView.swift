@@ -58,7 +58,12 @@ struct ChangesView: View {
                                          keyAreas: areas, selectedAreaIndex: selectedArea(in: areas),
                                          keyAreasOutdated: analysis?.isOutdated(for: pr) == true,
                                          commitView: commitView, fileStep: fileStep(files, current: file),
-                                         selectArea: { selection = .area(file.filename, $0) })
+                                         selectArea: { selection = .area(file.filename, $0) },
+                                         areaBeyond: { forward in
+                                             guard !linesMoved, let next = Focus.area(beyond: file.filename, in: model.focus(for: pr), forward: forward)
+                                             else { return nil }
+                                             return { selection = .area(next.path, next.index) }
+                                         })
                                 .id(file.filename + (shown ?? ""))
                         } else {
                             ContentUnavailableView("No changed files", systemImage: "doc")
@@ -172,6 +177,8 @@ struct StepControl: View {
     /// reads the state at the time of the key press: a shortcut's action can outlive the redraw that made it.
     let state: () -> (positions: [Int], current: Int?)
     let go: (Int) -> Void
+    /// What a step past the first or last position does instead (e.g. go to another file's key areas); nil stops there.
+    var beyond: (_ forward: Bool) -> (() -> Void)? = { _ in nil }
 
     var body: some View {
         let (positions, current) = state()
@@ -181,23 +188,26 @@ struct StepControl: View {
         HStack(spacing: 2) {
             Button { step(forward: false) } label: { Image(systemName: "chevron.up") }
                 .keyboardShortcut("[", modifiers: modifiers)
-                .disabled(back == nil)
+                .disabled(back == nil && beyond(false) == nil)
                 .help("Previous \(noun) (\(keys)[)")
             Text(current.flatMap { Set(positions).sorted().firstIndex(of: $0) }.map { "\(noun.prefix(1).uppercased() + noun.dropFirst()) \($0 + 1) of \(count)" }
                  ?? "\(count) \(noun)\(count == 1 ? "" : "s")")
                 .font(.callout.monospacedDigit()).foregroundStyle(.secondary)
             Button { step(forward: true) } label: { Image(systemName: "chevron.down") }
                 .keyboardShortcut("]", modifiers: modifiers)
-                .disabled(next == nil)
+                .disabled(next == nil && beyond(true) == nil)
                 .help("Next \(noun) (\(keys)])")
         }
         .buttonStyle(.borderless)
-        .disabled(count == 0)
     }
 
     private func step(forward: Bool) {
         let (positions, current) = state()
-        Navigation.step(positions, from: current, forward: forward).map(go)
+        if let position = Navigation.step(positions, from: current, forward: forward) {
+            go(position)
+        } else {
+            beyond(forward)?()
+        }
     }
 
     private var keys: String {
@@ -658,6 +668,9 @@ struct FileDiffView: View {
     var fileStep: StepControl?
     /// Selects the key area at this index in the file list, which scrolls the diff to it.
     var selectArea: (Int) -> Void = { _ in }
+    /// Selects the first key area of the next file that has some (forward) or the last of the previous one, for
+    /// stepping past this file's areas; nil at either end of the Focus list.
+    var areaBeyond: (_ forward: Bool) -> (() -> Void)? = { _ in nil }
     @AppStorage("wrapLines") private var wrap = false
     @AppStorage("involvedFilter") private var involvedOnly = false
     @ViewState private var composing: ReviewDeskCore.Anchor?
@@ -706,7 +719,7 @@ struct FileDiffView: View {
                         jump = Jump(row: row)
                     }
                 }
-                if areaRowsNow.contains(where: { $0 != nil }) {
+                if areaRowsNow.contains(where: { $0 != nil }) || areaBeyond(true) != nil || areaBeyond(false) != nil {
                     // Positions carry the area's index too, so areas starting on the same row are separate steps.
                     let count = keyAreas.count
                     let positions = areaRowsNow.indices.compactMap { index in
@@ -719,7 +732,7 @@ struct FileDiffView: View {
                         let (row, index) = Navigation.item(at: position, count: count)
                         selectArea(index)
                         jump = Jump(row: row) // also when that area is already selected, after a jump elsewhere
-                    }
+                    } beyond: { areaBeyond($0) }
                 }
                 fileStep
             }

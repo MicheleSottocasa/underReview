@@ -5,6 +5,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+- **Key areas across files:** ⌃⌘] past a file's last key area opens the first one of the next file that has some, in the Focus list's order, and ⌃⌘[ past the first goes back to the previous file's last one.
 - **To Review shows what waits for you:** pull requests whose review is requested (again, too), that changed since your review or that you haven't reviewed yet stay on top; the ones you're done with move to a collapsed *Reviewed* group that remembers whether you opened it. A stack stays in To Review while any of its pull requests waits.
 - **Suggest Fix on your own pull requests:** the suggested change goes into your pending review as a review comment, and *Finish Review* offers only *Comment* there, since GitHub refuses an approval or change request on your own pull request.
 - **Linked commits and pull requests say what they are:** hovering a paragraph names the commits of the pull request and the pull requests ReviewDesk follows that it links to (headline, or title and state), the header's short SHA shows the head commit's headline, and right-clicking it or a listed commit copies the full SHA.
