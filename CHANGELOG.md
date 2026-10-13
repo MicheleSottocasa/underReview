@@ -6,6 +6,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 ## Unreleased
 
 - **Onboarding tour:** on first launch, and from *Help › Show Tour*, a guided tour explains each area on a demo stack of fictional pull requests, with comments, diffs and a sample AI analysis. The demo is read-only and never saved.
+- **Screenshots** of the demo in the README.
 - AI rationales and key-area reasons show `code` and **bold** formatting instead of raw Markdown.
 - Notifications show the app icon again after installing over an older copy.
 ## 0.4.0

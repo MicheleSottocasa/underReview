@@ -6,6 +6,16 @@ A native macOS app for reviewing GitHub pull requests: a private inbox with loca
 
 There is no backend. Notes, folders, drafts and AI results stay in `~/Library/Application Support/ReviewDesk/`. GitHub is reached only through the `gh` CLI. Code goes to a cloud AI provider only when you run a review or click *Explain* on a comment with Claude Code or Codex.
 
+## Screenshots
+
+Taken from the built-in demo pull request (a fictional repository), with `make screenshots`.
+
+| Risk-first review | Changes, with key areas and inline threads |
+| --- | --- |
+| ![The Risk tab: the five risk questions with the AI's answer and level, the author's Risk notes and the key areas to read](docs/screenshots/risk.png) | ![The Changes tab: file tree with the All / Focus filter, side-by-side diff with a key area marked and an inline review thread](docs/screenshots/changes.png) |
+| **AI review with Claude Code's `/code-review`** | **Conversation** |
+| ![The AI Review tab: engine, model and effort pickers, the files to read before submitting, and findings that can become draft comments](docs/screenshots/ai-review.png) | ![The Conversation tab: the description with Risk notes, comments and reviews](docs/screenshots/conversation.png) |
+
 ## Requirements
 
 - macOS 14 or later, with Swift 6 (the Command Line Tools are enough; Xcode is not required).
@@ -26,6 +36,7 @@ The app is signed ad hoc, not with an Apple Developer ID, so macOS blocks the fi
 | `make app` | Builds a release `ReviewDesk.app` signed ad hoc in the repo root. Notifications only work from this bundle. |
 | `make run` | `make app`, then opens it. |
 | `make install` | Builds the app, quits the running copy, installs it in `/Applications` and opens it. Run it again to update. |
+| `make screenshots` | Rebuilds the app and retakes the README screenshots in `docs/screenshots` from the demo pull request. The run never polls GitHub or saves anything. |
 | `make dmg` | Builds a universal (Apple silicon + Intel) `dist/ReviewDesk-<version>.dmg` installer. `VERSION=1.2.0` overrides the version from `Info.plist`. |
 | `make icon` | Regenerates `assets/AppIcon.icns` from the drawing in `assets/make-icon.swift`. |
 | `swift run ReviewDesk` | Quick debug launch without a bundle (notifications are disabled). |

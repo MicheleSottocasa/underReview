@@ -16,7 +16,7 @@ ARCH_FLAGS ?=
 # without the icon: register only the installed copy.
 LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 
-.PHONY: test app run icon install dmg
+.PHONY: test app run icon install dmg screenshots
 
 test:
 	swift test -Xswiftc -plugin-path -Xswiftc $(TESTING_PLUGINS)
@@ -68,3 +68,10 @@ icon:
 		sips -z $$((size * 2)) $$((size * 2)) .build/AppIcon-1024.png --out .build/AppIcon.iconset/icon_$${size}x$${size}@2x.png >/dev/null; \
 	done
 	iconutil -c icns .build/AppIcon.iconset -o assets/AppIcon.icns
+
+# README screenshots of the built-in demo pull request, from a run that never polls GitHub or saves anything.
+screenshots: app
+	rm -rf docs/screenshots
+	$(APP)/Contents/MacOS/ReviewDesk --screenshots $(CURDIR)/docs/screenshots
+	-$(LSREGISTER) -u $(CURDIR)/$(APP)
+	sips -Z 1600 docs/screenshots/*.png >/dev/null
