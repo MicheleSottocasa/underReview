@@ -15,6 +15,7 @@ import Testing
     try Data("password".utf8).write(to: outside)
     try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("escape.txt"), withDestinationURL: outside)
     try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("alias.md"), withDestinationURL: root.appendingPathComponent("api.md"))
+    try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("env-link"), withDestinationURL: root.appendingPathComponent(".env"))
 
     let files = ProjectContext.readLocal(root.path)
     let byName = Dictionary(uniqueKeysWithValues: files.map { (String($0.path.split(separator: "/").suffix(2).joined(separator: "/")), $0) })
@@ -25,6 +26,7 @@ import Testing
     #expect(byName["docs/logo.png"]?.excludedReason == "Binary file")
     #expect(byName["docs/big.txt"]?.excludedReason == "Larger than 100 KB" && byName["docs/big.txt"]?.included == false)
     #expect(byName["docs/.env"] == nil) // hidden files are never read
+    #expect(byName["docs/env-link"]?.excludedReason == "Links to a hidden file" && byName["docs/env-link"]?.content == nil)
     // Full names, as chosen, even under /var (really /private/var) where the temporary folder lives.
     #expect(files.map(\.path).contains(root.path + "/sub/notes.txt") && files.allSatisfy { $0.path.hasPrefix(root.path + "/") })
     #expect(!files.contains { $0.content?.contains("password") == true || $0.content?.contains("TOKEN") == true })

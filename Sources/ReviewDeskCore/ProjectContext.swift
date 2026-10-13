@@ -63,6 +63,11 @@ public enum ProjectContext {
                 files.append(ContextFile(path: name, content: nil, included: false, excludedReason: "Links outside the folder"))
                 continue
             }
+            // A visible link can lead to a hidden file (env-link -> .env): judge where it leads, not its own name.
+            guard !target.dropFirst(root.count + 1).split(separator: "/").contains(where: { $0.hasPrefix(".") }) else {
+                files.append(ContextFile(path: name, content: nil, included: false, excludedReason: "Links to a hidden file"))
+                continue
+            }
             guard (try? fileManager.attributesOfItem(atPath: target)[.type] as? FileAttributeType) == .typeRegular else { continue }
             guard files.count < maxFiles else { skipped += 1; continue }
             files.append(entry(URL(fileURLWithPath: target), shown: name))
