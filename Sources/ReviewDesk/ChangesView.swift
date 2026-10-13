@@ -11,6 +11,7 @@ struct ChangesView: View {
     let pr: PullRequest
     @AppStorage("diffMode") private var mode = DiffMode.split
     @AppStorage("focusFilter") private var focusOnly = false
+    @AppStorage("involvedFilter") private var involvedOnly = false
     @ViewState private var selection: ChangesItem?
     @ViewState private var target: LineTarget?
 
@@ -106,11 +107,15 @@ struct ChangesView: View {
         model.keyAreasRun(for: pr)?.result.keyAreas.filter { $0.path == path } ?? []
     }
 
-    /// Previous/next file in the order the file list shows them: the tree, or the Focus list.
+    /// Previous/next file in the order the file list shows them: the tree (narrowed by Involving Me), or the Focus list.
     private func fileStep(_ files: [FileChange], current: FileChange) -> StepControl {
-        let order = { focusOnly ? model.focus(for: pr).map(\.path) : FileNode.paths(FileNode.tree(files)) }
-        return StepControl(noun: "file", positions: { Array(order().indices) }, current: { order().firstIndex(of: selection?.path ?? current.filename) },
-                           modifiers: .command) { selection = .file(order()[$0]) }
+        let order = {
+            focusOnly ? model.focus(for: pr).map(\.path)
+                : FileNode.paths(FileNode.tree(FileTree.listed(files, involved: model.involvedThreads(pr), involvedOnly: involvedOnly)))
+        }
+        return StepControl(noun: "file", modifiers: .command,
+                           state: { let order = order(); return (Array(order.indices), order.firstIndex(of: selection?.path ?? current.filename)) },
+                           go: { selection = .file(order()[$0]) })
     }
 
     private func selectedArea(in areas: [KeyArea]) -> KeyArea? {
@@ -146,15 +151,14 @@ struct LineTarget: Equatable {
 /// "⌃ File 2 of 9 ⌄": previous/next buttons with [ and ] shortcuts, shared by files, comments and key areas.
 struct StepControl: View {
     let noun: String
-    /// Where each step can land (list indices or diff rows), in any order, and where we are. Closures, so a step
-    /// reads the state at the time of the key press: a shortcut's action can outlive the redraw that made it.
-    let positions: () -> [Int]
-    let current: () -> Int?
     let modifiers: EventModifiers
+    /// Where each step can land (list indices or diff rows), in any order, and where we are. A closure, so a step
+    /// reads the state at the time of the key press: a shortcut's action can outlive the redraw that made it.
+    let state: () -> (positions: [Int], current: Int?)
     let go: (Int) -> Void
 
     var body: some View {
-        let positions = positions(), current = current()
+        let (positions, current) = state()
         let back = Navigation.step(positions, from: current, forward: false)
         let next = Navigation.step(positions, from: current, forward: true)
         let count = Set(positions).count
@@ -176,7 +180,8 @@ struct StepControl: View {
     }
 
     private func step(forward: Bool) {
-        Navigation.step(positions(), from: current(), forward: forward).map(go)
+        let (positions, current) = state()
+        Navigation.step(positions, from: current, forward: forward).map(go)
     }
 
     private var keys: String {
@@ -463,7 +468,7 @@ struct FileTree: View {
                     if involvedOnly && involved.isEmpty {
                         Text("No review threads involve you, so all files are listed.").font(.caption).foregroundStyle(.secondary)
                     }
-                    ForEach(rows(FileNode.tree(involvedOnly && !involved.isEmpty ? files.filter { involved[$0.filename] != nil } : files), depth: 0), id: \.node.id) { row in
+                    ForEach(rows(FileNode.tree(Self.listed(files, involved: involved, involvedOnly: involvedOnly)), depth: 0), id: \.node.id) { row in
                         if let file = row.node.file {
                             fileRow(file, name: row.node.name, involved: involved[file.filename])
                                 .padding(.leading, CGFloat(row.depth) * 14 + 16)
@@ -535,10 +540,11 @@ struct FileTree: View {
         .help(node.name)
     }
 
-    /// Threads involving the viewer, per file.
-    private var involvedThreads: [String: Int] {
-        let threads = model.details[pr.id]?.threads.filter { $0.involves(model.viewer) } ?? []
-        return Dictionary(grouping: threads, by: \.path).mapValues(\.count)
+    private var involvedThreads: [String: Int] { model.involvedThreads(pr) }
+
+    /// The files the tree lists: with Involving Me on, only those with a thread involving the viewer (all when none has).
+    static func listed(_ files: [FileChange], involved: [String: Int], involvedOnly: Bool) -> [FileChange] {
+        involvedOnly && !involved.isEmpty ? files.filter { involved[$0.filename] != nil } : files
     }
 
     /// `involved`: shown instead of the comment count while the Involving Me filter is on.

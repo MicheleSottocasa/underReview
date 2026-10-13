@@ -46,6 +46,12 @@ extension AppModel {
                            changed: files[pr.id]?.map(\.filename) ?? [])
     }
 
+    /// Review threads involving the viewer, per file.
+    func involvedThreads(_ pr: PullRequest) -> [String: Int] {
+        let threads = details[pr.id]?.threads.filter { $0.involves(viewer) } ?? []
+        return Dictionary(grouping: threads, by: \.path).mapValues(\.count)
+    }
+
     /// Opens Changes at a file, scrolled to `line` when given (an old-file line when `side` is left).
     func openInChanges(_ path: String, line: Int?, side: DiffSide = .right, pr: PullRequest) {
         commitSelections[pr.id] = nil // the line is in the whole pull request, maybe not in the commits shown
