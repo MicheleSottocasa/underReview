@@ -378,7 +378,7 @@ struct FindingCard: View {
     private var suggestionNote: String {
         guard includeSuggestion else { return "Left out" }
         if case .inline(_, _, let body) = placement, body.contains("```suggestion") {
-            return "GitHub suggested change: the author can apply it in one click"
+            return "GitHub suggested change: it can be applied in one click"
         }
         return "Sent as plain code: its lines aren't all in the diff"
     }
@@ -511,11 +511,12 @@ struct FixPreview: View {
 
     /// Whether GitHub will offer "Commit suggestion", as for a finding's suggested change.
     private func note(_ proposal: FixProposal, files: [FileChange]) -> String {
+        let own = pr.viewerIsAuthor ? " Your own pull request: it goes in as a review comment, and Finish Review submits it as a Comment." : ""
         if case .inline(_, _, let body) = AIContext.placement(proposal.finding(path: fixPath), files: files),
            body.contains("```suggestion") {
-            return "GitHub suggested change: the author can apply it in one click."
+            return "GitHub suggested change: it can be applied in one click once your review is submitted." + own
         }
-        return "Sent as plain code in a comment: its lines aren't all in the diff, so GitHub can't apply it."
+        return "Sent as plain code in a comment: its lines aren't all in the diff, so GitHub can't apply it." + own
     }
 
     private var fixPath: String { model.fixes[key]?.path ?? "" }
