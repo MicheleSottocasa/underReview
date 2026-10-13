@@ -143,6 +143,23 @@ import Testing
     ])
 }
 
+@Test func aReplyAfterApprovingDoesNotHideTheApproval() async throws {
+    // bob approved, then replied in a thread: GitHub's latestReviews says COMMENTED for him.
+    let runner = FakeRunner { _ in
+        data(#"""
+        {"node":{"body":"","comments":{"nodes":[]},"reviews":{"nodes":[]},"reviewThreads":{"nodes":[]},"pending":{"nodes":[]},
+          "reviewDecision":"APPROVED",
+          "latestReviews":{"nodes":[{"id":"R_3","author":{"login":"bob"},"state":"COMMENTED","body":"","submittedAt":null,"commit":{"oid":"head"}},
+                                    {"id":"R_4","author":{"login":"carol"},"state":"COMMENTED","body":"","submittedAt":null,"commit":{"oid":"head"}}]},
+          "latestOpinionatedReviews":{"nodes":[{"id":"R_1","author":{"login":"bob"},"state":"APPROVED","body":"","submittedAt":null,"commit":{"oid":"old"}},
+                                               {"id":"R_2","author":{"login":"dan"},"state":"CHANGES_REQUESTED","body":"","submittedAt":null,"commit":{"oid":"head"}}]}}}
+        """#)
+    }
+    let detail = try await GitHub(runner: runner).detail(id: "PR_1")
+    #expect(runner.calls.first?.query.contains("latestOpinionatedReviews(first: 20)") == true)
+    #expect(detail.latestReviews.map { "\($0.author) \($0.state)" } == ["bob APPROVED", "carol COMMENTED", "dan CHANGES_REQUESTED"])
+}
+
 @Test func listsTheThreadsWaitingForTheViewersReply() throws {
     let thread = { (id: String, resolved: Bool, authors: [String]) in
         ReviewThread(id: id, path: "a", line: 1, side: .right, isResolved: resolved, isOutdated: false,
