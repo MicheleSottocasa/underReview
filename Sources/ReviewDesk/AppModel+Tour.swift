@@ -27,6 +27,7 @@ extension AppModel {
         for (id, viewed) in Demo.viewedFiles { viewedFiles[id] = viewed }
         reviewDrafts.drafts = reviewDrafts.drafts.filter { !Demo.owns($0.prID) } + Demo.drafts
         aiRuns = aiRuns.filter { !Demo.owns($0.prID) } + Demo.runs
+        followUps = followUps.filter { !Demo.owns($0.prID) } + Demo.followUps
     }
 
     /// Removes every trace of the demo from memory, including anything the user did to it during the tour.
@@ -41,6 +42,7 @@ extension AppModel {
         viewedFiles = viewedFiles.filter { !Demo.owns($0.key) }
         reviewDrafts = reviewDrafts.removingDemo()
         aiRuns = aiRuns.filter { !Demo.owns($0.prID) }
+        followUps = followUps.filter { !Demo.owns($0.prID) }
         riskChecks = riskChecks.filter { !Demo.owns($0.key) }
         org = org.removingDemo()
         checkpoints = checkpoints.filter { !Demo.owns($0.key) }

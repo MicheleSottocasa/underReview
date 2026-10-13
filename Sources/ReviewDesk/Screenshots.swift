@@ -12,8 +12,9 @@ enum Screenshots {
 
     static var isRequested: Bool { folder != nil }
 
-    static let shots: [(name: String, tab: DetailTab)] = [
-        ("conversation", .conversation), ("risk", .risk), ("changes", .changes), ("ai-review", .ai),
+    static let shots: [(name: String, tab: DetailTab, pr: String)] = [
+        ("conversation", .conversation, Demo.mainID), ("risk", .risk, Demo.mainID), ("changes", .changes, Demo.mainID),
+        ("ai-review", .ai, Demo.mainID), ("follow-up", .followUp, Demo.baseID),
     ]
 
     @MainActor
@@ -32,6 +33,7 @@ enum Screenshots {
         window.center()
         for shot in shots {
             model.columns = .all
+            model.selection = [.pr(shot.pr)]
             model.detailTab = shot.tab
             try? await Task.sleep(for: .seconds(1.5))
             save(window, to: folder.appendingPathComponent("\(shot.name).png"))

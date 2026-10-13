@@ -60,3 +60,14 @@ import Testing
     #expect(clean.muted == ["pr:PR_real"] && clean.unfollowed == ["PR_real"])
     #expect(clean.folders == org.folders)
 }
+
+@Test func demoFollowUpMatchesTheViewersThreads() throws {
+    let base = try #require(Demo.pullRequests.first { $0.id == Demo.baseID })
+    let detail = try #require(Demo.details[Demo.baseID])
+    #expect(FollowUp.isDue(base, detail: detail, viewer: Demo.viewer))
+    let threads = FollowUp.threads(of: Demo.viewer, in: detail)
+    let run = try #require(Demo.followUps.first)
+    #expect(Set(run.result.items.compactMap { $0.threadID }) == Set(threads.map { $0.id }))
+    let anchors = Set(Demo.files[Demo.baseID]!.flatMap { Diff.anchors(path: $0.filename, patch: $0.patch ?? "") })
+    #expect(threads.allSatisfy { anchors.contains(Anchor(path: $0.path, line: $0.line ?? 0, side: $0.side)) })
+}

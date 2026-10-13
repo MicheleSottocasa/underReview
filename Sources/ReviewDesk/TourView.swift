@@ -25,7 +25,7 @@ enum TourStep: Int, CaseIterable {
         case .header:
             "Title, repository and number, author, branches (head → base) and the position in its stack. **Open on GitHub** opens it in your browser."
         case .conversation:
-            "The description, reviews and comments, in order. Edit, delete or react to comments, resolve conversations, and use ✨ **Explain** or 💬 **Ask** to chat with the AI about a comment."
+            "The description, reviews and comments, in order. Edit, delete or react to comments, resolve conversations, and use ✨ **Explain** or 💬 **Ask** to chat with the AI about a comment.\n\nWhen the author pushes or replies after your review, a **Follow-up** tab checks whether each of your comments was handled (see the stack's first pull request)."
         case .risk:
             "Review risk, not lines: five questions in order (data, access, scale, failure, explain). Each shows the author's Risk notes, the AI's answer and the code to read. Tick each one off once you've checked it."
         case .changes:

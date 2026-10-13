@@ -31,8 +31,8 @@ public enum Demo {
             id: baseID, number: 41, title: "Add the invites table", url: "", state: "OPEN", isDraft: false,
             updatedAt: ago(5), headRefOid: baseHead, headRefName: "invites-table", baseRefName: "main", author: "lena.demo",
             repo: repo, commentCount: 1, reviewCount: 1, threadCommentCount: 0, requestedReviewers: [], stack: stack)
-        // Approved earlier, then the author pushed again: shows "changed since your review".
-        base.viewerReviewState = "APPROVED"
+        // Reviewed earlier, then the author pushed and replied: shows "changed since your review" and the follow-up check.
+        base.viewerReviewState = "CHANGES_REQUESTED"
         base.viewerReviewedOid = baseReviewed
         var main = PullRequest(
             id: mainID, number: 42, title: "Let organisation admins invite members", url: "", state: "OPEN", isDraft: false,
@@ -47,8 +47,18 @@ public enum Demo {
             baseID: PRDetail(
                 body: "Adds the `Invite` model and its table. The endpoints come in #42.",
                 comments: [Comment(id: "DEMO_IC_1", author: "marco.demo", body: "Thanks! #42 builds on this.", createdAt: ago(6))],
-                reviews: [Review(id: "DEMO_R_1", author: "you.demo", state: "APPROVED", body: "", submittedAt: ago(8))],
-                threads: [], pendingReview: nil),
+                reviews: [Review(id: "DEMO_R_1", author: viewer, state: "CHANGES_REQUESTED", body: "Two questions inline.", submittedAt: ago(8))],
+                threads: [
+                    ReviewThread(id: "DEMO_T_3", path: "app/invites/models.py", line: 6, side: .right, isResolved: false, isOutdated: false, comments: [
+                        Comment(id: "DEMO_C_5", author: viewer, body: "Should an email be unique per organisation? Otherwise the same person can be invited twice.", createdAt: ago(8), kind: .review),
+                        Comment(id: "DEMO_C_6", author: "lena.demo", body: "Yes: #42 adds a unique constraint on (organization, email) in its migration.", createdAt: ago(5), kind: .review),
+                    ], viewerCanResolve: true),
+                    ReviewThread(id: "DEMO_T_4", path: "app/invites/models.py", line: 13, side: .right, isResolved: false, isOutdated: false, comments: [
+                        Comment(id: "DEMO_C_7", author: viewer, body: "`timezone` isn't imported here.", createdAt: ago(8), kind: .review),
+                        Comment(id: "DEMO_C_8", author: "lena.demo", body: "I'd rather leave it: a later PR moves `mark_sent` into the task anyway.", createdAt: ago(5), kind: .review),
+                    ], viewerCanResolve: true),
+                ],
+                pendingReview: nil),
             mainID: PRDetail(
                 body: """
                 Lets organisation admins invite members by email. Builds on #41 (the invites table).
@@ -196,6 +206,20 @@ public enum Demo {
     /// A local draft the viewer hasn't sent yet.
     public static var drafts: [Draft] {
         [Draft(prID: mainID, anchor: Anchor(path: "app/invites/tasks.py", line: 14), body: "Should a retry be logged, so failed invites are easy to find?", commitOID: head)]
+    }
+
+    /// A follow-up check on the base PR: one request handled, one pushed back.
+    public static var followUps: [FollowUpRun] {
+        var run = FollowUpRun(prID: baseID, engine: .claudeCode, headRefOid: baseHead, reviewedOid: baseReviewed, result: FollowUpResult(
+            summary: "One request is handled; the missing `timezone` import was pushed back, and the code still fails without it.",
+            items: [
+                FollowUpItem(threadID: "DEMO_T_3", request: "Make invites unique per organisation", status: "addressed",
+                             explanation: "#42's migration adds `unique_invite_per_org` on (organization, email), and `create_invite` uses `get_or_create`."),
+                FollowUpItem(threadID: "DEMO_T_4", request: "Import `timezone` in models.py", status: "disputed",
+                             explanation: "The author wants to leave it for a later PR, but `mark_sent` calls `timezone.now()` in this one, so it raises `NameError` until then."),
+            ]))
+        run.date = ago(0.2)
+        return [run]
     }
 
     /// A current analysis and one from before the last push (shown as outdated).

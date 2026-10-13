@@ -311,6 +311,7 @@ struct PromptSettings: View {
     @AppStorage(Prompts.structureKey) private var structure = ""
     @AppStorage(Prompts.reviewKey) private var review = ""
     @AppStorage(Prompts.explainKey) private var explain = ""
+    @AppStorage(Prompts.followUpKey) private var followUp = ""
 
     var body: some View {
         Form {
@@ -320,6 +321,8 @@ struct PromptSettings: View {
                    text: $structure, fallback: AIContext.defaultStructureInstructions)
             editor("Codex and Ollama review", note: "Starts the review prompt. The JSON schema, PR description and files are always appended.",
                    text: $review, fallback: AIContext.defaultReviewInstructions)
+            editor("Follow-up check", note: "Asks whether the changes and replies since your review handle each of your comments. The result format, your threads and the changes are always appended.",
+                   text: $followUp, fallback: FollowUp.defaultInstructions)
             editor("Explain a comment", note: "Starts the prompt. The PR description, the diff and the conversation are always appended.",
                    text: $explain, fallback: AIContext.defaultExplainInstructions)
         }

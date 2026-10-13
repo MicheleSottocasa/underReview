@@ -98,6 +98,8 @@ final class AppModel {
     var reviewDrafts: ReviewDrafts { didSet { save(draftsFile, reviewDrafts.removingDemo()) } }
     var recentEvents: [RecentEvent] = []
     var aiRuns: [AIRun] { didSet { save(aiRunsFile, aiRuns.filter { !Demo.owns($0.prID) }) } }
+    /// Checks of whether the author handled the viewer's comments, newest last.
+    var followUps: [FollowUpRun] { didSet { save(followUpsFile, followUps.filter { !Demo.owns($0.prID) }) } }
     /// PR id → what the AI is doing right now.
     var aiStatus: [String: String] = [:]
     /// PR id → the latest steps of a running review, newest last; cleared when it ends.
@@ -127,6 +129,7 @@ final class AppModel {
     private let aiRunsFile = JSONFile<[AIRun]>.appSupport("ai-runs.json")
     private let agentLinksFile = JSONFile<[String: AgentLink]>.appSupport("agent-links.json")
     private let riskChecksFile = JSONFile<[String: [String: String]]>.appSupport("risk-checks.json")
+    private let followUpsFile = JSONFile<[FollowUpRun]>.appSupport("follow-ups.json")
     private var pollTask: Task<Void, Never>?
     private var lastFullRefresh = Date.distantPast
 
@@ -144,6 +147,7 @@ final class AppModel {
         agents = ClaudeAgents(runner: runner)
         agentLinks = agentLinksFile.load(default: [:])
         riskChecks = riskChecksFile.load(default: [:])
+        followUps = followUpsFile.load(default: [])
     }
 
     var selectedPR: PullRequest? { selectedPRID.flatMap { prs[$0] } }

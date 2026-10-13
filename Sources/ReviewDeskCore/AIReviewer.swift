@@ -184,6 +184,17 @@ public struct AIReviewer: Sendable {
     static let codeReviewTools = "Read,Grep,Glob,Bash,Agent"
     static let codeReviewAllowed = "Read,Grep,Glob,Agent,Bash(gh pr diff:*),Bash(gh pr view:*)"
 
+    /// A JSON answer matching `schema`, decoded as `T`, under the same restrictions as a review.
+    public func structured<T: Decodable>(_ engine: AIEngine, prompt: String, schema: String, as type: T.Type,
+                                         timeout: Duration = .seconds(600)) async throws -> T {
+        let data = try await run(engine, prompt: prompt, schema: schema, timeout: timeout)
+        do {
+            return try JSONDecoder().decode(T.self, from: data)
+        } catch {
+            throw AIError.invalidOutput(String(decoding: data.prefix(300), as: UTF8.self))
+        }
+    }
+
     /// A free-text answer in Markdown, under the same restrictions as a review.
     public func ask(_ engine: AIEngine, prompt: String, timeout: Duration = .seconds(300)) async throws -> String {
         let answer = String(decoding: try await run(engine, prompt: prompt, schema: nil, timeout: timeout), as: UTF8.self)

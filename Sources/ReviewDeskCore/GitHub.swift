@@ -435,6 +435,13 @@ public struct GitHub: Sendable {
         return Set(try JSONDecoder().decode([String].self, from: data))
     }
 
+    /// The changed files and their patches between two commits. Throws when the older one is gone
+    /// (e.g. after a force-push), so callers can fall back to the whole PR diff.
+    public func compareFiles(repo: String, from base: String, to head: String) async throws -> [FileChange] {
+        let data = try await runner.output("gh", ["api", "repos/\(repo)/compare/\(base)...\(head)", "--jq", ".files"])
+        return try JSONDecoder().decode([FileChange].self, from: data)
+    }
+
     // MARK: Decoding
 
     static let prFragment = """

@@ -5,6 +5,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+- **Follow-up check:** after the author pushes or replies to your comments, *Check if addressed* asks the AI whether the changes and replies since your review handle each of your requests (addressed, partly, not addressed, pushed back or unclear), with the evidence and a button to resolve addressed threads. Its prompt is editable in Settings.
 ## 0.5.0
 
 - **Onboarding tour:** on first launch, and from *Help › Show Tour*, a guided tour explains each area on a demo stack of fictional pull requests, with comments, diffs and a sample AI analysis. The demo is read-only and never saved.

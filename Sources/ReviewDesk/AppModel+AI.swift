@@ -251,12 +251,13 @@ struct Explanation {
 /// The AI prompts, as customized in Settings. An empty override means the built-in default.
 enum Prompts {
     static let reviewKey = "prompt.review", codeReviewKey = "prompt.codeReview", structureKey = "prompt.structure"
-    static let explainKey = "prompt.explain"
+    static let explainKey = "prompt.explain", followUpKey = "prompt.followUp"
 
     static var review: String { value(reviewKey, AIContext.defaultReviewInstructions) }
     static var codeReview: String { value(codeReviewKey, AIContext.defaultCodeReviewInstructions) }
     static var structure: String { value(structureKey, AIContext.defaultStructureInstructions) }
     static var explain: String { value(explainKey, AIContext.defaultExplainInstructions) }
+    static var followUp: String { value(followUpKey, FollowUp.defaultInstructions) }
 
     private static func value(_ key: String, _ fallback: String) -> String {
         let custom = UserDefaults.standard.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
