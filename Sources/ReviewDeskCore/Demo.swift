@@ -59,13 +59,13 @@ public enum Demo {
                 reviews: [Review(id: "DEMO_R_1", author: viewer, state: "CHANGES_REQUESTED", body: "Two questions inline.", submittedAt: ago(8))],
                 threads: [
                     ReviewThread(id: "DEMO_T_3", path: "app/invites/models.py", line: 6, side: .right, isResolved: false, isOutdated: false, comments: [
-                        Comment(id: "DEMO_C_5", author: viewer, body: "Should an email be unique per organisation? Otherwise the same person can be invited twice.", createdAt: ago(8), kind: .review),
+                        Comment(id: "DEMO_C_5", author: viewer, body: "Should an email be unique per organisation? Otherwise the same person can be invited twice.", createdAt: ago(8), kind: .review, reviewID: "DEMO_R_1"),
                         Comment(id: "DEMO_C_6", author: "lena.demo", body: "Yes: #42 adds a unique constraint on (organization, email) in its migration.", createdAt: ago(5), kind: .review),
-                    ], viewerCanResolve: true),
+                    ], viewerCanResolve: true, diffHunk: hunk(baseID, "app/invites/models.py", 6)),
                     ReviewThread(id: "DEMO_T_4", path: "app/invites/models.py", line: 13, side: .right, isResolved: false, isOutdated: false, comments: [
-                        Comment(id: "DEMO_C_7", author: viewer, body: "`timezone` isn't imported here.", createdAt: ago(8), kind: .review),
+                        Comment(id: "DEMO_C_7", author: viewer, body: "`timezone` isn't imported here.", createdAt: ago(8), kind: .review, reviewID: "DEMO_R_1"),
                         Comment(id: "DEMO_C_8", author: "lena.demo", body: "I'd rather leave it: a later PR moves `mark_sent` into the task anyway.", createdAt: ago(5), kind: .review),
-                    ], viewerCanResolve: true),
+                    ], viewerCanResolve: true, diffHunk: hunk(baseID, "app/invites/models.py", 13)),
                 ],
                 pendingReview: nil),
             mainID: PRDetail(
@@ -83,16 +83,29 @@ public enum Demo {
                 reviews: [Review(id: "DEMO_R_2", author: "lena.demo", state: "COMMENTED", body: "Left a couple of questions.", submittedAt: ago(3))],
                 threads: [
                     ReviewThread(id: "DEMO_T_1", path: "app/invites/views.py", line: 21, side: .right, isResolved: false, isOutdated: false, comments: [
-                        Comment(id: "DEMO_C_1", author: "lena.demo", body: "Shouldn't this check that `request.user` is an admin of the organisation? Right now anyone can invite to any organisation.", createdAt: ago(3), kind: .review),
+                        Comment(id: "DEMO_C_1", author: "lena.demo", body: "Shouldn't this check that `request.user` is an admin of the organisation? Right now anyone can invite to any organisation.", createdAt: ago(3), kind: .review, reviewID: "DEMO_R_2"),
                         Comment(id: "DEMO_C_2", author: "marco.demo", body: "Good catch: the check was on the old view. I'll add it back.", createdAt: ago(2), kind: .review),
-                    ]),
+                    ], diffHunk: hunk(mainID, "app/invites/views.py", 21)),
                     ReviewThread(id: "DEMO_T_2", path: "app/invites/tasks.py", line: 11, side: .right, isResolved: true, isOutdated: false, comments: [
-                        Comment(id: "DEMO_C_3", author: "lena.demo", body: "Could a retry send the email twice?", createdAt: ago(3), kind: .review),
+                        Comment(id: "DEMO_C_3", author: "lena.demo", body: "Could a retry send the email twice?", createdAt: ago(3), kind: .review, reviewID: "DEMO_R_2"),
                         Comment(id: "DEMO_C_4", author: "marco.demo", body: "Not anymore: it returns early once `sent_at` is set.", createdAt: ago(2), kind: .review),
-                    ], resolvedBy: "lena.demo"),
+                    ], resolvedBy: "lena.demo", diffHunk: hunk(mainID, "app/invites/tasks.py", 11)),
                 ],
                 pendingReview: nil),
         ]
+    }
+
+    /// What GitHub's `diffHunk` holds: the file's patch up to the commented line.
+    static func hunk(_ prID: String, _ path: String, _ line: Int) -> String {
+        let lines = Diff.parse(files[prID]?.first { $0.filename == path }?.patch ?? "")
+        return lines.prefix((lines.firstIndex { $0.newLine == line } ?? lines.count) + 1).map { line in
+            switch line.kind {
+            case .hunk: line.text
+            case .added: "+" + line.text
+            case .removed: "-" + line.text
+            case .context: " " + line.text
+            }
+        }.joined(separator: "\n")
     }
 
     public static var files: [String: [FileChange]] {

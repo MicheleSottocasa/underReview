@@ -1,19 +1,29 @@
 import ReviewDeskCore
 import SwiftUI
 
-/// GitHub-style timeline: the description, then comments and reviews in order.
+/// GitHub-style timeline: the description, then comments and reviews in order, each review with its inline threads.
 struct ConversationView: View {
+    @Environment(AppModel.self) private var model
     let pr: PullRequest
     let detail: PRDetail?
-    /// Ids of the folded cards; the description is "description".
+    @AppStorage("conversationFilter") private var filter = Conversation.Filter.all
+    /// Ids of the folded cards and threads; the description is "description".
     @ViewState private var folded: Set<String> = []
 
     var body: some View {
         if let detail {
+            let items = Conversation.timeline(detail, viewer: model.viewer, filter: filter)
+            let ids = ["description"] + items.map(\.id)
+            let hidden: Set<String> = []
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    let ids = ["description"] + entries(detail).map(\.id)
                     HStack {
+                        Picker("Show", selection: $filter) {
+                            ForEach(Conversation.Filter.allCases, id: \.self) { Text($0.title).tag($0) }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .fixedSize()
                         Spacer()
                         let all = folded.isSuperset(of: ids)
                         Button(all ? "Expand All" : "Collapse All",
@@ -21,29 +31,36 @@ struct ConversationView: View {
                             folded = all ? [] : Set(ids)
                         }
                         .controlSize(.small)
-                        .help(all ? "Show every comment in full" : "Fold the description and every comment to its header")
+                        .help(all ? "Show every comment in full" : "Fold the description, every comment and every thread to its header")
                     }
                     TimelineCard(author: pr.author, action: "opened this pull request", date: nil,
                                  text: detail.body.isEmpty ? "_No description provided._" : detail.body,
                                  collapsed: fold("description"))
-                    ForEach(entries(detail)) { entry in
-                        switch entry.kind {
+                    ForEach(items) { item in
+                        switch item {
                         case .comment(let comment):
                             TimelineCard(author: comment.author, action: "commented", date: comment.createdAt, text: comment.body,
-                                         comment: comment, pr: pr, collapsed: fold(entry.id))
-                        case .review(let review):
+                                         comment: comment, pr: pr, collapsed: fold(item.id))
+                        case .review(let review, let threads):
+                            let shown = threads.filter { $0.comments.contains { !hidden.contains($0.id) } }
                             if review.body.isEmpty {
-                                TimelineEvent(review: review)
+                                TimelineEvent(review: review, collapsed: shown.isEmpty ? nil : fold(item.id))
                             } else {
                                 TimelineCard(author: review.author, action: Self.verb(review.state), date: review.submittedAt,
-                                             text: review.body, accent: Self.color(review.state), collapsed: fold(entry.id))
+                                             text: review.body, accent: Self.color(review.state), collapsed: fold(item.id))
+                            }
+                            // A folded review folds its threads too.
+                            if !folded.contains(item.id) {
+                                ForEach(shown) { InlineThread(pr: pr, thread: $0, hidden: hidden) }
+                            }
+                        case .thread(let thread):
+                            if thread.comments.contains(where: { !hidden.contains($0.id) }) {
+                                InlineThread(pr: pr, thread: thread, hidden: hidden, collapsed: fold(item.id))
                             }
                         }
                     }
-                    let open = detail.threads.filter { !$0.isResolved }.count
-                    if !detail.threads.isEmpty {
-                        Label("\(detail.threads.count) inline conversation\(detail.threads.count == 1 ? "" : "s") (\(open) unresolved), shown in Changes",
-                              systemImage: "text.bubble")
+                    if items.isEmpty && filter != .all {
+                        Text(filter == .unresolved ? "No unresolved conversations." : "Nothing started by you yet.")
                             .font(.callout).foregroundStyle(.secondary).padding(.leading, 44)
                     }
                 }
@@ -57,19 +74,6 @@ struct ConversationView: View {
 
     private func fold(_ id: String) -> Binding<Bool> {
         Binding { folded.contains(id) } set: { if $0 { folded.insert(id) } else { folded.remove(id) } }
-    }
-
-    private struct Entry: Identifiable {
-        enum Kind { case comment(Comment), review(Review) }
-        var id: String
-        var date: Date
-        var kind: Kind
-    }
-
-    private func entries(_ detail: PRDetail) -> [Entry] {
-        (detail.comments.map { Entry(id: $0.id, date: $0.createdAt, kind: .comment($0)) }
-            + detail.reviews.map { Entry(id: $0.id, date: $0.submittedAt ?? .distantPast, kind: .review($0)) })
-            .sorted { $0.date < $1.date }
     }
 
     static func verb(_ state: String) -> String {
@@ -158,9 +162,46 @@ struct TimelineCard: View {
     }
 }
 
+/// An inline review thread in the timeline: its file and line, a link to it in Changes, then the thread.
+struct InlineThread: View {
+    @Environment(AppModel.self) private var model
+    let pr: PullRequest
+    let thread: ReviewThread
+    /// Comments already shown as local drafts.
+    let hidden: Set<String>
+    /// Set for a thread outside a review, which folds on its own.
+    var collapsed: Binding<Bool>?
+
+    var body: some View {
+        let folded = collapsed?.wrappedValue == true
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: "doc.text").foregroundStyle(.secondary)
+                Text(verbatim: thread.path + (thread.line.map { ":\($0)" } ?? "")).font(.caption.monospaced()).foregroundStyle(.secondary)
+                Button("Show in Changes") { model.openInChanges(thread.path, line: thread.line, pr: pr) }
+                    .buttonStyle(.link).font(.caption)
+                if let collapsed {
+                    Button { collapsed.wrappedValue.toggle() } label: {
+                        Image(systemName: folded ? "chevron.right" : "chevron.down")
+                    }
+                    .buttonStyle(.borderless)
+                    .help(folded ? "Expand" : "Collapse")
+                }
+            }
+            .padding(.horizontal, 12)
+            if !folded {
+                ThreadView(pr: pr, thread: thread, hidden: hidden, foldsOutdated: true, context: Conversation.context(thread))
+            }
+        }
+        .padding(.leading, 44)
+    }
+}
+
 /// A review without a body: a compact event line, like GitHub's timeline badges.
 struct TimelineEvent: View {
     let review: Review
+    /// Set when the review has inline threads, which fold under it.
+    var collapsed: Binding<Bool>?
 
     var body: some View {
         HStack(spacing: 8) {
@@ -172,6 +213,13 @@ struct TimelineEvent: View {
             Avatar(login: review.author, size: 20)
             Text(review.author).bold() + Text(" " + ConversationView.verb(review.state)).foregroundStyle(.secondary)
             if let date = review.submittedAt { Text(date.formatted(.relative(presentation: .named))).foregroundStyle(.secondary) }
+            if let collapsed {
+                Button { collapsed.wrappedValue.toggle() } label: {
+                    Image(systemName: collapsed.wrappedValue ? "chevron.right" : "chevron.down")
+                }
+                .buttonStyle(.borderless)
+                .help(collapsed.wrappedValue ? "Show this review's threads" : "Hide this review's threads")
+            }
         }
         .font(.callout)
         .padding(.leading, 4)

@@ -115,6 +115,8 @@ public struct Comment: Hashable, Identifiable, Sendable {
     /// Hidden on GitHub, e.g. as resolved: conversation comments can't be resolved like review threads.
     public var isMinimized = false
     public var viewerCanMinimize = false
+    /// The review an inline comment was posted with.
+    public var reviewID: String?
 }
 
 public enum ReactionContent: String, CaseIterable, Hashable, Sendable {
@@ -201,6 +203,8 @@ public struct ReviewThread: Hashable, Identifiable, Sendable {
         let lines = (comments.first?.body ?? "").split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
         return lines.first { !$0.isEmpty && !$0.hasPrefix("```") } ?? ""
     }
+    /// GitHub's diff hunk for the first comment: the patch up to the commented line.
+    public var diffHunk = ""
 }
 
 public struct PendingComment: Hashable, Identifiable, Sendable {
@@ -340,7 +344,8 @@ public struct GitHub: Sendable {
           comments(last: 100) { nodes { ...CommentFields } }
           reviews(last: 50) { nodes { id author { login } state body submittedAt } }
           reviewThreads(first: 100) { nodes { id path line diffSide isResolved isOutdated viewerCanResolve viewerCanUnresolve resolvedBy { login }
-            comments(first: 100) { nodes { ...CommentFields state } } } }
+            comments(first: 100) { nodes { ...CommentFields state pullRequestReview { id } } }
+            hunk: comments(first: 1) { nodes { diffHunk } } } }
           \(Self.pendingField)
         } } }
         fragment CommentFields on Comment {
@@ -368,7 +373,8 @@ public struct GitHub: Sendable {
                              comments: Self.nodes($0["comments"]).map(Self.decodeComment),
                              viewerCanResolve: $0["viewerCanResolve"] as? Bool ?? false,
                              viewerCanUnresolve: $0["viewerCanUnresolve"] as? Bool ?? false,
-                             resolvedBy: ($0["resolvedBy"] as? [String: Any])?["login"] as? String)
+                             resolvedBy: ($0["resolvedBy"] as? [String: Any])?["login"] as? String,
+                             diffHunk: Self.nodes($0["hunk"]).first?["diffHunk"] as? String ?? "")
             },
             pendingReview: pending
         )
@@ -584,7 +590,8 @@ public struct GitHub: Sendable {
                     return Reaction(content: content, count: count, viewerHasReacted: group["viewerHasReacted"] as? Bool ?? false)
                 },
                 isMinimized: node["isMinimized"] as? Bool ?? false,
-                viewerCanMinimize: node["viewerCanMinimize"] as? Bool ?? false)
+                viewerCanMinimize: node["viewerCanMinimize"] as? Bool ?? false,
+                reviewID: (node["pullRequestReview"] as? [String: Any])?["id"] as? String)
     }
 
     static func stamps(_ nodes: [[String: Any]]) -> [String: Date] {

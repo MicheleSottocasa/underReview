@@ -71,3 +71,13 @@ import Testing
     let anchors = Set(Demo.files[Demo.baseID]!.flatMap { Diff.anchors(path: $0.filename, patch: $0.patch ?? "") })
     #expect(threads.allSatisfy { anchors.contains(Anchor(path: $0.path, line: $0.line ?? 0, side: $0.side)) })
 }
+
+@Test func demoThreadsSitUnderTheirReviewWithDiffContext() throws {
+    for detail in Demo.details.values {
+        let items = Conversation.timeline(detail, viewer: Demo.viewer, filter: .all)
+        #expect(!items.contains { if case .thread = $0 { true } else { false } }) // every thread has its review
+        for thread in detail.threads {
+            #expect(Conversation.context(thread).last?.newLine == thread.line, "context of \(thread.id)")
+        }
+    }
+}

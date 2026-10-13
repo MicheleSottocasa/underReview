@@ -84,7 +84,8 @@ import Testing
           "reviews":{"nodes":[{"id":"R_1","author":{"login":"bob"},"state":"APPROVED","body":"","submittedAt":"2026-10-01T00:00:00Z"},
                               {"id":"R_2","author":{"login":"me"},"state":"PENDING","body":"","submittedAt":null}]},
           "reviewThreads":{"nodes":[{"id":"T_1","path":"a.swift","line":3,"diffSide":"LEFT","isResolved":false,"isOutdated":true,"resolvedBy":{"login":"bob"},
-            "comments":{"nodes":[{"id":"C_9","author":{"login":"me"},"body":"web comment","createdAt":"2026-10-01T00:00:00Z","state":"PENDING"}]}}]},
+            "comments":{"nodes":[{"id":"C_9","author":{"login":"me"},"body":"web comment","createdAt":"2026-10-01T00:00:00Z","state":"PENDING","pullRequestReview":{"id":"R_2"}}]},
+            "hunk":{"nodes":[{"diffHunk":"@@ -1 +1 @@\n+x"}]}}]},
           "pending":{"nodes":[{"id":"R_2","commit":{"oid":"abc"},"comments":{"nodes":[{"id":"C_9","path":"a.swift","line":4,"body":"web comment"}]}}]}}}
         """#)
     }
@@ -95,6 +96,9 @@ import Testing
     #expect(detail.threads.first?.side == .left)
     #expect(detail.threads.first?.resolvedBy == "bob")
     #expect(detail.threads.first?.comments.first?.isPending == true)
+    #expect(detail.threads.first?.comments.first?.reviewID == "R_2")
+    #expect(detail.threads.first?.diffHunk == "@@ -1 +1 @@\n+x")
+    #expect(detail.comments.first?.reviewID == nil)
     #expect(detail.comments.first?.isPending == false)
     #expect(detail.pendingReview == PendingReview(id: "R_2", commitOID: "abc", comments: [PendingComment(id: "C_9", path: "a.swift", line: 4, body: "web comment")]))
 }
