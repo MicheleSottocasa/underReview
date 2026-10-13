@@ -134,8 +134,19 @@ public struct ProcessRunner: CommandRunner {
         if !buffer.isEmpty { onLine(String(decoding: buffer, as: UTF8.self)) }
     }
 
-    public static func childEnvironment(_ base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
-        base.filter { !strippedEnvironment.contains($0.key) }
+    /// The environment for a tool: API keys removed, and `PATH` extended with the folders of the tools we found plus
+    /// the usual install folders. An app opened from Finder gets launchd's minimal `PATH`, so without this a CLI we
+    /// start couldn't run the others itself (e.g. `/code-review` running `gh pr diff` found no `gh`).
+    public static func childEnvironment(_ base: [String: String] = ProcessInfo.processInfo.environment,
+                                        toolPaths: [String: String] = [:]) -> [String: String] {
+        var env = base.filter { !strippedEnvironment.contains($0.key) }
+        let current = (env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin").split(separator: ":").map(String.init)
+        let extra = toolPaths.values.sorted().map { ($0 as NSString).deletingLastPathComponent }
+            + fallbackDirectories.map { ($0 as NSString).expandingTildeInPath }
+        var seen = Set<String>()
+        // Tool folders first: the copy we resolved (or the user set in Settings) is the one its children should find.
+        env["PATH"] = (extra + current).filter { !$0.isEmpty && seen.insert($0).inserted }.joined(separator: ":")
+        return env
     }
 
     public func run(_ tool: String, _ args: [String], stdin: Data?, cwd: URL?, timeout: Duration) async throws -> CommandResult {
@@ -162,7 +173,7 @@ public struct ProcessRunner: CommandRunner {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = args
-        process.environment = Self.childEnvironment()
+        process.environment = Self.childEnvironment(toolPaths: paths)
         if let cwd { process.currentDirectoryURL = cwd }
         process.standardInput = try FileHandle(forReadingFrom: inURL)
         process.standardOutput = try FileHandle(forWritingTo: outURL)

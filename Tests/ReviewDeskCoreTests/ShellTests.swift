@@ -27,7 +27,8 @@ import Testing
 
 @Test func childEnvironmentDropsAPIKeys() {
     let env = ProcessRunner.childEnvironment(["ANTHROPIC_API_KEY": "x", "OPENAI_API_KEY": "y", "HOME": "/h"])
-    #expect(env == ["HOME": "/h"])
+    #expect(env["ANTHROPIC_API_KEY"] == nil && env["OPENAI_API_KEY"] == nil)
+    #expect(env["HOME"] == "/h")
 }
 
 @Test func discoverFindsToolsOnLoginPath() {
@@ -91,4 +92,28 @@ private final class LineCollector: @unchecked Sendable {
     #expect(error?.userMessage == nil)
     #expect(URLError(.cancelled).userMessage == nil)
     #expect(GitHubError.notFound("Pull request").userMessage == "Pull request not found or not accessible.")
+}
+
+@Test func childEnvironmentPutsTheToolFoldersOnPATH() {
+    // What an app opened from Finder gets from launchd.
+    let env = ProcessRunner.childEnvironment(["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "ANTHROPIC_API_KEY": "x"],
+                                             toolPaths: ["gh": "/opt/homebrew/bin/gh", "claude": "/Users/me/.local/bin/claude"])
+    let path = (env["PATH"] ?? "").split(separator: ":").map(String.init)
+    #expect(path.prefix(2) == ["/Users/me/.local/bin", "/opt/homebrew/bin"]) // the tools we resolved come first
+    #expect(path.contains("/usr/bin") && path.contains("/sbin"))           // the original entries stay
+    #expect(path.count == Set(path).count)                                 // no duplicates
+    #expect(env["ANTHROPIC_API_KEY"] == nil)
+}
+
+@Test func childProcessesCanRunOtherDiscoveredTools() async throws {
+    // A Finder-like PATH in the parent, but `sh` started through the runner still finds `gh`'s folder.
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent("rd-path-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let fakeGh = folder.appendingPathComponent("gh")
+    try Data("#!/bin/sh\necho found-gh\n".utf8).write(to: fakeGh)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeGh.path)
+    let runner = ProcessRunner(paths: ["sh": "/bin/sh", "gh": fakeGh.path])
+    let result = try await runner.run("sh", ["-c", "PATH_BEFORE=1 gh"], stdin: nil, cwd: nil, timeout: .seconds(10))
+    #expect(result.text.trimmingCharacters(in: .whitespacesAndNewlines) == "found-gh")
 }
