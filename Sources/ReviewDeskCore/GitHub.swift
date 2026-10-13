@@ -104,6 +104,12 @@ public struct PullRequest: Codable, Hashable, Identifiable, Sendable {
         state == "OPEN" && !viewerIsAuthor && viewerReviewState != nil
             && viewerReviewedOid.map { $0 != headRefOid } == true
     }
+
+    /// The pull request of `prs` that a GitHub PR link (`https://github.com/o/r/pull/1`) points to.
+    public static func linked(by url: URL, in prs: some Sequence<PullRequest>) -> PullRequest? {
+        guard let ref = PRRef(url.absoluteString) else { return nil }
+        return prs.first { $0.repo.lowercased() == ref.nameWithOwner.lowercased() && $0.number == ref.number }
+    }
 }
 
 public struct Comment: Hashable, Identifiable, Sendable {

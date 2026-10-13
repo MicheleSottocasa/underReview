@@ -23,6 +23,16 @@ import Testing
     #expect(PRRef("nonsense") == nil)
 }
 
+@Test func findsTheFollowedPullRequestALinkPointsTo() throws {
+    let followed = PullRequest(id: "PR_1", number: 12, title: "T", url: "", state: "OPEN", isDraft: false, updatedAt: .now, headRefOid: "",
+                               headRefName: "", baseRefName: "", author: "", repo: "o/r", commentCount: 0, reviewCount: 0,
+                               threadCommentCount: 0, requestedReviewers: [], stack: nil)
+    #expect(PullRequest.linked(by: try #require(URL(string: "https://github.com/O/R/pull/12")), in: [followed])?.id == "PR_1")
+    #expect(PullRequest.linked(by: try #require(URL(string: "https://github.com/o/r/pull/13")), in: [followed]) == nil)
+    #expect(PullRequest.linked(by: try #require(URL(string: "https://github.com/o/other/pull/12")), in: [followed]) == nil)
+    #expect(PullRequest.linked(by: try #require(URL(string: "https://github.com/o/r/commit/a1b2c3d")), in: [followed]) == nil)
+}
+
 @Test func decodesPullRequestWithNativeStack() async throws {
     let stack = #"{"number":4,"entries":{"nodes":[{"position":2,"pullRequest":{"id":"PR_2","number":2}},{"position":1,"pullRequest":{"id":"PR_1","number":1}}]}}"#
     let runner = FakeRunner { _ in data(#"{"nodes":[\#(prNode(threadComments: [2, 1], requested: ["me"], stack: stack)), null]}"#) }
