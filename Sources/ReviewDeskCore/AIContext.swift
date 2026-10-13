@@ -40,9 +40,13 @@ public struct KeyArea: Codable, Hashable, Sendable {
 
     public var question: RiskQuestion? { risk.flatMap(RiskQuestion.init) }
 
+    /// The new-side lines it covers; nil for the whole file.
+    public var lines: ClosedRange<Int>? {
+        startLine.map { $0...max($0, endLine ?? $0) }
+    }
+
     public func contains(line: Int) -> Bool {
-        guard let startLine else { return false }
-        return (startLine...max(startLine, endLine ?? startLine)).contains(line)
+        lines?.contains(line) ?? false
     }
 }
 
