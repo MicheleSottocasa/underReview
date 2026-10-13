@@ -110,6 +110,15 @@ private func links(_ markdown: String, repo: String? = "o/r") -> [String] {
     #expect(links("Bare https://github.com/octo/cat/issues/9 too.") == ["octo/cat#9 -> https://github.com/octo/cat/issues/9"])
 }
 
+@Test func onlyWebAndMailLinksLeaveTheApp() {
+    for safe in ["https://github.com/o/r/pull/1", "HTTP://example.com", "mailto:a@b.c"] {
+        #expect(Markdown.opensOutside(URL(string: safe)!), "\(safe)")
+    }
+    for unsafe in ["file:///etc/passwd", "x-apple.systempreferences:com.apple.preference", "vscode://file/a", "javascript:alert(1)"] {
+        #expect(!Markdown.opensOutside(URL(string: unsafe)!), "\(unsafe)")
+    }
+}
+
 @Test func leavesCodeAndLookalikesAlone() {
     #expect(links("`a1b2c3d` and `#12`\n\n```\nfix a1b2c3d, #12\n```").isEmpty)
     // No digit, no letter, a color, a UUID, a file path with an anchor, an HTML entity.

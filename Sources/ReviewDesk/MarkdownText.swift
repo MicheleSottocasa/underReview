@@ -96,7 +96,8 @@ extension EnvironmentValues {
 }
 
 /// Opens the PRs the app follows in the app, and other links (other PRs, commits) in the browser.
-/// The demo never opens GitHub.
+/// The demo never opens GitHub. Comments are untrusted: only web and mail links leave the app, never `file://`
+/// or another app's scheme.
 struct LinkHandler: ViewModifier {
     @Environment(AppModel.self) private var model
     let pr: PullRequest
@@ -105,6 +106,7 @@ struct LinkHandler: ViewModifier {
         content
             .environment(\.markdownRepo, pr.repo)
             .environment(\.openURL, OpenURLAction { url in
+                guard Markdown.opensOutside(url) else { return .discarded }
                 let ref = PRRef(url.absoluteString)
                 if let ref, let target = model.prs.values.first(where: { $0.repo.lowercased() == ref.nameWithOwner.lowercased() && $0.number == ref.number }) {
                     model.selection = [.pr(target.id)]
