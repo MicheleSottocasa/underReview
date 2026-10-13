@@ -116,6 +116,49 @@ import Testing
     #expect(detail.pendingReview == PendingReview(id: "R_2", commitOID: "abc", comments: [PendingComment(id: "C_9", path: "a.swift", line: 4, body: "web comment")]))
 }
 
+@Test func detailReadsTheReviewDecisionAndEachReviewersLatestReview() async throws {
+    let runner = FakeRunner { _ in
+        data(#"""
+        {"node":{"body":"","comments":{"nodes":[]},"reviews":{"nodes":[]},"reviewThreads":{"nodes":[]},"pending":{"nodes":[]},
+          "reviewDecision":"CHANGES_REQUESTED",
+          "latestReviews":{"nodes":[{"id":"R_1","author":{"login":"bob"},"state":"APPROVED","body":"","submittedAt":"2026-10-01T00:00:00Z","commit":{"oid":"old"}},
+                                    {"id":"R_2","author":{"login":"carol"},"state":"CHANGES_REQUESTED","body":"no","submittedAt":null,"commit":{"oid":"head"}},
+                                    {"id":"R_3","author":{"login":"me"},"state":"COMMENTED","body":"","submittedAt":null,"commit":null},
+                                    {"id":"R_4","author":{"login":"alice"},"state":"COMMENTED","body":"","submittedAt":null,"commit":null},
+                                    {"id":"R_5","author":{"login":"dan"},"state":"APPROVED","body":"","submittedAt":null,"commit":{"oid":"old"}}]}}}
+        """#)
+    }
+    let detail = try await GitHub(runner: runner).detail(id: "PR_1")
+    #expect(runner.calls.first?.query.contains("reviewDecision latestReviews(first: 20)") == true)
+    #expect(detail.reviewDecision == "CHANGES_REQUESTED")
+    #expect(detail.latestReviews.map(\.commitOID) == ["old", "head", nil, nil, "old"])
+
+    var pr = try #require(GitHub.decodePR(["id": "PR_1", "number": 1, "headRefOid": "head", "author": ["login": "alice"]]))
+    pr.requestedReviewers = ["dan", "erin", "me"]
+    // The viewer and the author are left out; a re-requested reviewer waits again; the head moved past bob's approval.
+    #expect(detail.reviewers(of: pr, viewer: "me") == [
+        Reviewer(login: "bob", state: "APPROVED", isOutdated: true),
+        Reviewer(login: "carol", state: "CHANGES_REQUESTED"),
+        Reviewer(login: "dan"), Reviewer(login: "erin"),
+    ])
+}
+
+@Test func listsTheThreadsWaitingForTheViewersReply() throws {
+    let thread = { (id: String, resolved: Bool, authors: [String]) in
+        ReviewThread(id: id, path: "a", line: 1, side: .right, isResolved: resolved, isOutdated: false,
+                     comments: authors.map { Comment(id: $0, author: $0, body: "", createdAt: .now) })
+    }
+    let detail = PRDetail(body: "", comments: [], reviews: [], threads: [
+        thread("MINE_ANSWERED", false, ["me", "bob"]), thread("MINE_RESOLVED", true, ["me", "bob"]),
+        thread("MY_TURN_DONE", false, ["me", "bob", "me"]), thread("THEIRS", false, ["bob", "carol"]),
+    ])
+    var pr = try #require(GitHub.decodePR(["id": "PR_1", "number": 1]))
+    #expect(detail.threadsAwaitingReply(pr, viewer: "me").map(\.id) == ["MINE_ANSWERED"])
+    // On my own PR every unresolved thread where someone else wrote last waits for me.
+    pr.viewerIsAuthor = true
+    #expect(detail.threadsAwaitingReply(pr, viewer: "me").map(\.id) == ["MINE_ANSWERED", "THEIRS"])
+}
+
 @Test func filesFlattenSlurpedPages() async throws {
     let runner = FakeRunner { _ in
         ok(#"[[{"filename":"a","status":"modified","additions":1,"deletions":0,"patch":"@@ -1 +1 @@"}],[{"filename":"big.bin","status":"added","additions":0,"deletions":0}]]"#)
