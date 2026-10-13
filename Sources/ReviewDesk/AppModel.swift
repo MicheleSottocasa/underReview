@@ -77,7 +77,8 @@ final class AppModel {
     var lastRefresh: Date?
     var refreshError: String?
     /// From launch until the first refresh succeeds or fails, and during every later refresh.
-    var isLoading: Bool { isRefreshing || (lastRefresh == nil && refreshError == nil && setupError == nil) }
+    /// Until the viewer is known (no refresh can run before), and during every refresh.
+    var isLoading: Bool { isRefreshing || (viewer.isEmpty && setupError == nil) }
     /// A newer published release than this build, if the last check found one.
     var availableUpdate: AppRelease?
     /// What the in-app update is doing (downloading, checking, installing), while it runs.
@@ -221,6 +222,9 @@ final class AppModel {
     }
 
     func refresh() async throws {
+        // Without the viewer, checkpoints would record no review request, and the next poll would announce one
+        // for every PR that has it.
+        guard !viewer.isEmpty else { return }
         isRefreshing = true
         defer { isRefreshing = false }
         // Cheap pass first (ids and update times), then full data only for PRs that changed.
