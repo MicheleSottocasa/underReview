@@ -84,8 +84,8 @@ import Testing
           "reviews":{"nodes":[{"id":"R_1","author":{"login":"bob"},"state":"APPROVED","body":"","submittedAt":"2026-10-01T00:00:00Z"},
                               {"id":"R_2","author":{"login":"me"},"state":"PENDING","body":"","submittedAt":null}]},
           "reviewThreads":{"nodes":[{"id":"T_1","path":"a.swift","line":3,"diffSide":"LEFT","isResolved":false,"isOutdated":true,"resolvedBy":{"login":"bob"},
-            "comments":{"nodes":[{"id":"C_9","author":{"login":"me"},"body":"web comment","createdAt":"2026-10-01T00:00:00Z","state":"PENDING","pullRequestReview":{"id":"R_2"}}]},
-            "hunk":{"nodes":[{"diffHunk":"@@ -1 +1 @@\n+x"}]}}]},
+            "comments":{"nodes":[{"id":"C_9","author":{"login":"me"},"body":"web comment","createdAt":"2026-10-01T00:00:00Z","state":"PENDING","pullRequestReview":{"id":"R_2"},
+              "diffHunk":"@@ -1 +1 @@\n+x"}]}}]},
           "pending":{"nodes":[{"id":"R_2","commit":{"oid":"abc"},"comments":{"nodes":[{"id":"C_9","path":"a.swift","line":4,"body":"web comment"}]}}]}}}
         """#)
     }
