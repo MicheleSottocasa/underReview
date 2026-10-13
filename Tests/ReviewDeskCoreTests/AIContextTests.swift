@@ -110,6 +110,28 @@ private func finding(_ path: String?, _ line: Int?) -> Finding {
     #expect(AIContext.placement(fix("a.swift", 2, ""), files: all) == .inline(Anchor(path: "a.swift", line: 2), startLine: nil, body: "c\n\n```suggestion\n\n```"))
 }
 
+@Test func aFixIsAskedWithNumberedNewLinesAndPostedAsASuggestedChange() throws {
+    let patch = "@@ -1,3 +1,4 @@\n def f(x):\n-    return x\n+    y = x\n+    return y\n end"
+    let finding = Finding(severity: "high", title: "Off by one", rationale: "Misses the last item.", path: "a.py", line: 2, comment: "Loop to n.")
+    let prompt = AIContext.fixPrompt(title: "T", body: "B", path: "a.py", patch: patch, problem: AIContext.fixProblem(finding))
+    #expect(prompt.contains("    1  def f(x):\n      -    return x\n    2 +    y = x\n    3 +    return y\n    4  end"))
+    #expect(prompt.contains("## [FIX THIS]\n\n**Off by one** (high), line 2") && prompt.contains(AIContext.fixSchema))
+    let comment = Comment(id: "C2", author: "bob", body: "Rename y", createdAt: .now)
+    #expect(AIContext.fixProblem(thread: [Comment(id: "C1", author: "amy", body: "Hm", createdAt: .now), comment], comment: comment, line: 2)
+        .contains("**bob** **[THIS ONE]**:\nRename y"))
+
+    #expect(AIContext.newSideText(patch: patch, from: 2, to: 3) == "    y = x\n    return y")
+    #expect(AIContext.newSideText(patch: patch, from: 4, to: 9) == nil) // not all in the diff
+
+    // Accepting it posts exactly like an AI finding's multi-line suggested change.
+    let fix = try JSONDecoder().decode(FixProposal.self, from: Data(#"{"startLine":2,"line":3,"suggestion":"    return x","comment":"Return x directly."}"#.utf8))
+    let files = [FileChange(filename: "a.py", status: "modified", additions: 2, deletions: 1, patch: patch)]
+    #expect(AIContext.placement(fix.finding(path: "a.py"), files: files)
+        == .inline(Anchor(path: "a.py", line: 3), startLine: 2, body: "Return x directly.\n\n```suggestion\n    return x\n```"))
+    let none = FixProposal(startLine: 2, line: 2, suggestion: nil, comment: "Needs a design decision.")
+    #expect(AIContext.placement(none.finding(path: "a.py"), files: files) == .inline(Anchor(path: "a.py", line: 2), startLine: nil, body: "Needs a design decision."))
+}
+
 @Test func findingsSavedBeforeSuggestionsStillLoad() throws {
     let old = try JSONDecoder().decode(Finding.self, from: Data(#"{"severity":"low","title":"t","rationale":"r","path":"a","line":1,"comment":"c"}"#.utf8))
     #expect(old.suggestion == nil && old.startLine == nil)
