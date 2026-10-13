@@ -81,6 +81,8 @@ final class AppModel {
     var isLoading: Bool { isRefreshing || (viewer.isEmpty && setupError == nil) }
     /// A newer published release than this build, if the last check found one.
     var availableUpdate: AppRelease?
+    /// The release whose "What's New" sheet is open in the main window.
+    var whatsNew: AppRelease?
     /// What the in-app update is doing (downloading, checking, installing), while it runs.
     var updateProgress: String?
     var lastUpdateCheck: Date?

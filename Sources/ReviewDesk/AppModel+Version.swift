@@ -92,11 +92,13 @@ extension AppModel {
                     ? "You have \(currentVersion). ReviewDesk can download, check and install it, then relaunch."
                     : "You have \(currentVersion). Download the new installer from the release page."
                 alert.addButton(withTitle: canInstallUpdates ? "Install and Relaunch" : "Download")
-                alert.addButton(withTitle: "Release Notes")
+                alert.addButton(withTitle: "What's New")
                 alert.addButton(withTitle: "Later")
                 switch alert.runModal() {
                 case .alertFirstButtonReturn: installUpdate(release)
-                case .alertSecondButtonReturn: openRelease(release)
+                case .alertSecondButtonReturn:
+                    openMainWindow?()
+                    whatsNew = release
                 default: break
                 }
             } else if let error = updateCheckError {

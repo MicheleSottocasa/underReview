@@ -21,6 +21,23 @@ public struct AppRelease: Equatable, Sendable {
     }
 }
 
+extension AppRelease: Identifiable {
+    public var id: String { version }
+}
+
+/// What one version changed: its CHANGELOG.md section, or its release description.
+public struct VersionNotes: Equatable, Sendable, Identifiable {
+    public var version: String
+    public var date: Date?
+    public var notes: String
+
+    public var id: String { version }
+
+    public init(version: String, date: Date? = nil, notes: String) {
+        (self.version, self.date, self.notes) = (version, date, notes)
+    }
+}
+
 public enum AppVersion {
     /// Where releases are published (public, so any `gh` login can read it).
     public static let repository = "MicheleSottocasa/underReview"
@@ -35,6 +52,27 @@ public enum AppVersion {
             if x != y { return x > y }
         }
         return false
+    }
+
+    /// The `## <version>` sections of a changelog (the headings `scripts/release-notes.sh` reads) in
+    /// (installed, latest], newest first.
+    public static func notes(in changelog: String, after installed: String, through latest: String) -> [VersionNotes] {
+        var sections: [VersionNotes] = []
+        for line in changelog.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.hasPrefix("## ") {
+                sections.append(VersionNotes(version: line.dropFirst(3).trimmingCharacters(in: .whitespaces), notes: ""))
+            } else if !sections.isEmpty {
+                sections[sections.count - 1].notes += line + "\n"
+            }
+        }
+        for index in sections.indices { sections[index].notes = sections[index].notes.trimmingCharacters(in: .whitespacesAndNewlines) }
+        return inRange(sections, after: installed, through: latest)
+    }
+
+    /// Versions newer than `installed` and not newer than `latest`, newest first. "Unreleased" counts as 0, so it's left out.
+    static func inRange(_ notes: [VersionNotes], after installed: String, through latest: String) -> [VersionNotes] {
+        notes.filter { isNewer($0.version, than: installed) && !isNewer($0.version, than: latest) }
+            .sorted { isNewer($0.version, than: $1.version) }
     }
 
     static func parts(_ version: String) -> [Int] {
@@ -54,5 +92,40 @@ extension GitHub {
         return AppRelease(version: tag.hasPrefix("v") ? String(tag.dropFirst()) : tag, url: json["html_url"] as? String ?? "",
                           publishedAt: Self.date(json["published_at"]), notes: json["body"] as? String ?? "",
                           installer: dmg.map { AppRelease.Installer(name: $0["name"] as? String ?? "", digest: $0["digest"] as? String) })
+    }
+
+    /// What changed in (installed, latest], newest first: CHANGELOG.md at the latest tag, dated from the releases.
+    /// When the changelog can't be read or has none of those versions, the releases' own descriptions.
+    public func releaseNotes(repo: String, after installed: String, through latest: String) async throws -> [VersionNotes] {
+        let releases = try? await publishedReleases(repo: repo)
+        let changelog: [VersionNotes]
+        do {
+            let data = try await runner.output("gh", ["api", "-H", "Accept: application/vnd.github.raw",
+                                                      "repos/\(repo)/contents/CHANGELOG.md?ref=v\(latest)"])
+            changelog = AppVersion.notes(in: String(decoding: data, as: UTF8.self), after: installed, through: latest)
+        } catch {
+            guard let releases else { throw error }
+            return AppVersion.inRange(releases, after: installed, through: latest)
+        }
+        guard !changelog.isEmpty else { return AppVersion.inRange(releases ?? [], after: installed, through: latest) }
+        let dates = Dictionary((releases ?? []).map { ($0.version, $0.date) }, uniquingKeysWith: { first, _ in first })
+        return changelog.map { entry in
+            var entry = entry
+            entry.date = dates[entry.version] ?? nil
+            return entry
+        }
+    }
+
+    /// Published releases (no drafts or pre-releases), as GitHub lists them.
+    func publishedReleases(repo: String) async throws -> [VersionNotes] {
+        let data = try await runner.output("gh", ["api", "repos/\(repo)/releases?per_page=100"])
+        guard let list = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else {
+            throw GitHubError.notFound("Releases of \(repo)")
+        }
+        return list.compactMap { json in
+            guard let tag = json["tag_name"] as? String, json["draft"] as? Bool != true, json["prerelease"] as? Bool != true else { return nil }
+            return VersionNotes(version: tag.hasPrefix("v") ? String(tag.dropFirst()) : tag, date: Self.date(json["published_at"]),
+                                notes: json["body"] as? String ?? "")
+        }
     }
 }
