@@ -149,13 +149,19 @@ public enum Definitions {
         guard index >= 0 else { return nil }
         let last = lines[index].text.trimmingCharacters(in: .whitespaces)
         var docs: [String] = []
-        if language.blockDocs, last.hasSuffix("*/") {
-            while index >= 0 {
+        // A block comment's lines each start with `/*`, `*` or `*/`; code that merely ends in a comment
+        // (`var y = 1 /* note */`) isn't one.
+        let isComment = { (text: String) in text.hasPrefix("/*") || text.hasPrefix("*") }
+        if language.blockDocs, last.hasSuffix("*/"), isComment(last) {
+            var opened = false
+            for _ in 0..<50 where index >= 0 {
                 let text = lines[index].text.trimmingCharacters(in: .whitespaces)
+                guard isComment(text) else { break }
                 docs.insert(text, at: 0)
-                if text.hasPrefix("/*") { break }
+                if text.hasPrefix("/*") { opened = true; break }
                 index -= 1
             }
+            guard opened else { return nil }
             return clean(docs.map { line in
                 var text = Substring(line)
                 if text.hasPrefix("/**") { text = text.dropFirst(3) } else if text.hasPrefix("/*") { text = text.dropFirst(2) }

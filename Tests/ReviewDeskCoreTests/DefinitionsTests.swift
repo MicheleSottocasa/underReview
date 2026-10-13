@@ -107,6 +107,21 @@ import Testing
     #expect(!Definitions.isCovered("README.md"))
 }
 
+@Test func codeEndingInABlockCommentIsNoDoc() {
+    let source = """
+    func f() {}
+    var y = 1 /* note */
+    let x = 2
+
+    /* Unclosed above
+    stray text
+     */
+    func g() {}
+    """
+    #expect(Definitions.find("x", path: "a.swift", source: source).first.map { $0.doc == nil } == true)
+    #expect(Definitions.find("g", path: "a.swift", source: source).first.map { $0.doc == nil } == true)
+}
+
 @Test func minifiedLinesAreSkipped() {
     let minified = "function load(a){" + String(repeating: "a(b);", count: 500) + "}"
     #expect(Definitions.find("load", path: "app.min.js", source: minified).isEmpty)
