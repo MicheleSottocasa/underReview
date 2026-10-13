@@ -34,41 +34,54 @@ extension AppModel {
     }
 
     /// Claude Code's `/code-review` on the PR, with the chosen model and effort.
+    /// Claude Code's `/code-review` on the PR, with the chosen model and effort.
     func startCodeReview(_ pr: PullRequest, engine: AIEngine, options: CodeReviewOptions) {
         guard !blockDemo(pr) else { return }
         aiTasks[pr.id]?.cancel()
         aiTasks[pr.id] = Task {
-            await codeReview(pr, engine: engine, options: options)
+            aiActivity[pr.id] = []
+            await codeReview(pr, engine: engine, options: options, key: pr.id)
+            aiStatus[pr.id] = nil
+            aiActivity[pr.id] = nil
             aiTasks[pr.id] = nil
         }
     }
 
     /// One review per PR, bottom of the stack first: `/code-review` for Claude Code, otherwise the full default context.
+    /// One review per PR, bottom of the stack first: `/code-review` for Claude Code, otherwise the full default context.
+    /// Progress and the live log show on `current`, the PR it was started from.
     func startStackReview(_ prs: [PullRequest], engine: AIEngine, budget: Int, options: CodeReviewOptions, from current: String) {
         if let demo = prs.first(where: \.isDemo) { _ = blockDemo(demo); return }
         aiTasks[current]?.cancel()
         aiTasks[current] = Task {
-            for pr in prs where !Task.isCancelled {
+            aiActivity[current] = []
+            defer {
+                aiStatus[current] = nil
+                aiActivity[current] = nil
+                aiTasks[current] = nil
+            }
+            for (index, pr) in prs.enumerated() where !Task.isCancelled {
+                let position = "#\(pr.number) (\(index + 1) of \(prs.count))"
+                logStep("\(position) \(pr.title)", pr: current)
                 if engine.tool == "claude" {
-                    aiStatus[current] = "Running /code-review on #\(pr.number)…"
-                    await codeReview(pr, engine: engine, options: options)
+                    await codeReview(pr, engine: engine, options: options, key: current, label: position)
                     continue
                 }
                 do {
-                    aiStatus[current] = "Preparing #\(pr.number)…"
+                    aiStatus[current] = "Preparing \(position)…"
                     let context = try await prepareContext(pr, budget: budget)
                     guard context.fitsBudget else {
                         lastError = "#\(pr.number) is over the token budget; review it on its own and deselect files."
+                        logStep("#\(pr.number): over the token budget, skipped", pr: current)
                         continue
                     }
-                    aiStatus[current] = "Reviewing #\(pr.number) with \(engine.name)…"
+                    aiStatus[current] = "Reviewing \(position) with \(engine.name)…"
                     await review(pr, engine: engine, context: context)
                 } catch {
                     lastError = error.localizedDescription
                 }
             }
-            aiStatus[current] = nil
-            aiTasks[current] = nil
+            logStep("Stack reviewed", pr: current)
         }
     }
 
@@ -87,29 +100,27 @@ extension AppModel {
         aiActivity[prID] = Array(steps.suffix(40))
     }
 
-    private func codeReview(_ pr: PullRequest, engine: AIEngine, options: CodeReviewOptions) async {
-        aiStatus[pr.id] = "Running /code-review (\(options.effort)) with \(engine.name)…"
-        aiActivity[pr.id] = []
-        defer {
-            aiStatus[pr.id] = nil
-            aiActivity[pr.id] = nil
-        }
+    /// One PR's `/code-review`. Status and steps go to `key`, the PR whose progress box shows them (the one a
+    /// stack review started from); the caller starts and clears that box. `label` names the PR in a stack run.
+    private func codeReview(_ pr: PullRequest, engine: AIEngine, options: CodeReviewOptions, key: String, label: String? = nil) async {
+        let on = label.map { " on \($0)" } ?? ""
+        aiStatus[key] = "Running /code-review (\(options.effort))\(on) with \(engine.name)…"
         do {
             if files[pr.id] == nil { files[pr.id] = try await github.files(pr.ref) }
             if details[pr.id] == nil { await loadDetail(pr.id) }
             // Diffs only: they let the second pass pick key areas; /code-review fetches the PR itself.
             let changed = files[pr.id] ?? []
-            aiStatus[pr.id] = "Reading the repository's rules…"
+            aiStatus[key] = "Reading the repository's rules\(on)…"
             let rules = await repoRules(pr, changed: changed)
             logStep(rules.isEmpty ? "No repository rules found (AGENTS.md, CONTRIBUTING.md…)"
                                   : "Repository rules: " + RepoRules.candidates(changed: changed.map(\.filename)).filter { rules[$0] != nil }.joined(separator: ", "),
-                    pr: pr.id)
-            aiStatus[pr.id] = "Running /code-review (\(options.effort)) with \(engine.name)…"
+                    pr: key)
+            aiStatus[key] = "Running /code-review (\(options.effort))\(on) with \(engine.name)…"
             let context = AIContext.build(pr: pr, body: details[pr.id]?.body ?? "", files: changed, contents: [:],
                                           budget: UserDefaults.standard.object(forKey: "aiBudget") as? Int ?? 150_000, rules: rules)
             let result = try await reviewer.codeReview(engine, prURL: pr.url, context: context, options: options,
                                                        instructions: Prompts.codeReview, structureInstructions: Prompts.structure) { step in
-                Task { @MainActor in self.logStep(step, pr: pr.id) }
+                Task { @MainActor in self.logStep(step, pr: key) }
             }
             var run = AIRun(prID: pr.id, engine: engine, headRefOid: pr.headRefOid, result: result)
             run.options = options
