@@ -157,11 +157,19 @@ public struct Theme: Codable, Hashable, Sendable {
     public static let maxFileSize = 1_000_000
 
     /// The contents of a file to import, refusing one too large to be a theme.
+    /// Follows symlinks and reads only regular files (a device or FIFO could block or never end), and never more
+    /// than the limit, even if the file grows after the check.
     public static func fileData(_ url: URL) throws -> Data {
-        if let size = try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int, size > maxFileSize {
-            throw ThemeFileError("This file is too large to be a theme.")
-        }
-        return try Data(contentsOf: url)
+        let target = url.resolvingSymlinksInPath()
+        let attributes = try FileManager.default.attributesOfItem(atPath: target.path)
+        guard attributes[.type] as? FileAttributeType == .typeRegular else { throw ThemeFileError("This isn't a regular file.") }
+        let tooLarge = ThemeFileError("This file is too large to be a theme.")
+        if let size = attributes[.size] as? Int, size > maxFileSize { throw tooLarge }
+        let handle = try FileHandle(forReadingFrom: target)
+        defer { try? handle.close() }
+        let data = try handle.read(upToCount: maxFileSize + 1) ?? Data()
+        guard data.count <= maxFileSize else { throw tooLarge }
+        return data
     }
 
     /// Reads a theme file. Throws a `ThemeFileError` saying what's wrong on anything that isn't one
