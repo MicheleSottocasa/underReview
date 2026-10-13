@@ -136,6 +136,27 @@ public struct ReviewContext: Sendable {
     public var fitsBudget: Bool { tokens <= budget }
 }
 
+/// The AI's fix for a finding or a review comment: replacement code for NEW-side lines of one file. Nothing is
+/// posted until the reviewer accepts it; it then goes to the pending review like a finding's suggested change.
+public struct FixProposal: Codable, Hashable, Sendable {
+    public var startLine: Int
+    public var line: Int
+    /// Replaces lines `startLine...line` ("" deletes them); nil when the AI found no small, certain fix.
+    public var suggestion: String?
+    /// What the fix does, to post with it (or why there's none).
+    public var comment: String
+
+    public init(startLine: Int, line: Int, suggestion: String?, comment: String) {
+        (self.startLine, self.line, self.suggestion, self.comment) = (startLine, line, suggestion, comment)
+    }
+
+    /// As a finding on `path`, so `AIContext.placement` turns it into a suggested change (or plain code) the same way.
+    public func finding(path: String) -> Finding {
+        Finding(severity: "low", title: "Fix", rationale: "", path: path, line: max(startLine, line), comment: comment,
+                startLine: min(startLine, line), suggestion: suggestion)
+    }
+}
+
 /// One message in the Explain chat.
 public struct ChatMessage: Hashable, Sendable {
     public enum Role: Hashable, Sendable { case reviewer, assistant }
@@ -332,6 +353,80 @@ public enum AIContext {
             text += "\n**\(entry.author)**\(entry.id == comment.id ? " **[EXPLAIN THIS]**" : ""):\n\(entry.body)\n"
         }
         return text
+    }
+
+    public static let fixSchema = """
+    {"type":"object","additionalProperties":false,"required":["startLine","line","suggestion","comment"],"properties":{
+      "startLine":{"type":"integer"},
+      "line":{"type":"integer"},
+      "suggestion":{"type":["string","null"]},
+      "comment":{"type":"string"}}}
+    """
+
+    /// Asks for a fix as a GitHub suggested change. Editable in Settings; the schema and material are always appended.
+    public static let defaultFixInstructions = """
+    You are helping someone review a GitHub pull request. Propose a fix for the problem marked **[FIX THIS]** below,
+    as a GitHub suggested change: the exact replacement code for the NEW-side lines `startLine` through `line` of the
+    file shown (the same number twice for a single line). Only use lines that carry a number in the code below, keep
+    their indentation, and use an empty string to delete them. Keep the fix small and inside those lines. In
+    `comment`, say in one or two sentences what the fix does, as the reviewer would write it to the author. If there
+    is no small, certain fix within the numbered lines, set `suggestion` to null and say why in `comment`.
+    Use only the material below; do not run tools or commands.
+    """
+
+    /// The material for a fix: PR description, the file's diff with NEW-side line numbers, and the problem.
+    public static func fixPrompt(title: String, body: String, path: String, patch: String, problem: String,
+                                 instructions: String = defaultFixInstructions) -> String {
+        """
+        \(instructions)
+        Reply only with JSON matching this schema:
+        \(fixSchema)
+
+        # \(title)
+
+        \(body)
+
+        ## Code: \(path)
+
+        Each line starts with its NEW-side number (none for removed lines), then +, - or a space as in the diff.
+
+        \(fenced(numbered(patch: patch), info: ""))
+
+        ## [FIX THIS]
+
+        \(problem)
+        """
+    }
+
+    /// A finding, as the problem to fix.
+    public static func fixProblem(_ finding: Finding) -> String {
+        "**\(finding.title)** (\(finding.severity))\(finding.line.map { ", line \($0)" } ?? "")\n\n\(finding.rationale)\n\n\(finding.comment)"
+    }
+
+    /// A review comment in its thread, as the problem to fix.
+    public static func fixProblem(thread: [Comment], comment: Comment, line: Int?) -> String {
+        "The review comment marked **[THIS ONE]**\(line.map { ", on line \($0)" } ?? ""), in its conversation:\n"
+            + thread.map { "\n**\($0.author)**\($0.id == comment.id ? " **[THIS ONE]**" : ""):\n\($0.body)\n" }.joined()
+    }
+
+    /// The diff with each line's NEW-side number, so the AI can name exact lines.
+    static func numbered(patch: String) -> String {
+        Diff.parse(patch).map { line in
+            switch line.kind {
+            case .hunk: line.text
+            case .removed: "      -" + line.text
+            case .added: String(format: "%5d +", line.newLine ?? 0) + line.text
+            case .context: String(format: "%5d  ", line.newLine ?? 0) + line.text
+            }
+        }.joined(separator: "\n")
+    }
+
+    /// The current NEW-side text of lines `start...end`, read from the diff; nil when one of them isn't in it.
+    public static func newSideText(patch: String, from start: Int, to end: Int) -> String? {
+        let byLine = Dictionary(Diff.parse(patch).compactMap { line in line.kind == .removed ? nil : line.newLine.map { ($0, line.text) } },
+                                uniquingKeysWith: { a, _ in a })
+        let lines = (min(start, end)...max(start, end)).map { byLine[$0] }
+        return lines.contains(nil) ? nil : lines.compactMap { $0 }.joined(separator: "\n")
     }
 
     /// A follow-up in the Explain chat. Each call stands alone (it works the same with every engine), so it

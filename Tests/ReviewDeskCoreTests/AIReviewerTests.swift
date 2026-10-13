@@ -20,6 +20,19 @@ private let subscribed = ok(#"{"loggedIn":true,"authMethod":"claude.ai"}"#)
     #expect(run.outdatedMessage(for: pr, commits: nil).contains("pushed new commits since"))
 }
 
+@Test func aFixIsProposedWithoutAnyTools() async throws {
+    let runner = FakeRunner { call in
+        call.args.first == "auth" ? subscribed
+            : ok(#"{"type":"result","is_error":false,"structured_output":{"startLine":3,"line":3,"suggestion":"x = 1","comment":"c"}}"#)
+    }
+    let fix = try await AIReviewer(runner: runner).structured(.claudeCode, prompt: "p", schema: AIContext.fixSchema, as: FixProposal.self)
+    #expect(fix.suggestion == "x = 1")
+    let args = try #require(runner.calls.last?.args)
+    #expect(args[args.firstIndex(of: "--tools")! + 1] == "" && args.contains("--disable-slash-commands"))
+    #expect(!args.contains("--add-dir") && !args.contains("--allowedTools"))
+    #expect(args[args.firstIndex(of: "--json-schema")! + 1] == AIContext.fixSchema)
+}
+
 @Test func claudeRunsWithToolsHooksAndMCPDisabled() async throws {
     let runner = FakeRunner { call in
         call.args.first == "auth" ? subscribed : ok(#"{"type":"result","is_error":false,"structured_output":\#(review)}"#)
