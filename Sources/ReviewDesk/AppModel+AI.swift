@@ -8,6 +8,7 @@ extension AppModel {
 
     /// Diff plus full files at head. Nothing is sent anywhere until the user runs the review.
     func prepareContext(_ pr: PullRequest, budget: Int) async throws -> ReviewContext {
+        if pr.isDemo { throw DemoError.readOnly }
         if files[pr.id] == nil { files[pr.id] = try await github.files(pr.ref) }
         if details[pr.id] == nil { await loadDetail(pr.id) }
         let changed = files[pr.id] ?? []
@@ -24,6 +25,7 @@ extension AppModel {
     }
 
     func startReview(_ pr: PullRequest, engine: AIEngine, context: ReviewContext) {
+        guard !blockDemo(pr) else { return }
         aiTasks[pr.id]?.cancel()
         aiTasks[pr.id] = Task {
             await review(pr, engine: engine, context: context)
@@ -33,6 +35,7 @@ extension AppModel {
 
     /// Claude Code's `/code-review` on the PR, with the chosen model and effort.
     func startCodeReview(_ pr: PullRequest, engine: AIEngine, options: CodeReviewOptions) {
+        guard !blockDemo(pr) else { return }
         aiTasks[pr.id]?.cancel()
         aiTasks[pr.id] = Task {
             await codeReview(pr, engine: engine, options: options)
@@ -42,6 +45,7 @@ extension AppModel {
 
     /// One review per PR, bottom of the stack first: `/code-review` for Claude Code, otherwise the full default context.
     func startStackReview(_ prs: [PullRequest], engine: AIEngine, budget: Int, options: CodeReviewOptions, from current: String) {
+        if let demo = prs.first(where: \.isDemo) { _ = blockDemo(demo); return }
         aiTasks[current]?.cancel()
         aiTasks[current] = Task {
             for pr in prs where !Task.isCancelled {
@@ -189,6 +193,7 @@ extension AppModel {
     /// Asks the AI what a comment means, then keeps the chat open for follow-ups. Sends the PR description, the
     /// conversation and, for inline comments, that file's diff to the engine's provider (nothing leaves the Mac with Ollama).
     func explain(_ comment: Comment, thread: ReviewThread?, pr: PullRequest) {
+        guard !blockDemo(pr) else { return }
         let engine = preferredEngine(for: pr)
         explanations[comment.id] = Explanation(engine: engine)
         Task {
@@ -208,6 +213,7 @@ extension AppModel {
     /// Opens the chat without an explanation first: the reviewer's own question is the first message.
     /// Same context as `explain`; nothing is sent until they ask.
     func openChat(_ comment: Comment, thread: ReviewThread?, pr: PullRequest) {
+        guard !blockDemo(pr) else { return }
         guard explanations[comment.id] == nil else { return }
         let engine = preferredEngine(for: pr)
         explanations[comment.id] = Explanation(engine: engine)

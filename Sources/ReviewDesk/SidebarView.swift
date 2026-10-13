@@ -40,6 +40,7 @@ struct SidebarView: View {
             if !keys.isEmpty { confirmingStop = keys }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { RefreshFooter() }
+        .tourAnchor([.sidebar], edge: .trailing)
         .overlay {
             if model.prs.isEmpty && !model.isRefreshing {
                 ContentUnavailableView {

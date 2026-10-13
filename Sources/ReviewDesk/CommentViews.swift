@@ -6,7 +6,8 @@ struct Avatar: View {
     var size: CGFloat = 22
 
     var body: some View {
-        AsyncImage(url: URL(string: "https://github.com/\(login).png?size=\(Int(size * 2))")) { image in
+        // GitHub logins never contain dots: the tour's demo people get initials, not someone's photo.
+        AsyncImage(url: login.contains(".") ? nil : URL(string: "https://github.com/\(login).png?size=\(Int(size * 2))")) { image in
             image.resizable()
         } placeholder: {
             Circle().fill(.quaternary).overlay(Text(login.prefix(1).uppercased()).font(.caption2.bold()))

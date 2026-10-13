@@ -6,6 +6,11 @@ struct ReviewDrafts: Codable, Equatable {
     var drafts: [Draft] = []
     /// PR id → body of the review to publish.
     var bodies: [String: String] = [:]
+
+    /// What may be saved: everything but the tour's demo.
+    func removingDemo() -> ReviewDrafts {
+        ReviewDrafts(drafts: drafts.filter { !Demo.owns($0.prID) }, bodies: bodies.filter { !Demo.owns($0.key) })
+    }
 }
 
 extension AppModel {
@@ -21,6 +26,7 @@ extension AppModel {
     /// Runs the risk analysis with the AI tab's engine. Claude Code starts `/code-review` with the last used model
     /// and effort; Codex and Ollama go to the AI tab, where the context is shown before anything is sent.
     func runRiskAnalysis(_ pr: PullRequest) {
+        guard !blockDemo(pr) else { return }
         let engine = preferredEngine(for: pr)
         guard engine.tool == "claude" else {
             detailTab = .ai
@@ -67,6 +73,7 @@ extension AppModel {
     }
 
     func loadFiles(_ pr: PullRequest) async {
+        guard !pr.isDemo else { return } // canned in the demo
         do {
             async let viewed = github.viewedFiles(prID: pr.id)
             files[pr.id] = try await github.files(pr.ref)
@@ -78,6 +85,7 @@ extension AppModel {
 
     /// Flips the file's Viewed checkbox here and on GitHub, rolling back if GitHub refuses.
     func toggleViewed(_ path: String, pr: PullRequest) async {
+        guard !blockDemo(pr) else { return }
         let viewed = !(viewedFiles[pr.id]?.contains(path) ?? false)
         viewedFiles[pr.id, default: []].formSymmetricDifference([path])
         do {
@@ -107,6 +115,7 @@ extension AppModel {
 
     /// Saves the chosen drafts into the viewer's pending review on GitHub.
     func saveDrafts(_ ids: Set<UUID>, pr: PullRequest) async {
+        guard !blockDemo(pr) else { return }
         let selected = reviewDrafts.drafts.filter { ids.contains($0.id) }
         do {
             let saved = try await reviewSync.save(selected, pr: pr)
@@ -121,6 +130,7 @@ extension AppModel {
 
     /// Deletes locally and, if it was saved, from the pending review.
     func deleteDraft(_ draft: Draft, pr: PullRequest) async {
+        guard !blockDemo(pr) else { return }
         do {
             try await reviewSync.delete(draft)
             deleteLocalDraft(draft.id)
@@ -138,6 +148,7 @@ extension AppModel {
     }
 
     func publish(_ pr: PullRequest, event: ReviewEvent) async -> Bool {
+        guard !blockDemo(pr) else { return false }
         defer { Task { await afterOwnWrite(pr) } }
         do {
             try await reviewSync.publish(pr: pr, event: event, body: reviewDrafts.bodies[pr.id] ?? "", viewer: viewer)
@@ -152,6 +163,7 @@ extension AppModel {
     }
 
     func reply(to threadID: String, body: String, pr: PullRequest) async -> Bool {
+        guard !blockDemo(pr) else { return false }
         defer { Task { await afterOwnWrite(pr) } }
         do {
             try await reviewSync.reply(threadID: threadID, body: body, viewer: viewer)
@@ -186,6 +198,7 @@ extension AppModel {
 
     @discardableResult
     private func commentWrite(_ pr: PullRequest, _ write: () async throws -> Void) async -> Bool {
+        guard !blockDemo(pr) else { return false }
         defer { Task { await afterOwnWrite(pr) } }
         do {
             try await write()
@@ -221,6 +234,7 @@ extension AppModel {
 extension AppModel {
     /// Like GitHub's Submit: local drafts join the pending review first, then it's submitted with the chosen action.
     func submitReview(_ pr: PullRequest, event: ReviewEvent) async -> Bool {
+        guard !blockDemo(pr) else { return false }
         let unsaved = drafts(for: pr.id).filter { $0.needsSync && !$0.isStale }
         if !unsaved.isEmpty {
             await saveDrafts(Set(unsaved.map(\.id)), pr: pr)

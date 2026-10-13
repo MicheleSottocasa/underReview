@@ -12,12 +12,21 @@ struct ReviewDeskApp: App {
             ContentView()
                 .environment(model)
                 .frame(minWidth: 1000, minHeight: 600)
-                .task { model.start() }
+                .task {
+                    if let folder = Screenshots.folder {
+                        await Screenshots.capture(model, to: folder)
+                    } else {
+                        model.start()
+                    }
+                }
         }
         .commands {
             SidebarCommands()
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") { model.checkForUpdatesFromMenu() }
+            }
+            CommandGroup(replacing: .help) {
+                Button("Show Tour") { model.startTour() }
             }
             CommandGroup(after: .newItem) {
                 Button("Refresh") { model.refreshNow() }.keyboardShortcut("r")
@@ -97,7 +106,18 @@ struct ContentView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        if let error = model.setupError {
+        content.task {
+            // First launch: tour the app on demo data before any real pull request shows up.
+            guard model.shouldStartTour, model.tourStep == nil, !Screenshots.isRequested else { return }
+            try? await Task.sleep(for: .seconds(1))
+            model.startTour()
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        // The tour runs on its demo data, so it works before `gh` is set up.
+        if let error = model.setupError, model.tourStep == nil {
             SetupView(error: error)
         } else {
             @Bindable var model = model

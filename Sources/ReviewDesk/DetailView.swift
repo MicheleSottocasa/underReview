@@ -13,13 +13,22 @@ struct DetailView: View {
         @Bindable var model = model
         let tab = model.detailTab
         VStack(alignment: .leading, spacing: 0) {
-            header.padding()
+            if pr.isDemo {
+                Label("Demo pull request for the tour: fictional, read-only, never saved or sent anywhere.", systemImage: "graduationcap")
+                    .font(.callout)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+                    .padding(.vertical, 6)
+                    .background(Color.purple.opacity(0.1))
+            }
+            header.padding().tourAnchor([.header], edge: .bottom)
             Picker("", selection: $model.detailTab) {
                 ForEach(DetailTab.allCases, id: \.self) { Text($0.rawValue) }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .padding(.horizontal)
+            .tourAnchor([.conversation, .risk, .changes, .ai, .notes, .settings], edge: .bottom)
             Divider().padding(.top, 8)
             switch tab {
             case .conversation: ConversationView(pr: pr, detail: model.details[pr.id])

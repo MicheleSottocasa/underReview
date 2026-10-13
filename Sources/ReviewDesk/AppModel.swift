@@ -52,10 +52,12 @@ final class AppModel {
     var viewedFiles: [String: Set<String>] = [:]
     /// The PR detail tab, here so other tabs can send the user to Changes.
     var detailTab = DetailTab.conversation
+    /// The onboarding tour's current card, while it runs.
+    var tourStep: TourStep?
     /// A file and line for the Changes tab to open next.
     var changesTarget: LineTarget?
     /// PR id → risk question → head commit it was checked at. Kept locally, never sent anywhere.
-    var riskChecks: [String: [String: String]] { didSet { save(riskChecksFile, riskChecks) } }
+    var riskChecks: [String: [String: String]] { didSet { save(riskChecksFile, riskChecks.filter { !Demo.owns($0.key) }) } }
 
     /// Sidebar multi-selection. The detail follows the last single-selected PR and stays put otherwise.
     var selection: Set<SidebarID> = [] {
@@ -90,11 +92,12 @@ final class AppModel {
     /// Set when the Changes tab hid the sidebar, so leaving it only restores what the app hid.
     var sidebarAutoHidden = false
 
-    var org: Organization { didSet { save(orgFile, org) } }
+    // The tour's demo lives in these in memory only: every save drops it.
+    var org: Organization { didSet { save(orgFile, org.removingDemo()) } }
     var checkpoints: [String: Snapshot]
-    var reviewDrafts: ReviewDrafts { didSet { save(draftsFile, reviewDrafts) } }
+    var reviewDrafts: ReviewDrafts { didSet { save(draftsFile, reviewDrafts.removingDemo()) } }
     var recentEvents: [RecentEvent] = []
-    var aiRuns: [AIRun] { didSet { save(aiRunsFile, aiRuns) } }
+    var aiRuns: [AIRun] { didSet { save(aiRunsFile, aiRuns.filter { !Demo.owns($0.prID) }) } }
     /// PR id → what the AI is doing right now.
     var aiStatus: [String: String] = [:]
     /// PR id → the latest steps of a running review, newest last; cleared when it ends.
@@ -103,7 +106,7 @@ final class AppModel {
     var explanations: [String: Explanation] = [:]
     var aiTasks: [String: Task<Void, Never>] = [:]
     /// PR id → the Claude Code session linked to it in AI Review.
-    var agentLinks: [String: AgentLink] { didSet { save(agentLinksFile, agentLinks) } }
+    var agentLinks: [String: AgentLink] { didSet { save(agentLinksFile, agentLinks.filter { !Demo.owns($0.key) }) } }
     var runningAgents: [RunningAgent] = []
     /// Stored Claude Code sessions, newest first; stopped ones can be linked too.
     var recentSessions: [RunningAgent] = []
@@ -163,7 +166,8 @@ final class AppModel {
     }
 
     func start() {
-        guard pollTask == nil else { return }
+        // A screenshot run only shows the demo: no polling, no notifications, no GitHub calls.
+        guard pollTask == nil, !Screenshots.isRequested else { return }
         notifier.onOpen = { [weak self] id in self?.open(prID: id) }
         notifier.onOpenURL = { NSWorkspace.shared.open($0) }
         notifier.setUp()
@@ -227,12 +231,13 @@ final class AppModel {
             updated.follow(id: pr.id, url: pr.url)
         }
         if updated != org { org = updated }
-        prs = fresh.filter { !org.unfollowed.contains($0.key) }
+        // The tour's demo PRs aren't on GitHub: keep them through refreshes instead of dropping them.
+        prs = fresh.filter { !org.unfollowed.contains($0.key) }.merging(prs.filter { $0.value.isDemo }) { real, _ in real }
         lastError = nil
         lastRefresh = .now
         refreshError = nil
-        await didRefresh(Array(prs.values))
-        save(checkpointFile, checkpoints)
+        await didRefresh(Array(prs.values.filter { !$0.isDemo }))
+        save(checkpointFile, checkpoints.filter { !Demo.owns($0.key) })
         // The open PR's conversation is reloaded only when GitHub says it changed.
         if let id = selectedPRID, prs[id] != nil, details[id] == nil || fetched.contains(id) { await loadDetail(id) }
     }
@@ -284,6 +289,7 @@ final class AppModel {
     }
 
     func loadDetail(_ id: String) async {
+        guard !Demo.owns(id) else { return } // the demo's detail is canned; it isn't on GitHub
         do {
             details[id] = try await github.detail(id: id)
         } catch {
@@ -292,10 +298,12 @@ final class AppModel {
     }
 
     func openOnGitHub(_ pr: PullRequest) {
+        guard !blockDemo(pr) else { return }
         if let url = URL(string: pr.url) { NSWorkspace.shared.open(url) }
     }
 
     func save<T: Codable>(_ file: JSONFile<T>, _ value: T) {
+        guard !Screenshots.isRequested else { return } // a screenshot run must never touch the user's files
         do { try file.save(value) } catch { lastError = "Couldn't save \(file.url.lastPathComponent): \(error.localizedDescription)" }
     }
 }
