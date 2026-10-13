@@ -82,6 +82,10 @@ struct ChangesView: View {
             target = next.line > 0 ? LineTarget(path: next.path, line: next.line, endLine: area.flatMap { areas[$0].endLine }, side: next.side) : nil
             model.changesTarget = nil
         }
+        .onChange(of: model.keyAreasRun(for: pr)?.result.keyAreas) {
+            // A new review renumbers the areas: keep the file open rather than another area.
+            if case .area(let path, _)? = selection { selection = .file(path) }
+        }
         .onChange(of: selection) {
             switch selection {
             case .area(let path, let index)?:
@@ -564,6 +568,8 @@ struct FileDiffView: View {
     @ViewState private var rendered: RenderedDiff?
     /// Shared horizontal offset of the code while soft wrap is off.
     @ViewState private var hScroll = HorizontalScroll(gutter: FileDiffView.numberWidth * 2 + FileDiffView.markerWidth)
+    /// Scroll id of the top of the file, above comments on lines no longer in the diff.
+    private static let top = -1
     private static let numberWidth: CGFloat = 42
     private static let markerWidth: CGFloat = 20
 
@@ -599,6 +605,7 @@ struct FileDiffView: View {
                 ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
+                        Color.clear.frame(height: 0).id(Self.top)
                         let detached = shownThreads.filter { $0.line == nil }
                         if !detached.isEmpty {
                             Text("Comments on lines no longer in the diff").font(.caption).foregroundStyle(.secondary).padding([.top, .leading], 12)
@@ -641,10 +648,11 @@ struct FileDiffView: View {
                     rendered = RenderedDiff(key, path: file.filename)
                 }
                 .task(id: Pair(target?.id, diff != nil)) {
-                    guard let target, let diff, let row = diff.row(for: target) else { return }
+                    guard let target, let diff, let row = target.line > 0 ? diff.row(for: target) : Self.top else { return }
                     // ponytail: the lazy stack guesses the height of rows it hasn't drawn (threads, drafts), so jump,
                     // let it lay them out and jump again. Doing better needs scroll-offset tracking.
-                    for _ in 0..<3 {
+                    proxy.scrollTo(row, anchor: .top)
+                    for _ in 0..<2 {
                         do { try await Task.sleep(for: .milliseconds(60)) } catch { return }
                         proxy.scrollTo(row, anchor: .top)
                     }
