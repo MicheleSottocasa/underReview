@@ -26,6 +26,12 @@ enum Screenshots {
         model.lastRefresh = .now
         model.org = Organization() // the user's own projects stay out of public screenshots (never saved here)
         model.showDemo()
+        // An approved PR with nothing new, so To Review's Reviewed group shows too (screenshots only, never saved).
+        if var reviewed = Demo.pullRequests.first(where: { $0.id == Demo.baseID }) {
+            (reviewed.id, reviewed.number, reviewed.title, reviewed.stack) = ("DEMO_PR_38", 38, "Add the members list", nil)
+            (reviewed.viewerReviewState, reviewed.viewerReviewedOid, reviewed.threadsAwaitingReply) = ("APPROVED", reviewed.headRefOid, 0)
+            model.prs[reviewed.id] = reviewed
+        }
         if let main = model.prs[Demo.mainID] { model.reveal(main) }
         model.selection = [.pr(Demo.mainID)]
         try? await Task.sleep(for: .seconds(1))
