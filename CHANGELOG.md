@@ -5,6 +5,8 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+## 0.4.0
+
 - **Chat about a comment:** ✨ *Explain* now opens a chat where you can ask follow-up questions, and 💬 *Ask* opens it straight away for your own question. Both keep the same context: the PR description, the conversation and the diff.
 - AI engines are labelled by maturity where you pick them: Claude Code is beta, Codex and Ollama are alpha.
 - The app says it's a beta preview, in the sidebar footer and in Settings › General.
