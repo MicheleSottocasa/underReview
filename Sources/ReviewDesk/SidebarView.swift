@@ -307,8 +307,17 @@ enum Legend {
             + (muted ? ["🔕 Crossed-out bell: you turned notifications off for this one."] : [])
     }
 
-    static func row(_ title: String, pr: PullRequest?, review: ReviewStatus, muted: Bool = false, requested: Bool = false) -> String {
-        ([title] + (pr.map { [Legend.state($0)] } ?? []) + Legend.review(review) + flags(muted: muted, requested: requested))
+    static func conflicts(_ prs: [PullRequest]) -> [String] {
+        prs.filter(\.hasConflicts).map {
+            "⚠ Red triangle: #\($0.number) has conflicts with \($0.baseRefName). They must be resolved before it can be merged."
+        }
+    }
+
+    /// `members`: a stack's pull requests, for its header.
+    static func row(_ title: String, pr: PullRequest?, members: [PullRequest] = [], review: ReviewStatus,
+                    muted: Bool = false, requested: Bool = false) -> String {
+        ([title] + (pr.map { [Legend.state($0)] } ?? []) + conflicts(pr.map { [$0] } ?? members) + Legend.review(review)
+            + flags(muted: muted, requested: requested))
             .joined(separator: "\n")
     }
 }
@@ -332,6 +341,7 @@ struct PRRow: View {
             }
             Spacer(minLength: 0)
             AgentSpinner(ids: [pr.id])
+            ConflictIcon(prs: [pr])
             ReviewIndicator(status: review)
             Indicators(muted: muted, requested: requested)
         }
@@ -357,11 +367,12 @@ struct StackHeader: View {
             }
             Spacer(minLength: 0)
             AgentSpinner(ids: item.pullRequests.map(\.id))
+            ConflictIcon(prs: item.pullRequests)
             ReviewIndicator(status: review)
             Indicators(muted: muted, requested: false)
         }
         .help(Legend.row("Stack: pull requests built on top of each other, like a pile. Review them from the bottom (1) up.\nThe icons add up every pull request in it.",
-                         pr: nil, review: review, muted: muted))
+                         pr: nil, members: item.pullRequests, review: review, muted: muted))
     }
 }
 
@@ -380,6 +391,7 @@ struct StackChildRow: View {
             }
             Spacer(minLength: 0)
             AgentSpinner(ids: [pr.id])
+            ConflictIcon(prs: [pr])
             ReviewIndicator(status: review)
         }
         .help(Legend.row("\(pr.repo)#\(pr.number) by \(pr.author) · number \(pr.stackPosition ?? 0) from the bottom of the stack", pr: pr, review: review))
@@ -396,6 +408,19 @@ struct AgentSpinner: View {
         if !working.isEmpty {
             ProgressView().controlSize(.mini)
                 .help(working.compactMap { model.aiStatus[$0] }.first ?? "An agent is working on this")
+        }
+    }
+}
+
+/// A red triangle when any of these pull requests conflicts with its base.
+struct ConflictIcon: View {
+    let prs: [PullRequest]
+
+    var body: some View {
+        let lines = Legend.conflicts(prs)
+        if !lines.isEmpty {
+            Image(systemName: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.red)
+                .help(lines.joined(separator: "\n"))
         }
     }
 }

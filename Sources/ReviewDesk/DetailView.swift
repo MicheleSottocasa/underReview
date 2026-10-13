@@ -66,6 +66,7 @@ struct DetailView: View {
             }
             HStack(spacing: 8) {
                 StateBadge(pr: pr)
+                MergeBadges(pr: pr)
                 Text(verbatim: "\(pr.repo)#\(pr.number) by \(pr.author)")
                 Text("\(pr.headRefName) → \(pr.baseRefName)").font(.caption.monospaced())
                 if let head = URL(string: "https://github.com/\(pr.repo)/commit/\(pr.headRefOid)") {
@@ -111,5 +112,34 @@ struct NotesView: View {
         ))
         .font(.body)
         .frame(minHeight: 120)
+    }
+}
+
+/// *Conflicts* (opens GitHub's conflict page) and *Behind <base>* (opens the PR, where it can be updated).
+/// Nothing while GitHub is still computing mergeability.
+struct MergeBadges: View {
+    @Environment(AppModel.self) private var model
+    let pr: PullRequest
+
+    var body: some View {
+        if pr.hasConflicts {
+            badge("Conflicts", color: .red) { model.openConflicts(pr) }
+                .help("Has conflicts with \(pr.baseRefName). Click to resolve them on GitHub.")
+        }
+        if pr.isBehind {
+            badge("Behind \(pr.baseRefName)", color: .orange) { model.openOnGitHub(pr) }
+                .help("\(pr.baseRefName) has commits this branch doesn't have yet. Click to update it on GitHub.")
+        }
+    }
+
+    private func badge(_ text: String, color: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 3) { Image(systemName: "exclamationmark.triangle.fill"); Text(text) }
+                .font(.caption2.weight(.semibold))
+                .padding(.horizontal, 5)
+                .background(color.opacity(0.18), in: Capsule())
+                .foregroundStyle(color)
+        }
+        .buttonStyle(.plain)
     }
 }
