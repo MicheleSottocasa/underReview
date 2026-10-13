@@ -12,6 +12,8 @@ public struct Item: Hashable, Identifiable, Sendable {
     public var repo: String { pullRequests.first?.repo ?? "" }
     /// Highest PR number in the item, i.e. the newest.
     public var number: Int { pullRequests.map(\.number).max() ?? 0 }
+    /// The viewer wrote it (any PR of a stack): the sidebar lists it under My PRs instead of To Review.
+    public var isViewers: Bool { pullRequests.contains(where: \.viewerIsAuthor) }
 }
 
 extension PullRequest {

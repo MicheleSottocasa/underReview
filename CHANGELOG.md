@@ -26,6 +26,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 - **What's New after an update:** the first launch of a new version lists what changed since the version you had, from the notes bundled in the app (so it works offline). A fresh install doesn't show it; *Help › What's New* reopens this version's notes.
 - **Involving Me in Conversation:** the Conversation tab's filter has an *Involving Me* option, like the one in Changes: only the threads you started, replied in or were @mentioned in, under their reviews, plus your own comments and reviews and those that mention you.
 - **Faster first open:** the pull request list is kept on disk, so the sidebar shows it as soon as ReviewDesk opens (the footer says how old it is), and the first refresh only fetches the pull requests that changed since.
+- **To Review and My PRs:** the sidebar's Inbox is split in two. *To Review* lists other people's pull requests; *My PRs* lists yours, and each shows the reviews others left on it (how many approved, asked for changes or commented; hover for who).
 
 ## 0.8.1
 

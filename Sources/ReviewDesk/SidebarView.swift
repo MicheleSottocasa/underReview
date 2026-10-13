@@ -1,8 +1,8 @@
 import ReviewDeskCore
 import SwiftUI
 
-/// One outline: Inbox (unfiled) and Projects, with PRs and stacks inside. Cmd/Shift-click selects several;
-/// right-click acts on the whole selection.
+/// One outline: unfiled PRs split into To Review (others') and My PRs, then Projects, with PRs and stacks inside.
+/// Cmd/Shift-click selects several; right-click acts on the whole selection.
 struct SidebarView: View {
     @Environment(AppModel.self) private var model
     @ViewState private var addingPR = false
@@ -13,14 +13,12 @@ struct SidebarView: View {
     var body: some View {
         @Bindable var model = model
         let index = model.itemIndex()
+        let unfiled = index[nil] ?? []
         List(selection: $model.selection) {
-            DisclosureGroup(isExpanded: model.expansion("inbox")) {
-                RepoGroups(items: index[nil] ?? [], scope: "inbox", folder: nil)
-            } label: {
-                Label("Inbox", systemImage: "tray")
-                    .badge(openCount(index[nil] ?? []))
-                    .dropDestination(for: String.self) { payload, _ in drop(payload, into: nil) }
-            }
+            unfiledGroup("To Review", systemImage: "tray", key: AppModel.toReviewKey, items: unfiled.filter { !$0.isViewers })
+                .help("Pull requests by others: asked to review, assigned to you or added by link")
+            unfiledGroup("My PRs", systemImage: "person", key: AppModel.myPRsKey, items: unfiled.filter(\.isViewers))
+                .help("Pull requests you opened, with the reviews others left on them")
 
             Section("Projects") {
                 ForEach(model.org.children(of: nil)) { FolderBranch(folder: $0, index: index) }
@@ -117,7 +115,7 @@ struct SidebarView: View {
         } else if !keys.isEmpty {
             let label = keys.count == 1 ? "" : " \(keys.count) Items"
             Menu("Move\(label) To") {
-                Button("Inbox") { model.move(keys, to: nil) }
+                Button("To Review / My PRs") { model.move(keys, to: nil) }
                 Divider()
                 ForEach(FolderNode.flat(model.org), id: \.folder.id) { entry in
                     Button(String(repeating: "    ", count: entry.depth) + entry.folder.name) { model.move(keys, to: entry.folder.id) }
@@ -128,6 +126,16 @@ struct SidebarView: View {
             Button("Open on GitHub") { model.openOnGitHub(ids) }
             Divider()
             Button("Stop Monitoring\(label)…", role: .destructive) { confirmingStop = keys }
+        }
+    }
+
+    private func unfiledGroup(_ title: String, systemImage: String, key: String, items: [Item]) -> some View {
+        DisclosureGroup(isExpanded: model.expansion(key)) {
+            RepoGroups(items: items, scope: key, folder: nil)
+        } label: {
+            Label(title, systemImage: systemImage)
+                .badge(openCount(items))
+                .dropDestination(for: String.self) { payload, _ in drop(payload, into: nil) }
         }
     }
 
@@ -182,7 +190,7 @@ struct FolderBranch: View {
     }
 }
 
-/// Items of one place (Inbox or a folder) split into collapsible per-repo groups.
+/// Items of one place (To Review, My PRs or a folder) split into collapsible per-repo groups.
 struct RepoGroups: View {
     @Environment(AppModel.self) private var model
     let items: [Item]
@@ -190,8 +198,10 @@ struct RepoGroups: View {
     let folder: UUID?
 
     var body: some View {
-        ForEach(Dictionary(grouping: items, by: \.repo).sorted { $0.key < $1.key }, id: \.key) { repo, group in
-            DisclosureGroup(isExpanded: model.expansion("repo:\(scope):\(repo)")) {
+        // Keyed by scope too: a repo can be in To Review, My PRs and folders at once, and outline rows need unique ids.
+        ForEach(Dictionary(grouping: items) { "repo:\(scope):\($0.repo)" }.sorted { $0.key < $1.key }, id: \.key) { key, group in
+            let repo = group[0].repo
+            DisclosureGroup(isExpanded: model.expansion(key)) {
                 ItemRows(items: group)
             } label: {
                 Label(String(repo.split(separator: "/").last ?? ""), systemImage: "shippingbox")
@@ -313,11 +323,26 @@ enum Legend {
         }
     }
 
+    static let receivedStates = ["APPROVED", "CHANGES_REQUESTED", "COMMENTED"]
+
+    /// On the viewer's own PR: who left a review in `state`, from each reviewer's latest one.
+    static func received(_ pr: PullRequest, _ state: String) -> String? {
+        let names = pr.reviewsByOthers.filter { $0.value == state }.keys.sorted()
+        guard pr.viewerIsAuthor, !names.isEmpty else { return nil }
+        let who = names.joined(separator: ", ")
+        return switch state {
+        case "APPROVED": "✓ Green check \(names.count): approved by \(who)."
+        case "CHANGES_REQUESTED": "! Red mark \(names.count): \(who) asked for changes."
+        default: "💬 Blue bubble \(names.count): \(who) left comments without approving or asking for changes."
+        }
+    }
+
     /// `members`: a stack's pull requests, for its header.
     static func row(_ title: String, pr: PullRequest?, members: [PullRequest] = [], review: ReviewStatus,
                     muted: Bool = false, requested: Bool = false) -> String {
-        ([title] + (pr.map { [Legend.state($0)] } ?? []) + conflicts(pr.map { [$0] } ?? members) + Legend.review(review)
-            + flags(muted: muted, requested: requested))
+        let received = pr.map { pr in receivedStates.compactMap { Legend.received(pr, $0) } } ?? []
+        return ([title] + (pr.map { [Legend.state($0)] } ?? []) + conflicts(pr.map { [$0] } ?? members) + received
+            + Legend.review(review) + flags(muted: muted, requested: requested))
             .joined(separator: "\n")
     }
 }
@@ -342,6 +367,7 @@ struct PRRow: View {
             Spacer(minLength: 0)
             AgentSpinner(ids: [pr.id])
             ConflictIcon(prs: [pr])
+            ReceivedReviews(pr: pr)
             ReviewIndicator(status: review)
             Indicators(muted: muted, requested: requested)
         }
@@ -392,6 +418,7 @@ struct StackChildRow: View {
             Spacer(minLength: 0)
             AgentSpinner(ids: [pr.id])
             ConflictIcon(prs: [pr])
+            ReceivedReviews(pr: pr)
             ReviewIndicator(status: review)
         }
         .help(Legend.row("\(pr.repo)#\(pr.number) by \(pr.author) · number \(pr.stackPosition ?? 0) from the bottom of the stack", pr: pr, review: review))
@@ -458,6 +485,25 @@ struct ReviewIndicator: View {
         case "COMMENTED": ("text.bubble.fill", .blue)
         default: nil
         }
+    }
+}
+
+/// On the viewer's own PR: how many others approved, asked for changes or only commented (latest review each).
+struct ReceivedReviews: View {
+    let pr: PullRequest
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(Legend.receivedStates, id: \.self) { state in
+                if let help = Legend.received(pr, state), let (symbol, color) = ReviewIndicator.submitted(state) {
+                    Label("\(pr.reviewsByOthers.values.filter { $0 == state }.count)", systemImage: symbol)
+                        .foregroundStyle(color)
+                        .help(help)
+                }
+            }
+        }
+        .labelStyle(CompactLabel())
+        .font(.caption)
     }
 }
 

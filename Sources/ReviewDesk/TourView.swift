@@ -21,7 +21,7 @@ enum TourStep: Int, CaseIterable {
     var body: String {
         switch self {
         case .sidebar:
-            "Grouped by repository. **Inbox** holds what you authored, are assigned or asked to review; **Projects** are your own folders (drag pull requests or stacks into them). A GitHub **stack** shows as one group. On each row: ✈ comments not sent yet, ✓ or ! your review, ↻ new commits since your review, ↩ replies you owe.\n\nThis stack is a fictional demo for the tour."
+            "Grouped by repository. **To Review** holds others' pull requests you're asked to review or assigned to; **My PRs** holds yours, with the reviews others left on them; **Projects** are your own folders (drag pull requests or stacks into them). A GitHub **stack** shows as one group. On each row: ✈ comments not sent yet, ✓ or ! your review, ↻ new commits since your review, ↩ replies you owe.\n\nThis stack is a fictional demo for the tour."
         case .header:
             "Title, repository and number, author, branches (head → base) and the position in its stack. **Open on GitHub** opens it in your browser."
         case .conversation:

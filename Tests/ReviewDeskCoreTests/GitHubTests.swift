@@ -149,6 +149,17 @@ import Testing
     #expect(prs[3].threadsAwaitingReply == 1)
 }
 
+@Test func decodesEveryoneElsesLatestReview() async throws {
+    let reviews = #""latestReviews":{"nodes":[{"state":"APPROVED","viewerDidAuthor":false,"author":{"login":"bob"}},{"state":"CHANGES_REQUESTED","viewerDidAuthor":false,"author":{"login":"carol"}},{"state":"COMMENTED","viewerDidAuthor":true,"author":{"login":"me"}}]},"#
+    let node = prNode(author: true).replacingOccurrences(of: #""stack":"#, with: reviews + #""stack":"#)
+    let runner = FakeRunner { _ in data(#"{"nodes":[\#(node),\#(prNode(id: "NONE"))]}"#) }
+    let prs = try await GitHub(runner: runner).pullRequests(ids: ["x"])
+
+    #expect(prs[0].reviewsByOthers == ["bob": "APPROVED", "carol": "CHANGES_REQUESTED"]) // my own review is left out
+    #expect(prs[1].reviewsByOthers.isEmpty)
+    #expect(runner.calls.first?.query.contains("latestReviews") == true)
+}
+
 @Test func readsViewedFilesAcrossPages() async throws {
     let runner = FakeRunner { call in
         call.variables["after"] == nil

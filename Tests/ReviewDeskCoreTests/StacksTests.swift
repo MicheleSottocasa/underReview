@@ -24,6 +24,13 @@ private func pr(_ id: String, _ number: Int, stack: Int? = nil, entries: [String
     #expect(items[0].isStack && !items[1].isStack)
 }
 
+@Test func itemsTheViewerWroteAreTheirs() {
+    var mine = pr("A", 1, stack: 1, entries: ["A", "B"])
+    mine.viewerIsAuthor = true
+    let items = Stacks.items([mine, pr("B", 2, stack: 1, entries: ["A", "B"]), pr("solo", 3)])
+    #expect(items.filter(\.isViewers).map(\.key) == ["stack:o/r#1"]) // one PR of the stack is enough
+}
+
 @Test func mergedBottomPRStaysInStack() {
     var bottom = pr("A", 1, stack: 1, entries: ["A", "B"])
     bottom.state = "MERGED"

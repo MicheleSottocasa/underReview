@@ -282,7 +282,8 @@ extension AppModel {
         return ReviewStatus(
             toSend: local + (pr.pendingReviewComments ?? 0),
             hasPendingReview: pr.pendingReviewComments != nil || local > 0,
-            submitted: pr.viewerReviewState,
+            // Replying on your own PR files a "commented" review; its row shows the reviews others left instead.
+            submitted: pr.viewerIsAuthor ? nil : pr.viewerReviewState,
             awaitingReply: pr.threadsAwaitingReply,
             changedSinceReview: pr.needsReReview
         )
