@@ -95,7 +95,7 @@ private func runInstallScript(newApp: URL, target: URL, work: URL) throws {
     process.executableURL = URL(fileURLWithPath: "/bin/sh")
     // No process 999999 is running, so the "wait for the app to quit" loop ends at once.
     process.arguments = [script.path, "999999", newApp.path, target.path, work.path]
-    process.environment = ["OPEN": "/usr/bin/true", "LSREGISTER": "/usr/bin/true", "PATH": "/usr/bin:/bin"]
+    process.environment = ["OPEN": "/usr/bin/true", "LSREGISTER": work.deletingLastPathComponent().appendingPathComponent("lsregister").path, "PATH": "/usr/bin:/bin"]
     try process.run()
     process.waitUntilExit()
 }
@@ -109,9 +109,15 @@ private func runInstallScript(newApp: URL, target: URL, work: URL) throws {
     let newApp = work.appendingPathComponent("ReviewDesk.app")
     try FileManager.default.createDirectory(at: newApp, withIntermediateDirectories: true)
     try Data("new".utf8).write(to: newApp.appendingPathComponent("version"))
+    // A stand-in lsregister that records its arguments.
+    let log = root.appendingPathComponent("lsregister.log"), fake = root.appendingPathComponent("lsregister")
+    try Data("#!/bin/sh\necho \"$@\" >> '\(log.path)'\n".utf8).write(to: fake)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fake.path)
 
     try runInstallScript(newApp: newApp, target: target, work: work)
     #expect(try String(contentsOf: target.appendingPathComponent("version"), encoding: .utf8) == "new")
+    // The temporary copy is forgotten and the installed one registered, so notifications keep the icon.
+    #expect(try String(contentsOf: log, encoding: .utf8) == "-u \(newApp.path)\n-f \(target.path)\n")
     #expect(!FileManager.default.fileExists(atPath: target.path + ".previous"))
     #expect(!FileManager.default.fileExists(atPath: work.path)) // cleaned up
 

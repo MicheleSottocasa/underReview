@@ -5,6 +5,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+- In-app updates no longer leave a temporary copy registered with macOS, which could blank the icon in notifications.
 ## 0.7.0
 
 - **Review Stack runs one agent per pull request, in parallel:** up to 3 at once by default (Settings › AI; Ollama one at a time). The progress box lists every pull request with its agent's state (waiting, running, done with its findings, failed, stopped) and live log, on the pull request you started from and on each member. Click a row to open that pull request, stop one agent alone, or *Cancel All*.

@@ -94,8 +94,11 @@ public struct Updater: Sendable {
         rm -rf "$target"
         mv "$target.previous" "$target"
     fi
-    # Re-register so Notification Center finds the icon, then relaunch (both overridable for tests).
-    "${LSREGISTER:-/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister}" -f "$target"
+    # Forget the temporary copy and re-register the installed one, so Notification Center finds the icon
+    # (a stale copy under the same bundle id blanks it); then relaunch. Both tools are overridable for tests.
+    lsregister="${LSREGISTER:-/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister}"
+    "$lsregister" -u "$new" 2>/dev/null
+    "$lsregister" -f "$target"
     "${OPEN:-/usr/bin/open}" "$target"
     rm -rf "$work"
     """
