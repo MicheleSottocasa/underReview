@@ -247,7 +247,7 @@ public struct PRDetail: Sendable {
     public var pendingReview: PendingReview?
     /// APPROVED, CHANGES_REQUESTED or REVIEW_REQUIRED; nil when the base branch requires no review.
     public var reviewDecision: String?
-    /// Each reviewer's latest review.
+    /// Each reviewer's latest review; their latest approval or change request when they have one.
     public var latestReviews: [Review] = []
 
     /// Like GitHub's Reviewers box, without the viewer (shown apart) and the author: requested reviewers wait,
@@ -396,8 +396,10 @@ public struct GitHub: Sendable {
           reviewThreads(first: 100) { nodes { id path line diffSide isResolved isOutdated viewerCanResolve viewerCanUnresolve resolvedBy { login }
             comments(first: 100) { nodes { ...CommentFields state diffHunk pullRequestReview { id } } } } }
           \(Self.pendingField)
-          reviewDecision latestReviews(first: 20) { nodes { id author { login } state body submittedAt commit { oid } } }
+          reviewDecision latestReviews(first: 20) { nodes { ...LatestReview } }
+          latestOpinionatedReviews(first: 20) { nodes { ...LatestReview } }
         } } }
+        fragment LatestReview on PullRequestReview { id author { login } state body submittedAt commit { oid } }
         fragment CommentFields on Comment {
           __typename id author { login } body createdAt
           ... on Updatable { viewerCanUpdate }
@@ -425,8 +427,16 @@ public struct GitHub: Sendable {
             },
             pendingReview: pending,
             reviewDecision: pr["reviewDecision"] as? String,
-            latestReviews: Self.nodes(pr["latestReviews"]).map(Self.decodeReview)
+            latestReviews: Self.latestReviews(Self.nodes(pr["latestReviews"]).map(Self.decodeReview),
+                                              opinionated: Self.nodes(pr["latestOpinionatedReviews"]).map(Self.decodeReview))
         )
+    }
+
+    /// Each reviewer's latest review, where an approval or change request wins over later plain comments:
+    /// replying in a thread after approving is a COMMENTED review and would otherwise hide the approval.
+    static func latestReviews(_ latest: [Review], opinionated: [Review]) -> [Review] {
+        let decided = Dictionary(opinionated.map { ($0.author, $0) }) { first, _ in first }
+        return latest.map { decided[$0.author] ?? $0 } + opinionated.filter { review in !latest.contains { $0.author == review.author } }
     }
 
     /// Only the viewer's pending review: what review writes need, without the whole conversation.
