@@ -76,7 +76,8 @@ public struct LocalClone: Sendable {
             throw Failure.unreachableHead(folder: dir)
         }
         _ = try await runner.output("git", ["-C", dir, "fetch", remote, "refs/pull/\(pr.number)/head"], timeout: .seconds(180))
-        let added = try await text("git", ["-C", dir, "diff", "--name-only", "--diff-filter=A", "HEAD", "FETCH_HEAD"])
+        // `--no-renames`: a rename or copy onto an ignored path (`git mv config.example .env`) is an addition too.
+        let added = try await text("git", ["-C", dir, "diff", "--name-only", "--no-renames", "--diff-filter=A", "HEAD", "FETCH_HEAD"])
         // The tree is clean, so a file the PR adds that is already on disk is untracked or ignored.
         let inTheWay = added.split(separator: "\n").map(String.init).filter {
             (try? FileManager.default.attributesOfItem(atPath: top.appendingPathComponent($0).path)) != nil

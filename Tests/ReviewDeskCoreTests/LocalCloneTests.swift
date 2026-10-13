@@ -34,7 +34,8 @@ private func fake(_ top: URL, remotes: String = forkRemotes, status: String = ""
         case ["for-each-ref", "--contains", "HEAD", "--count=1"]: return ok(containing)
         case ["branch", "--show-current"]: return ok(ghFails ? "h7-old\n" : "h7\n")
         case let args where args.first == "status": return ok(status)
-        case let args where args.first == "diff": return ok(added)
+        // Like git, a rename onto a new path isn't an addition unless renames are off.
+        case let args where args.first == "diff": return ok(args.contains("--no-renames") ? added : "")
         default: return ok("")
         }
     }
@@ -109,6 +110,14 @@ private func expectRefusal(_ failure: LocalClone.Failure, _ top: URL, _ runner: 
     FileManager.default.createFile(atPath: top.appendingPathComponent(".env.local").path, contents: Data("SECRET=1".utf8))
     await expectRefusal(.untrackedFilesInTheWay(folder: top.path, paths: [".env.local"]), top,
                         fake(top, added: "docs/new.md\n.env.local\n"))
+}
+
+@Test func checkoutRefusesWhenThePRRenamesAFileOntoOneAlreadyOnDisk() async throws {
+    let top = try tempClone()
+    defer { try? FileManager.default.removeItem(at: top) }
+    // `git mv config.example .env` in the PR, with an ignored `.env` in the clone.
+    FileManager.default.createFile(atPath: top.appendingPathComponent(".env").path, contents: Data("SECRET=1".utf8))
+    await expectRefusal(.untrackedFilesInTheWay(folder: top.path, paths: [".env"]), top, fake(top, added: ".env\n"))
 }
 
 @Test func failedCheckoutSaysWhereTheCloneIsNow() async throws {
