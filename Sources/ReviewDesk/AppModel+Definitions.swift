@@ -16,14 +16,14 @@ extension AppModel {
             imported = Set(more.keys)
             texts.merge(more) { first, _ in first }
         }
-        var found: [Definition] = []
         // A file whose text GitHub didn't give (binary, too large, or the demo): what its diff shows of the head.
-        for file in changed where texts[file.filename] == nil {
-            if let patch = file.patch { found += Definitions.find(name, path: file.filename, lines: Definitions.headLines(patch)) }
-        }
-        for (file, text) in texts.sorted(by: { $0.key < $1.key }) {
-            found += Definitions.find(name, path: file, source: text)
-        }
+        let patches = changed.filter { texts[$0.filename] == nil }.compactMap { file in file.patch.map { (file.filename, $0) } }
+        let sources = texts.sorted { $0.key < $1.key }
+        // Off the main actor: a common name in a large pull request means a lot of regex matching.
+        let found = await Task.detached {
+            patches.flatMap { Definitions.find(name, path: $0.0, lines: Definitions.headLines($0.1)) }
+                + sources.flatMap { Definitions.find(name, path: $0.key, source: $0.value) }
+        }.value
         return Definitions.rank(found, from: path, imported: imported)
     }
 

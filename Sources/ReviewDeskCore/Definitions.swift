@@ -81,7 +81,8 @@ public enum Definitions {
             (try? NSRegularExpression(pattern: pattern.template.replacingOccurrences(of: "NAME", with: escaped))).map { (pattern.kind, $0) }
         }
         var found: [Definition] = []
-        for (index, line) in lines.enumerated() where line.text.contains(name) {
+        // Minified or generated lines are skipped: nobody declares things there, and the patterns get slow on them.
+        for (index, line) in lines.enumerated() where line.text.utf16.count <= 2_000 && line.text.contains(name) {
             let trimmed = line.text.trimmingCharacters(in: .whitespaces)
             guard !language.comments.contains(where: trimmed.hasPrefix) else { continue }
             let text = line.text as NSString

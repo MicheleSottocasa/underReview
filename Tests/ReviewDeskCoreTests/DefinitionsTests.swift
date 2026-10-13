@@ -107,6 +107,12 @@ import Testing
     #expect(!Definitions.isCovered("README.md"))
 }
 
+@Test func minifiedLinesAreSkipped() {
+    let minified = "function load(a){" + String(repeating: "a(b);", count: 500) + "}"
+    #expect(Definitions.find("load", path: "app.min.js", source: minified).isEmpty)
+    #expect(Definitions.find("load", path: "app.js", source: "function load(a) {").count == 1)
+}
+
 @Test func identifierUnderTheClick() {
     #expect(Definitions.identifier(in: "x = make_service(a)", at: 7)?.name == "make_service")
     #expect(Definitions.identifier(in: "x = make_service(a)", at: 7)?.range == 4..<16)
