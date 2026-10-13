@@ -110,6 +110,25 @@ private func finding(_ path: String?, _ line: Int?) -> Finding {
     #expect(AIContext.placement(fix("a.swift", 2, ""), files: all) == .inline(Anchor(path: "a.swift", line: 2), startLine: nil, body: "c\n\n```suggestion\n\n```"))
 }
 
+@Test func absurdLineNumbersFromTheAIAreRefusedWithoutTrapping() throws {
+    let patch = "@@ -1,3 +1,4 @@\n def f(x):\n-    return x\n+    y = x\n+    return y\n end"
+    let files = [FileChange(filename: "a.py", status: "modified", additions: 2, deletions: 1, patch: patch)]
+    for (start, end) in [(3_000_000_000, 3_000_000_000), (Int.min, 2), (2, Int.max), (0, 1), (5, 5)] {
+        #expect(throws: AIError.self) { try FixProposal(startLine: start, line: end, suggestion: "x", comment: "c").validated(patch: patch) }
+        #expect(AIContext.newSideText(patch: patch, from: start, to: end) == nil)
+    }
+    #expect(try FixProposal(startLine: 2, line: 4, suggestion: "x", comment: "c").validated(patch: patch).line == 4)
+    // Findings from a review can carry such numbers too: placement neither traps nor loops over billions of lines.
+    for line in [3_000_000_000, Int.min, Int.max] {
+        let finding = Finding(severity: "low", title: "t", rationale: "r", path: "a.py", line: line, comment: "c", startLine: Int.min, suggestion: "x")
+        guard case .inline(let anchor, nil, _) = AIContext.placement(finding, files: files) else { Issue.record("not inline"); continue }
+        #expect(anchor.side == .right)
+    }
+    let ranged = Finding(severity: "low", title: "t", rationale: "r", path: "a.py", line: 3, comment: "c", startLine: Int.min, suggestion: "x")
+    guard case .inline(_, nil, let body) = AIContext.placement(ranged, files: files) else { Issue.record("not inline"); return }
+    #expect(!body.contains("```suggestion")) // its lines can't all be in the diff: plain code
+}
+
 @Test func aFixIsAskedWithNumberedNewLinesAndPostedAsASuggestedChange() throws {
     let patch = "@@ -1,3 +1,4 @@\n def f(x):\n-    return x\n+    y = x\n+    return y\n end"
     let finding = Finding(severity: "high", title: "Off by one", rationale: "Misses the last item.", path: "a.py", line: 2, comment: "Loop to n.")

@@ -155,6 +155,16 @@ public struct FixProposal: Codable, Hashable, Sendable {
         Finding(severity: "low", title: "Fix", rationale: "", path: path, line: max(startLine, line), comment: comment,
                 startLine: min(startLine, line), suggestion: suggestion)
     }
+
+    /// The proposal, when both its lines are NEW-side lines within `patch`; any other number (0, negative, past the
+    /// end, absurdly large) means the AI's answer can't be placed, so it's refused as invalid output.
+    public func validated(patch: String) throws -> FixProposal {
+        let last = Diff.parse(patch).compactMap { $0.kind == .removed ? nil : $0.newLine }.max() ?? 0
+        guard last > 0, (1...last).contains(startLine), (1...last).contains(line) else {
+            throw AIError.invalidOutput("the fix names lines \(startLine)–\(line), which aren't lines of this file's diff")
+        }
+        return self
+    }
 }
 
 /// One message in the Explain chat.
@@ -425,6 +435,8 @@ public enum AIContext {
     public static func newSideText(patch: String, from start: Int, to end: Int) -> String? {
         let byLine = Dictionary(Diff.parse(patch).compactMap { line in line.kind == .removed ? nil : line.newLine.map { ($0, line.text) } },
                                 uniquingKeysWith: { a, _ in a })
+        // Bounded first: a huge or negative number from the AI must not build a range of billions of lines.
+        guard let last = byLine.keys.max(), min(start, end) >= 1, max(start, end) <= last else { return nil }
         let lines = (min(start, end)...max(start, end)).map { byLine[$0] }
         return lines.contains(nil) ? nil : lines.compactMap { $0 }.joined(separator: "\n")
     }
@@ -466,7 +478,8 @@ public enum AIContext {
         if let line = finding.line, anchors.contains(Anchor(path: path, line: line)) {
             // A suggested change replaces exactly the lines it covers, so every one of them must be commentable.
             let first = min(finding.startLine ?? line, line)
-            if let suggestion, (first...line).allSatisfy({ anchors.contains(Anchor(path: path, line: $0)) }) {
+            // A range longer than the file's commentable lines can't be all commentable (and could be billions long).
+            if let suggestion, first > line - anchors.count, (first...line).allSatisfy({ anchors.contains(Anchor(path: path, line: $0)) }) {
                 return .inline(Anchor(path: path, line: line), startLine: first < line ? first : nil,
                                body: finding.comment + "\n\n" + fenced(suggestion, info: "suggestion"))
             }
@@ -475,7 +488,7 @@ public enum AIContext {
         // Prefer the new side (what the PR adds or keeps), then the closest line, then the earlier one on a tie.
         let target = finding.line ?? 0
         guard let nearest = anchors.min(by: { a, b in
-            (a.side == .left ? 1 : 0, abs(a.line - target), a.line) < (b.side == .left ? 1 : 0, abs(b.line - target), b.line)
+            (a.side == .left ? 1 : 0, distance(a.line, target), a.line) < (b.side == .left ? 1 : 0, distance(b.line, target), b.line)
         }) else { return .summary("`\(path)`: " + finding.comment + plainCode(suggestion, finding)) }
         let note = finding.line.map { "**Line \($0):** " } ?? "**This file:** "
         return .inline(nearest, startLine: nil, body: note + finding.comment + plainCode(suggestion, finding))
@@ -490,6 +503,12 @@ public enum AIContext {
     }
 
     /// A fenced block that can't be closed early by backticks in the code.
+    /// |a − b| without trapping on extreme line numbers from the AI (Int.min, or far past the file).
+    private static func distance(_ a: Int, _ b: Int) -> UInt {
+        let (difference, overflow) = a.subtractingReportingOverflow(b)
+        return overflow ? .max : difference.magnitude
+    }
+
     static func fenced(_ code: String, info: String) -> String {
         let code = code.hasSuffix("\n") ? String(code.dropLast()) : code
         let fence = String(repeating: "`", count: max(3, (code.components(separatedBy: "\n").map { $0.prefix { $0 == "`" }.count }.max() ?? 0) + 1))
