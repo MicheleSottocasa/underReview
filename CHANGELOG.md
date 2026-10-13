@@ -5,6 +5,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+- **Install updates from the app:** *Install and Relaunch* downloads the new version, checks it against GitHub's checksum, replaces the app and relaunches it. Updates installed this way don't need the first install's right-click → Open.
 ## 0.6.0
 
 - **Follow-up check:** after the author pushes or replies to your comments, *Check if addressed* asks the AI whether the changes and replies since your review handle each of your requests (addressed, partly, not addressed, pushed back or unclear), with the evidence and a button to resolve addressed threads. Its prompt is editable in Settings.

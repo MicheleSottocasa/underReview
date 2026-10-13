@@ -501,7 +501,7 @@ struct RefreshFooter: View {
     }
 }
 
-/// A newer ReviewDesk is published: download it, or hide the banner until the next version.
+/// A newer ReviewDesk is published: install it in place, read the notes, or hide the banner until the next version.
 struct UpdateBanner: View {
     @Environment(AppModel.self) private var model
     let release: AppRelease
@@ -511,15 +511,27 @@ struct UpdateBanner: View {
             Label("ReviewDesk \(release.version) is available", systemImage: "arrow.down.circle.fill")
                 .font(.callout.bold())
                 .foregroundStyle(Color.accentColor)
-            Text("You have \(model.currentVersion).").font(.caption).foregroundStyle(.secondary)
-            HStack {
-                Button("Download") { model.openRelease(release) }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .help("Opens the release page with the installer")
-                Button("Later") { model.dismissedUpdate = release.version }
-                    .controlSize(.small)
-                    .help("Hide until a newer version comes out")
+            if let progress = model.updateProgress {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text(progress).font(.caption)
+                }
+            } else {
+                Text("You have \(model.currentVersion).").font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    Button(model.canInstallUpdates ? "Install and Relaunch" : "Download") { model.installUpdate(release) }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .help(model.canInstallUpdates
+                              ? "Downloads the installer from GitHub, checks it, replaces this copy and relaunches"
+                              : "Opens the release page with the installer")
+                    Button("Notes") { model.openRelease(release) }
+                        .controlSize(.small)
+                        .help("What changed, on the release page")
+                    Button("Later") { model.dismissedUpdate = release.version }
+                        .controlSize(.small)
+                        .help("Hide until a newer version comes out")
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -42,6 +42,40 @@ extension AppModel {
         }
     }
 
+    /// The app can replace itself: it runs from a `.app` in a folder it can write to (not `swift run`, not a disk image).
+    var canInstallUpdates: Bool {
+        let bundle = Bundle.main.bundleURL
+        return bundle.pathExtension == "app" && FileManager.default.isWritableFile(atPath: bundle.deletingLastPathComponent().path)
+    }
+
+    /// Downloads the release, checks it, and swaps it in after quitting; ReviewDesk relaunches by itself.
+    func installUpdate(_ release: AppRelease) {
+        guard canInstallUpdates, release.installer != nil else { return openRelease(release) }
+        guard aiStatus.isEmpty else {
+            lastError = "An AI review is running: install the update when it's done (relaunching would cancel it)."
+            return
+        }
+        guard updateProgress == nil else { return }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("reviewdesk-update-\(UUID().uuidString)")
+        let updater = Updater(runner: github.runner)
+        updateProgress = "Downloading ReviewDesk \(release.version)…"
+        Task {
+            do {
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                let dmg = try await updater.download(release, repo: AppVersion.repository, to: folder)
+                updateProgress = "Checking the installer…"
+                let app = try await updater.prepare(dmg, bundleID: Bundle.main.bundleIdentifier ?? "", version: release.version, in: folder)
+                updateProgress = "Installing \(release.version): ReviewDesk relaunches in a moment…"
+                try await updater.scheduleInstall(app, over: Bundle.main.bundleURL, after: ProcessInfo.processInfo.processIdentifier, folder: folder)
+                NSApp.terminate(nil)
+            } catch {
+                updateProgress = nil
+                try? FileManager.default.removeItem(at: folder)
+                lastError = "Couldn't install ReviewDesk \(release.version): \(error.localizedDescription)"
+            }
+        }
+    }
+
     func openRelease(_ release: AppRelease) {
         if let url = URL(string: release.url) { NSWorkspace.shared.open(url) }
     }
@@ -54,10 +88,17 @@ extension AppModel {
             if let release = availableUpdate {
                 dismissedUpdate = nil
                 alert.messageText = "ReviewDesk \(release.version) is available"
-                alert.informativeText = "You have \(currentVersion). Download the new installer from the release page."
-                alert.addButton(withTitle: "Download")
+                alert.informativeText = canInstallUpdates
+                    ? "You have \(currentVersion). ReviewDesk can download, check and install it, then relaunch."
+                    : "You have \(currentVersion). Download the new installer from the release page."
+                alert.addButton(withTitle: canInstallUpdates ? "Install and Relaunch" : "Download")
+                alert.addButton(withTitle: "Release Notes")
                 alert.addButton(withTitle: "Later")
-                if alert.runModal() == .alertFirstButtonReturn { openRelease(release) }
+                switch alert.runModal() {
+                case .alertFirstButtonReturn: installUpdate(release)
+                case .alertSecondButtonReturn: openRelease(release)
+                default: break
+                }
             } else if let error = updateCheckError {
                 alert.messageText = "Couldn't check for updates"
                 alert.informativeText = error

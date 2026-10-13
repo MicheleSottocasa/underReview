@@ -7,6 +7,18 @@ public struct AppRelease: Equatable, Sendable {
     public var url: String
     public var publishedAt: Date?
     public var notes: String
+    /// The `.dmg` attached to the release, if any: what the in-app update installs.
+    public var installer: Installer?
+
+    public struct Installer: Equatable, Sendable {
+        public var name: String
+        /// GitHub's checksum of the file, `sha256:<hex>`, when it publishes one.
+        public var digest: String?
+    }
+
+    public init(version: String, url: String, publishedAt: Date?, notes: String, installer: Installer? = nil) {
+        (self.version, self.url, self.publishedAt, self.notes, self.installer) = (version, url, publishedAt, notes, installer)
+    }
 }
 
 public enum AppVersion {
@@ -38,7 +50,9 @@ extension GitHub {
         guard let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], let tag = json["tag_name"] as? String else {
             throw GitHubError.notFound("Latest release of \(repo)")
         }
+        let dmg = (json["assets"] as? [[String: Any]] ?? []).first { ($0["name"] as? String)?.hasSuffix(".dmg") == true }
         return AppRelease(version: tag.hasPrefix("v") ? String(tag.dropFirst()) : tag, url: json["html_url"] as? String ?? "",
-                          publishedAt: Self.date(json["published_at"]), notes: json["body"] as? String ?? "")
+                          publishedAt: Self.date(json["published_at"]), notes: json["body"] as? String ?? "",
+                          installer: dmg.map { AppRelease.Installer(name: $0["name"] as? String ?? "", digest: $0["digest"] as? String) })
     }
 }

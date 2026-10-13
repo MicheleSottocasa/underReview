@@ -204,8 +204,13 @@ struct GeneralSettings: View {
                 Toggle("Check for new versions automatically", isOn: $checkForUpdates)
                 HStack {
                     Group {
-                        if let update = model.availableUpdate {
-                            Button("\(update.version) is available: Download") { model.openRelease(update) }.buttonStyle(.link)
+                        if let progress = model.updateProgress {
+                            Text(progress).foregroundStyle(.secondary)
+                        } else if let update = model.availableUpdate {
+                            Button(model.canInstallUpdates ? "Install \(update.version) and Relaunch" : "\(update.version) is available: Download") {
+                                model.installUpdate(update)
+                            }
+                            .buttonStyle(.link)
                         } else if let error = model.updateCheckError {
                             Text("Last check failed: \(error)").foregroundStyle(.orange).lineLimit(2)
                         } else if let checked = model.lastUpdateCheck {

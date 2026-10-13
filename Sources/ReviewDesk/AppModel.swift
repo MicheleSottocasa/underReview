@@ -78,6 +78,8 @@ final class AppModel {
     var refreshError: String?
     /// A newer published release than this build, if the last check found one.
     var availableUpdate: AppRelease?
+    /// What the in-app update is doing (downloading, checking, installing), while it runs.
+    var updateProgress: String?
     var lastUpdateCheck: Date?
     var updateCheckError: String?
     /// The release the user chose "Later" for: its banner stays hidden until a newer one comes out.
@@ -136,7 +138,9 @@ final class AppModel {
     init() {
         let overrides = Self.tools.reduce(into: [String: String]()) { $0[$1] = UserDefaults.standard.string(forKey: "path.\($1)") }
         // osascript opens background agents in Terminal; it's part of macOS.
-        let runner = ProcessRunner(paths: ProcessRunner.discover(Self.tools, overrides: overrides).merging(["osascript": "/usr/bin/osascript"]) { a, _ in a })
+        // osascript and the updater's tools ship with macOS, at fixed paths.
+        let system = Updater.systemTools.merging(["osascript": "/usr/bin/osascript"]) { a, _ in a }
+        let runner = ProcessRunner(paths: ProcessRunner.discover(Self.tools, overrides: overrides).merging(system) { a, _ in a })
         toolPaths = runner.paths
         github = GitHub(runner: runner)
         org = orgFile.load(default: Organization())
