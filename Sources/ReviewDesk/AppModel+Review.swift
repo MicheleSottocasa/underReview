@@ -86,7 +86,7 @@ extension AppModel {
     /// Flips the file's Viewed checkbox here and on GitHub, rolling back if GitHub refuses.
     func toggleViewed(_ path: String, pr: PullRequest) async {
         guard !blockDemo(pr) else { return }
-        await whilePending(pr.id + path) {
+        await whilePending("\(pr.id):\(path)") {
             let viewed = !(viewedFiles[pr.id]?.contains(path) ?? false)
             viewedFiles[pr.id, default: []].formSymmetricDifference([path])
             do {
@@ -160,7 +160,7 @@ extension AppModel {
     }
 
     func publish(_ pr: PullRequest, event: ReviewEvent) async -> Bool {
-        let published = await commentWrite(pr, pending: pr.id) {
+        let published = await commentWrite(pr) {
             try await reviewSync.publish(pr: pr, event: event, body: reviewDrafts.bodies[pr.id] ?? "", viewer: viewer)
         }
         guard published else { return false }
@@ -199,9 +199,9 @@ extension AppModel {
 
     /// Writes, then waits for the PR to reload (even after a failure), so callers' progress lasts until the new state shows.
     @discardableResult
-    private func commentWrite(_ pr: PullRequest, pending id: String, _ write: () async throws -> Void) async -> Bool {
+    private func commentWrite(_ pr: PullRequest, pending id: String? = nil, _ write: () async throws -> Void) async -> Bool {
         guard !blockDemo(pr) else { return false }
-        return await whilePending(id) {
+        func run() async -> Bool {
             let succeeded: Bool
             do {
                 try await write()
@@ -212,7 +212,9 @@ extension AppModel {
             }
             await afterOwnWrite(pr)
             return succeeded
-        } ?? false
+        }
+        guard let id else { return await run() }
+        return await whilePending(id) { await run() } ?? false
     }
 
     /// Our own writes shouldn't come back as notifications: re-read the PR and move its checkpoint.
