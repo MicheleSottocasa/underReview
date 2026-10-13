@@ -70,9 +70,12 @@ public struct ClaudeAgents: Sendable {
         return Self.repo(fromRemote: result.text)
     }
 
+    /// Also `ssh://git@ssh.github.com:443/o/r.git` and a trailing slash. SSH host aliases (`git@github-work:o/r`)
+    /// can't be told apart from other hosts, so they don't count.
     static func repo(fromRemote url: String) -> String? {
-        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let range = trimmed.range(of: "github.com[:/]", options: .regularExpression) else { return nil }
+        var trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        while trimmed.hasSuffix("/") { trimmed.removeLast() }
+        guard let range = trimmed.range(of: #"github\.com(:\d+)?[:/]"#, options: .regularExpression) else { return nil }
         var path = String(trimmed[range.upperBound...])
         if path.hasSuffix(".git") { path.removeLast(4) }
         let parts = path.split(separator: "/")

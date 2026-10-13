@@ -32,6 +32,9 @@ private let listing = """
     #expect(ClaudeAgents.repo(fromRemote: "https://github.com/Lexroom-ai/lexroom-backend.git") == "Lexroom-ai/lexroom-backend")
     #expect(ClaudeAgents.repo(fromRemote: "git@github.com:o/r.git\n") == "o/r")
     #expect(ClaudeAgents.repo(fromRemote: "https://gitlab.com/o/r.git") == nil)
+    #expect(ClaudeAgents.repo(fromRemote: "ssh://git@ssh.github.com:443/o/r.git") == "o/r")
+    #expect(ClaudeAgents.repo(fromRemote: "https://github.com/o/r/") == "o/r")
+    #expect(ClaudeAgents.repo(fromRemote: "git@github-work:o/r.git") == nil)
 }
 
 @Test func logsAndStopOnlyTouchBackgroundSessions() async throws {

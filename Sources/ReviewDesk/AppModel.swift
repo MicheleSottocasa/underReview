@@ -138,6 +138,8 @@ final class AppModel {
     var runningAgents: [RunningAgent] = []
     /// Repository (`owner/repo`) → the folder of its clone on this Mac.
     var localClones: [String: String] { didSet { save(localClonesFile, localClones) } }
+    /// Clone folders a checkout is running in, so a second one can't start there at the same time.
+    var checkingOut: Set<String> = []
     /// Stored Claude Code sessions, newest first; stopped ones can be linked too.
     var recentSessions: [RunningAgent] = []
 
