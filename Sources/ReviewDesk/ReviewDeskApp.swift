@@ -169,7 +169,9 @@ struct ContentView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        content.task {
+        content
+        .sheet(item: Bindable(model).whatsNew) { WhatsNewView(release: $0) }
+        .task {
             // First launch: tour the app on demo data before any real pull request shows up.
             guard model.shouldStartTour, model.tourStep == nil, !Screenshots.isRequested else { return }
             try? await Task.sleep(for: .seconds(1))
@@ -253,6 +255,7 @@ struct SettingsView: View {
 
 struct GeneralSettings: View {
     @Environment(AppModel.self) private var model
+    @ViewState private var whatsNew: AppRelease?
     @AppStorage("checkForUpdates") private var checkForUpdates = true
     @ViewState private var checking = false
     @AppStorage("pollForeground") private var foreground = Updates.defaultForeground
@@ -279,6 +282,7 @@ struct GeneralSettings: View {
                                 model.installUpdate(update)
                             }
                             .buttonStyle(.link)
+                            Button("What's New") { whatsNew = update }.buttonStyle(.link)
                         } else if let error = model.updateCheckError {
                             Text("Last check failed: \(error)").foregroundStyle(.orange).lineLimit(2)
                         } else if let checked = model.lastUpdateCheck {
@@ -320,6 +324,7 @@ struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
+        .sheet(item: $whatsNew) { WhatsNewView(release: $0) }
     }
 
     private func seconds(_ title: String, _ value: Binding<Int>) -> some View {

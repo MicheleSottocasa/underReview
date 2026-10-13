@@ -623,9 +623,9 @@ struct UpdateBanner: View {
                         .help(model.canInstallUpdates
                               ? "Downloads the installer from GitHub, checks it, replaces this copy and relaunches"
                               : "Opens the release page with the installer")
-                    Button("Notes") { model.openRelease(release) }
+                    Button("What's New") { model.whatsNew = release }
                         .controlSize(.small)
-                        .help("What changed, on the release page")
+                        .help("What changed since your version")
                     Button("Later") { model.dismissedUpdate = release.version }
                         .controlSize(.small)
                         .help("Hide until a newer version comes out")
