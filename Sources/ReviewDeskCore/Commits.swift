@@ -31,6 +31,17 @@ public enum CommitSelection: Hashable, Sendable {
     }
 }
 
+extension PRCommit {
+    /// The commit of `commits` that a GitHub commit link (`https://github.com/o/r/commit/<sha>`, a short SHA too)
+    /// points to, when it's in `repo`.
+    public static func linked(by url: URL, repo: String, in commits: [PRCommit]) -> PRCommit? {
+        let parts = url.pathComponents.filter { $0 != "/" }
+        guard url.host == "github.com", parts.count == 4, parts[2] == "commit", parts[3].count >= 7,
+              "\(parts[0])/\(parts[1])".lowercased() == repo.lowercased() else { return nil }
+        return commits.first { $0.oid.lowercased().hasPrefix(parts[3].lowercased()) }
+    }
+}
+
 /// A diff of some commits next to the whole pull request's diff, which GitHub anchors every review comment to.
 public struct CommitView: Sendable {
     /// The compared range ends at the pull request's head, so new-side line numbers are the PR diff's.

@@ -62,6 +62,15 @@ private func pr(head: String = "c3", reviewed: String? = nil) -> PullRequest {
     #expect(CommitSelection.sinceReview.current(chosenAt: "c3", pr: pr(head: "c4")) == .sinceReview)
 }
 
+@Test func commitLinksFindThePullRequestsOwnCommits() throws {
+    let full = [PRCommit(oid: "a1b2c3d4e5f6", abbreviatedOid: "a1b2c3d", headline: "", author: "", date: nil)]
+    let link = try #require(URL(string: "https://github.com/O/R/commit/A1B2C3D"))
+    #expect(PRCommit.linked(by: link, repo: "o/r", in: full)?.oid == "a1b2c3d4e5f6")
+    #expect(PRCommit.linked(by: try #require(URL(string: "https://github.com/o/other/commit/a1b2c3d")), repo: "o/r", in: full) == nil)
+    #expect(PRCommit.linked(by: try #require(URL(string: "https://github.com/o/r/commit/ffffff1")), repo: "o/r", in: full) == nil)
+    #expect(PRCommit.linked(by: try #require(URL(string: "https://github.com/o/r/pull/1")), repo: "o/r", in: full) == nil)
+}
+
 @Test func commitViewsTakeCommentsOnlyOnNewSideLinesOfThePullRequestDiff() {
     let prAnchors: Set = [Anchor(path: "a.py", line: 4), Anchor(path: "a.py", line: 2, side: .left)]
     let atHead = CommitView(endsAtHead: true, prAnchors: prAnchors)
