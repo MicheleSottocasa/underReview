@@ -180,4 +180,14 @@ extension Diff {
     public static func index(ofNewLines range: ClosedRange<Int>, in rows: [DiffRow]) -> Int? {
         rows.firstIndex { $0.right?.newLine.map(range.contains) == true }
     }
+
+    /// Index of the line a comment is anchored to, on either side; nil when it's no longer in the diff.
+    public static func index(of anchor: Anchor, in lines: [DiffLine]) -> Int? {
+        lines.firstIndex { $0.anchor(path: anchor.path) == anchor }
+    }
+
+    /// The same for side-by-side rows.
+    public static func index(of anchor: Anchor, in rows: [DiffRow]) -> Int? {
+        rows.firstIndex { $0.left?.anchor(path: anchor.path) == anchor || $0.right?.anchor(path: anchor.path) == anchor }
+    }
 }

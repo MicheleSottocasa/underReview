@@ -630,6 +630,9 @@ struct FileDiffView: View {
     @ViewState private var rendered: RenderedDiff?
     /// Shared horizontal offset of the code while soft wrap is off.
     @ViewState private var hScroll = HorizontalScroll(gutter: FileDiffView.numberWidth * 2 + FileDiffView.markerWidth)
+    /// The row the last jump landed on: comment steps go on from there.
+    @ViewState private var cursor: Int?
+    @ViewState private var jump: Jump?
     /// Scroll id of the top of the file, above comments on lines no longer in the diff.
     private static let top = -1
     private static let numberWidth: CGFloat = 42
@@ -642,7 +645,7 @@ struct FileDiffView: View {
                 Text("+\(file.additions)").foregroundStyle(.green).font(.callout.monospacedDigit())
                 Text("−\(file.deletions)").foregroundStyle(.red).font(.callout.monospacedDigit())
                 Spacer()
-                if let target, target.line > 0, let rendered, rendered.key.patch == file.patch, rendered.row(for: target) == nil {
+                if let target, target.line > 0, let diff = currentDiff, diff.row(for: target) == nil {
                     let end = max(target.line, target.endLine ?? target.line)
                     Label(end > target.line ? "Lines \(target.line)–\(end) aren't in this diff" : "Line \(target.line) isn't in this diff",
                           systemImage: "exclamationmark.triangle")
@@ -653,6 +656,12 @@ struct FileDiffView: View {
                     .controlSize(.small)
                     .disabled(file.status == "removed")
                     .help("Open this file from the local clone in your editor, at the line shown or else at the first change")
+                if !commentRows.isEmpty {
+                    StepControl(noun: "comment", modifiers: [.command, .option], state: { (Array(commentRows.keys), cursor) }) { row in
+                        collapsed.subtract(commentRows[row] ?? []) // show the comments you jump to, if they were folded
+                        jump = Jump(row: row)
+                    }
+                }
                 fileStep
             }
             .padding(.horizontal, 12)
@@ -661,8 +670,7 @@ struct FileDiffView: View {
             Divider()
             if let patch = file.patch {
                 let key = RenderedDiff.Key(patch: patch, mode: mode, ink: ThemeStore.shared.ink)
-                // Colors don't invalidate the cache: the old ones show until `onChange` renders again.
-                let diff = rendered?.key.patch == patch && rendered?.key.mode == mode ? rendered : nil
+                let diff = currentDiff
                 let commented = commentedAnchors
                 let shownThreads = threads // once per redraw: `involves` runs a regex per thread
                 ScrollViewReader { proxy in
@@ -709,9 +717,15 @@ struct FileDiffView: View {
                 .onDisappear { hScroll.stop() }
                 .onChange(of: key, initial: true) { _, key in
                     rendered = RenderedDiff(key, path: file.filename)
+                    cursor = nil // rows differ between the two layouts
                 }
                 .task(id: Pair(target?.id, diff != nil)) {
                     guard let target, let diff, let row = target.line > 0 ? diff.row(for: target) : Self.top else { return }
+                    jump = Jump(row: row)
+                }
+                .task(id: jump?.id) {
+                    guard let row = jump?.row else { return }
+                    cursor = row
                     // ponytail: the lazy stack guesses the height of rows it hasn't drawn (threads, drafts), so jump,
                     // let it lay them out and jump again. Doing better needs scroll-offset tracking.
                     proxy.scrollTo(row, anchor: .top)
@@ -732,6 +746,19 @@ struct FileDiffView: View {
                 _ = model.addDraft(pr, anchor: composing, body: draftText)
             }
         }
+    }
+
+    /// The rendered diff, once it matches the current patch and layout. Colors don't invalidate it: the old ones
+    /// show until `onChange` renders again.
+    private var currentDiff: RenderedDiff? {
+        rendered?.key.patch == file.patch && rendered?.key.mode == mode ? rendered : nil
+    }
+
+    /// Diff rows with comments or drafts, and the anchors on each (a split row can have one per side).
+    private var commentRows: [Int: [ReviewDeskCore.Anchor]] {
+        guard let diff = currentDiff else { return [:] }
+        let anchors = commentedAnchors.filter { $0.path == file.filename }
+        return Dictionary(grouping: anchors.compactMap { anchor in diff.row(for: anchor).map { ($0, anchor) } }, by: \.0).mapValues { $0.map(\.1) }
     }
 
     private var allThreads: [ReviewThread] {
@@ -1020,6 +1047,14 @@ struct RenderedDiff {
         case (.split, .left): rows.firstIndex { ($0.left?.oldLine ?? 0) >= target.line }
         }
     }
+
+    /// Offset of the row a comment is anchored to.
+    func row(for anchor: ReviewDeskCore.Anchor) -> Int? {
+        switch mode {
+        case .unified: Diff.index(of: anchor, in: lines)
+        case .split: Diff.index(of: anchor, in: rows)
+        }
+    }
 }
 
 /// Keeps the pointer's hover state inside one row, so moving over the diff redraws that row only.
@@ -1100,6 +1135,12 @@ private struct ScrolledLine<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View { content.offset(x: -scroll.x) }
+}
+
+/// A scroll to a diff row; a fresh id lets the same row be revisited.
+private struct Jump: Equatable {
+    var row: Int
+    var id = UUID()
 }
 
 /// Two values as one `task(id:)`.
