@@ -276,11 +276,16 @@ struct RunView: View {
     @ViewBuilder
     private func findingRow(_ index: Int, _ finding: Finding, changed: [FileChange]) -> some View {
         let key = "\(run.id)#\(index)"
+        // From an older commit: its line number may point at other code now, so the AI isn't given it.
+        let outdated = run.headRefOid != pr.headRefOid
         FindingCard(finding: finding, files: changed, handled: run.handled.contains(index),
                     accept: { model.accept(run.id, finding: index, includeSuggestion: $0) },
                     dismiss: { model.dismiss(run.id, finding: index) },
-                    fixing: model.fixes[key] != nil) {
-            if let path = finding.path { model.suggestFix(key: key, problem: AIContext.fixProblem(finding), path: path, pr: pr) }
+                    fixing: model.fixes[key] != nil, outdated: outdated) {
+            if let path = finding.path {
+                model.suggestFix(key: key, problem: AIContext.fixProblem(finding, lineHint: !outdated), path: path, pr: pr,
+                                 note: outdated ? FindingCard.outdatedFixNote : nil)
+            }
         }
         FixPreview(key: key, pr: pr) { model.dismiss(run.id, finding: index) }
     }
@@ -295,7 +300,11 @@ struct FindingCard: View {
     @Environment(\.markdownRepo) private var repo
     /// A fix is being proposed or waits in its preview.
     var fixing = false
+    /// The finding comes from an analysis of an older commit.
+    var outdated = false
     var fix: () -> Void = {}
+
+    static let outdatedFixNote = "This finding is from an analysis of an older commit, so the AI was asked without its line number. Check that the fix targets the right code."
     @ViewState private var includeSuggestion = true
 
     private var placement: AIContext.Placement { AIContext.placement(finding, files: files, includeSuggestion: includeSuggestion) }
@@ -341,7 +350,7 @@ struct FindingCard: View {
                     if finding.path != nil {
                         Button("Suggest Fix", action: fix)
                             .disabled(fixing)
-                            .help("Asks the AI for replacement code you can edit, then add as a GitHub suggested change. Sends the PR description and this file's diff to the engine's provider (nothing leaves the Mac with Ollama).")
+                            .help((outdated ? "From an older commit: the AI is asked without the finding's line number, which may have moved. " : "") + "Asks the AI for replacement code you can edit, then add as a GitHub suggested change. Sends the PR description and this file's diff to the engine's provider (nothing leaves the Mac with Ollama).")
                     }
                     Button("Dismiss", action: dismiss).buttonStyle(.link)
                 }
@@ -440,6 +449,9 @@ struct FixPreview: View {
                     if let proposal = fix.proposal, proposal.suggestion != nil {
                         Text(verbatim: "\(fix.path):\(lines(proposal))").font(.caption.monospaced()).foregroundStyle(.secondary)
                     }
+                }
+                if let note = fix.note {
+                    Label(note, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
                 }
                 if let proposal = fix.proposal {
                     if proposal.suggestion == nil {

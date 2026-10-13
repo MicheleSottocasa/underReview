@@ -141,6 +141,8 @@ private func finding(_ path: String?, _ line: Int?) -> Finding {
     let prompt = AIContext.fixPrompt(title: "T", body: "B", path: "a.py", patch: patch, problem: AIContext.fixProblem(finding))
     #expect(prompt.contains("    1  def f(x):\n      -    return x\n    2 +    y = x\n    3 +    return y\n    4  end"))
     #expect(prompt.contains("## [FIX THIS]\n\n**Off by one** (high), line 2") && prompt.contains(AIContext.fixSchema))
+    // A finding from an older commit: its line may have moved, so it isn't passed as current.
+    #expect(AIContext.fixProblem(finding, lineHint: false) == "**Off by one** (high)\n\nMisses the last item.\n\nLoop to n.")
     let comment = Comment(id: "C2", author: "bob", body: "Rename y", createdAt: .now)
     #expect(AIContext.fixProblem(thread: [Comment(id: "C1", author: "amy", body: "Hm", createdAt: .now), comment], comment: comment, line: 2)
         .contains("**bob** **[THIS ONE]**:\nRename y"))
