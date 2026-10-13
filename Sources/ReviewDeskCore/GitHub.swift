@@ -161,6 +161,17 @@ public struct Review: Hashable, Identifiable, Sendable {
     public var state: String
     public var body: String
     public var submittedAt: Date?
+    /// The commit it was made on; only read for the latest reviews.
+    public var commitOID: String?
+}
+
+/// One line of GitHub's Reviewers box.
+public struct Reviewer: Hashable, Sendable {
+    public var login: String
+    /// APPROVED, CHANGES_REQUESTED, COMMENTED or DISMISSED; nil while their review is requested.
+    public var state: String?
+    /// Their review was made on an older commit than the head.
+    public var isOutdated = false
 }
 
 public struct ReviewThread: Hashable, Identifiable, Sendable {
@@ -234,6 +245,28 @@ public struct PRDetail: Sendable {
     public var threads: [ReviewThread]
     /// The viewer's own pending review, if any: GitHub only shows a user their own.
     public var pendingReview: PendingReview?
+    /// APPROVED, CHANGES_REQUESTED or REVIEW_REQUIRED; nil when the base branch requires no review.
+    public var reviewDecision: String?
+    /// Each reviewer's latest review.
+    public var latestReviews: [Review] = []
+
+    /// Like GitHub's Reviewers box, without the viewer (shown apart) and the author: requested reviewers wait,
+    /// everyone else shows their latest review.
+    public func reviewers(of pr: PullRequest, viewer: String) -> [Reviewer] {
+        let reviewed = latestReviews.filter { !pr.requestedReviewers.contains($0.author) }.map {
+            Reviewer(login: $0.author, state: $0.state, isOutdated: $0.commitOID.map { $0 != pr.headRefOid } ?? false)
+        }
+        return (reviewed + pr.requestedReviewers.map { Reviewer(login: $0) }).filter { $0.login != viewer && $0.login != pr.author }
+    }
+
+    /// Unresolved threads where someone else wrote last and it's the viewer's turn: their PR, or a thread they
+    /// started. The rule behind `PullRequest.threadsAwaitingReply`, on the loaded threads.
+    public func threadsAwaitingReply(_ pr: PullRequest, viewer: String) -> [ReviewThread] {
+        threads.filter { thread in
+            !thread.isResolved && thread.comments.last.map { $0.author != viewer } == true
+                && (pr.viewerIsAuthor || thread.isStarted(by: viewer))
+        }
+    }
 }
 
 public struct FileChange: Codable, Hashable, Sendable {
@@ -363,6 +396,7 @@ public struct GitHub: Sendable {
           reviewThreads(first: 100) { nodes { id path line diffSide isResolved isOutdated viewerCanResolve viewerCanUnresolve resolvedBy { login }
             comments(first: 100) { nodes { ...CommentFields state diffHunk pullRequestReview { id } } } } }
           \(Self.pendingField)
+          reviewDecision latestReviews(first: 20) { nodes { id author { login } state body submittedAt commit { oid } } }
         } } }
         fragment CommentFields on Comment {
           __typename id author { login } body createdAt
@@ -378,10 +412,7 @@ public struct GitHub: Sendable {
         return PRDetail(
             body: pr["body"] as? String ?? "",
             comments: Self.nodes(pr["comments"]).map(Self.decodeComment),
-            reviews: Self.nodes(pr["reviews"]).filter { $0["state"] as? String != "PENDING" }.map {
-                Review(id: $0["id"] as? String ?? "", author: Self.login($0), state: $0["state"] as? String ?? "",
-                       body: $0["body"] as? String ?? "", submittedAt: Self.date($0["submittedAt"]))
-            },
+            reviews: Self.nodes(pr["reviews"]).filter { $0["state"] as? String != "PENDING" }.map(Self.decodeReview),
             threads: Self.nodes(pr["reviewThreads"]).map {
                 ReviewThread(id: $0["id"] as? String ?? "", path: $0["path"] as? String ?? "", line: $0["line"] as? Int,
                              side: DiffSide(rawValue: $0["diffSide"] as? String ?? "") ?? .right,
@@ -392,7 +423,9 @@ public struct GitHub: Sendable {
                              resolvedBy: ($0["resolvedBy"] as? [String: Any])?["login"] as? String,
                              diffHunk: Self.nodes($0["comments"]).first?["diffHunk"] as? String ?? "")
             },
-            pendingReview: pending
+            pendingReview: pending,
+            reviewDecision: pr["reviewDecision"] as? String,
+            latestReviews: Self.nodes(pr["latestReviews"]).map(Self.decodeReview)
         )
     }
 
@@ -613,6 +646,12 @@ public struct GitHub: Sendable {
                   let last = nodes(thread["comments"]).last, last["viewerDidAuthor"] as? Bool == false else { return false }
             return viewerIsAuthor || nodes(thread["starter"]).first?["viewerDidAuthor"] as? Bool == true
         }.count
+    }
+
+    static func decodeReview(_ node: [String: Any]) -> Review {
+        Review(id: node["id"] as? String ?? "", author: login(node), state: node["state"] as? String ?? "",
+               body: node["body"] as? String ?? "", submittedAt: date(node["submittedAt"]),
+               commitOID: (node["commit"] as? [String: Any])?["oid"] as? String)
     }
 
     static func decodeComment(_ node: [String: Any]) -> Comment {
