@@ -57,6 +57,17 @@ public enum FollowUp {
         return hasRequests && (pr.needsReReview || replies(to: viewer, in: detail) > 0)
     }
 
+    /// The threads *Resolve All Addressed* would resolve: judged addressed, still open and resolvable by the viewer,
+    /// each once, in the run's order. None when the run is older than `head`, so a stale verdict resolves nothing.
+    public static func resolvable(_ run: FollowUpRun, in detail: PRDetail, head: String) -> [ReviewThread] {
+        guard run.headRefOid == head else { return [] }
+        var seen = Set<String>()
+        return run.result.items.compactMap { item in
+            guard item.status == "addressed", let id = item.threadID, seen.insert(id).inserted else { return nil }
+            return detail.threads.first { $0.id == id && !$0.isResolved && $0.viewerCanResolve }
+        }
+    }
+
     /// The viewer's submitted review summaries, which can hold requests too.
     public static func reviewBodies(of viewer: String, in detail: PRDetail) -> [String] {
         detail.reviews.filter { $0.author == viewer && !$0.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.map(\.body)
