@@ -455,6 +455,7 @@ struct RefreshFooter: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if let update = model.visibleUpdate { UpdateBanner(release: update) }
             Divider()
             // Re-rendered every 30 s so "2 minutes ago" stays true between fetches.
             TimelineView(.periodic(from: .now, by: 30)) { context in
@@ -490,5 +491,32 @@ struct RefreshFooter: View {
 
     static func ago(_ date: Date, now: Date) -> String {
         now.timeIntervalSince(date) < 60 ? "just now" : date.formatted(.relative(presentation: .named, unitsStyle: .wide))
+    }
+}
+
+/// A newer ReviewDesk is published: download it, or hide the banner until the next version.
+struct UpdateBanner: View {
+    @Environment(AppModel.self) private var model
+    let release: AppRelease
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("ReviewDesk \(release.version) is available", systemImage: "arrow.down.circle.fill")
+                .font(.callout.bold())
+                .foregroundStyle(Color.accentColor)
+            Text("You have \(model.currentVersion).").font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Button("Download") { model.openRelease(release) }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .help("Opens the release page with the installer")
+                Button("Later") { model.dismissedUpdate = release.version }
+                    .controlSize(.small)
+                    .help("Hide until a newer version comes out")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(Color.accentColor.opacity(0.1))
     }
 }

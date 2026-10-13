@@ -16,6 +16,9 @@ struct ReviewDeskApp: App {
         }
         .commands {
             SidebarCommands()
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { model.checkForUpdatesFromMenu() }
+            }
             CommandGroup(after: .newItem) {
                 Button("Refresh") { model.refreshNow() }.keyboardShortcut("r")
             }
@@ -161,6 +164,9 @@ struct SettingsView: View {
 }
 
 struct GeneralSettings: View {
+    @Environment(AppModel.self) private var model
+    @AppStorage("checkForUpdates") private var checkForUpdates = true
+    @ViewState private var checking = false
     @AppStorage("pollForeground") private var foreground = Updates.defaultForeground
     @AppStorage("pollBackground") private var background = Updates.defaultBackground
     @AppStorage("diffMode") private var diffMode = DiffMode.split
@@ -168,6 +174,33 @@ struct GeneralSettings: View {
 
     var body: some View {
         Form {
+            Section("Updates") {
+                LabeledContent("Version", value: model.currentBuild.isEmpty ? model.currentVersion : "\(model.currentVersion) (\(model.currentBuild))")
+                Toggle("Check for new versions automatically", isOn: $checkForUpdates)
+                HStack {
+                    Group {
+                        if let update = model.availableUpdate {
+                            Button("\(update.version) is available: Download") { model.openRelease(update) }.buttonStyle(.link)
+                        } else if let error = model.updateCheckError {
+                            Text("Last check failed: \(error)").foregroundStyle(.orange).lineLimit(2)
+                        } else if let checked = model.lastUpdateCheck {
+                            Text("Up to date · checked \(checked.formatted(.relative(presentation: .named)))").foregroundStyle(.secondary)
+                        } else {
+                            Text("Not checked yet").foregroundStyle(.secondary)
+                        }
+                    }
+                    .font(.callout)
+                    Spacer()
+                    Button(checking ? "Checking…" : "Check Now") {
+                        checking = true
+                        Task {
+                            await model.checkForUpdates()
+                            checking = false
+                        }
+                    }
+                    .disabled(checking)
+                }
+            }
             Section {
                 seconds("While ReviewDesk is in front", $foreground)
                 seconds("In the background", $background)

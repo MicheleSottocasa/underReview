@@ -7,6 +7,7 @@ import UserNotifications
 @MainActor
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     var onOpen: ((String) -> Void)?
+    var onOpenURL: ((URL) -> Void)?
 
     private var center: UNUserNotificationCenter? {
         Bundle.main.bundleIdentifier == nil ? nil : .current()
@@ -27,10 +28,23 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         center?.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
     }
 
+    /// A new ReviewDesk version; clicking opens its release page.
+    func postUpdate(_ release: AppRelease) {
+        let content = UNMutableNotificationContent()
+        content.title = "ReviewDesk \(release.version) is available"
+        content.body = "Click to open the release and download it."
+        content.userInfo = ["release": release.url]
+        center?.add(UNNotificationRequest(identifier: "update-\(release.version)", content: content, trigger: nil))
+    }
+
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
-        let id = response.notification.request.content.userInfo["pr"] as? String
-        Task { @MainActor in if let id { self.onOpen?(id) } }
+        let info = response.notification.request.content.userInfo
+        let id = info["pr"] as? String, release = (info["release"] as? String).flatMap(URL.init(string:))
+        Task { @MainActor in
+            if let id { self.onOpen?(id) }
+            if let release { self.onOpenURL?(release) }
+        }
         completionHandler()
     }
 

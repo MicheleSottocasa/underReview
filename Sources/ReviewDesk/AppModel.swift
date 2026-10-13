@@ -74,6 +74,14 @@ final class AppModel {
     /// When the PR list last refreshed successfully, and why the latest refresh failed, if it did.
     var lastRefresh: Date?
     var refreshError: String?
+    /// A newer published release than this build, if the last check found one.
+    var availableUpdate: AppRelease?
+    var lastUpdateCheck: Date?
+    var updateCheckError: String?
+    /// The release the user chose "Later" for: its banner stays hidden until a newer one comes out.
+    var dismissedUpdate = UserDefaults.standard.string(forKey: "dismissedUpdate") {
+        didSet { UserDefaults.standard.set(dismissedUpdate, forKey: "dismissedUpdate") }
+    }
     /// Expansion keys that differ from the default (folders open, stacks closed). Persisted.
     var toggledExpansion: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "toggledExpansion") ?? []) {
         didSet { UserDefaults.standard.set(Array(toggledExpansion), forKey: "toggledExpansion") }
@@ -157,6 +165,7 @@ final class AppModel {
     func start() {
         guard pollTask == nil else { return }
         notifier.onOpen = { [weak self] id in self?.open(prID: id) }
+        notifier.onOpenURL = { NSWorkspace.shared.open($0) }
         notifier.setUp()
         pollTask = Task {
             do {
@@ -177,6 +186,7 @@ final class AppModel {
                     lastError = error.localizedDescription
                     refreshError = error.localizedDescription
                 }
+                await checkForUpdatesIfDue()
                 let defaults = UserDefaults.standard
                 try? await Task.sleep(for: Updates.interval(
                     foreground: NSApp.isActive, failures: failures,
