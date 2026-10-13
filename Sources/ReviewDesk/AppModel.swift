@@ -64,6 +64,12 @@ final class AppModel {
     var tourStep: TourStep?
     /// A file and line for the Changes tab to open next.
     var changesTarget: LineTarget?
+    /// PR id → the commits Changes shows and the head they were picked at. In memory only.
+    var commitSelections: [String: (selection: CommitSelection, head: String)] = [:]
+    /// `comparisonKey` → the files changed between two commits, fetched when first shown.
+    var comparisons: [String: [FileChange]] = [:]
+    /// Comparisons GitHub couldn't make, so Changes falls back to the whole diff.
+    var missingComparisons: Set<String> = []
     /// PR id → risk question → head commit it was checked at. Kept locally, never sent anywhere.
     var riskChecks: [String: [String: String]] { didSet { save(riskChecksFile, riskChecks.filter { !Demo.owns($0.key) }) } }
 
