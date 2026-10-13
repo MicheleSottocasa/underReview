@@ -216,9 +216,10 @@ struct ThreadView: View {
 
     /// Started by me: my color. Started by someone else: theirs, tinted when I replied. Dimmed while folded.
     private var ownership: ThreadBox {
-        let mine = thread.isStarted(by: model.viewer)
+        let viewer = model.viewer(for: pr)
+        let mine = thread.isStarted(by: viewer)
         let color = (mine ? DiffColors.mine : DiffColors.others).opacity(isFolded ? 0.45 : 1)
-        return ThreadBox(accent: color, bar: color, tint: !mine && thread.hasComment(from: model.viewer) ? color.opacity(0.06) : nil)
+        return ThreadBox(accent: color, bar: color, tint: !mine && thread.hasComment(from: viewer) ? color.opacity(0.06) : nil)
     }
 
     /// GitHub's Resolve / Unresolve conversation, when the viewer is allowed.

@@ -108,12 +108,14 @@ struct MyReviewStatus: View {
 
     var body: some View {
         let status = model.reviewStatus(pr)
-        let waiting = model.details[pr.id]?.threadsAwaitingReply(pr, viewer: model.viewer) ?? []
+        let viewer = model.viewer(for: pr)
+        let waiting = model.details[pr.id]?.threadsAwaitingReply(pr, viewer: viewer) ?? []
+        let requested = !pr.viewerIsAuthor && pr.requestedReviewers.contains(viewer)
         HStack(spacing: 6) {
             if let state = pr.viewerReviewState, let label = ReviewIndicator.label(state) {
                 Pill(text: "You: \(label.text)", symbol: label.symbol, color: label.color)
                     .help("Your latest review")
-            } else if !pr.viewerIsAuthor, pr.requestedReviewers.contains(model.viewer) {
+            } else if requested {
                 Pill(text: "Your review is requested", symbol: "eye", color: .secondary)
             }
             if status.changedSinceReview {
@@ -168,7 +170,7 @@ struct ReviewersRow: View {
     let detail: PRDetail
 
     var body: some View {
-        let reviewers = detail.reviewers(of: pr, viewer: model.viewer)
+        let reviewers = detail.reviewers(of: pr, viewer: model.viewer(for: pr))
         if detail.reviewDecision != nil || !reviewers.isEmpty {
             HStack(spacing: 10) {
                 Text("Reviewers").foregroundStyle(.secondary)
