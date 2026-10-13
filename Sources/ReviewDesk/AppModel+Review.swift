@@ -96,8 +96,11 @@ extension AppModel {
         }
     }
 
-    func addDraft(_ pr: PullRequest, anchor: Anchor, body: String) {
-        reviewDrafts.drafts.append(Draft(prID: pr.id, anchor: anchor, body: body, commitOID: pr.headRefOid))
+    @discardableResult
+    func addDraft(_ pr: PullRequest, anchor: Anchor, body: String) -> UUID {
+        let draft = Draft(prID: pr.id, anchor: anchor, body: body, commitOID: pr.headRefOid)
+        reviewDrafts.drafts.append(draft)
+        return draft.id
     }
 
     func updateDraft(_ id: UUID, body: String) {

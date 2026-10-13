@@ -330,6 +330,32 @@ public enum AIContext {
         return text
     }
 
+    /// Where an accepted finding goes. Anything that points at a changed file becomes an inline comment: on its line
+    /// when GitHub accepts a comment there, otherwise on the nearest line it does in that file, with the original line
+    /// named in the text. Only general remarks, and files without a diff, go to the review summary.
+    public enum Placement: Equatable, Sendable {
+        case inline(Anchor, body: String)
+        case summary(String)
+    }
+
+    public static func placement(_ finding: Finding, files: [FileChange]) -> Placement {
+        guard let path = finding.path, let patch = files.first(where: { $0.filename == path })?.patch else {
+            let reference = finding.path.map { "`\($0)\(finding.line.map { ":\($0)" } ?? "")`: " } ?? ""
+            return .summary(reference + finding.comment)
+        }
+        let anchors = Diff.anchors(path: path, patch: patch)
+        if let line = finding.line, anchors.contains(Anchor(path: path, line: line)) {
+            return .inline(Anchor(path: path, line: line), body: finding.comment)
+        }
+        // Prefer the new side (what the PR adds or keeps), then the closest line, then the earlier one on a tie.
+        let target = finding.line ?? 0
+        guard let nearest = anchors.min(by: { a, b in
+            (a.side == .left ? 1 : 0, abs(a.line - target), a.line) < (b.side == .left ? 1 : 0, abs(b.line - target), b.line)
+        }) else { return .summary("`\(path)`: " + finding.comment) }
+        let note = finding.line.map { "**Line \($0):** " } ?? "**This file:** "
+        return .inline(nearest, body: note + finding.comment)
+    }
+
     /// Splits findings into ones GitHub will accept inline and general suggestions.
     public static func validate(_ result: ReviewResult, files: [FileChange]) -> (inline: [Finding], general: [Finding]) {
         let anchors = files.reduce(into: Set<Anchor>()) { set, file in

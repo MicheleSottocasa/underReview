@@ -70,3 +70,18 @@ private func finding(_ path: String?, _ line: Int?) -> Finding {
     #expect(prompt.contains("**Reviewer**:\nWhy a set?"))
     #expect(prompt.contains("## The reviewer's new question\n\nWould a dict work too?"))
 }
+
+@Test func findingsThatPointAtCodeBecomeInlineComments() {
+    // a.swift's diff: new lines 1-2 (context 1, added 2), old line 2 removed.
+    let exact = AIContext.placement(finding("a.swift", 2), files: files)
+    #expect(exact == .inline(Anchor(path: "a.swift", line: 2), body: "c"))
+    // A line outside the diff goes on the nearest commentable line, and says which line it meant.
+    let outside = AIContext.placement(finding("a.swift", 40), files: files)
+    #expect(outside == .inline(Anchor(path: "a.swift", line: 2), body: "**Line 40:** c"))
+    // A file-level remark goes on the file.
+    #expect(AIContext.placement(finding("a.swift", nil), files: files) == .inline(Anchor(path: "a.swift", line: 1), body: "**This file:** c"))
+    // General remarks, files outside the PR and files without a diff go to the summary, with the reference kept.
+    #expect(AIContext.placement(finding(nil, nil), files: files) == .summary("c"))
+    #expect(AIContext.placement(finding("ghost.swift", 1), files: files) == .summary("`ghost.swift:1`: c"))
+    #expect(AIContext.placement(finding("logo.png", 3), files: files) == .summary("`logo.png:3`: c"))
+}

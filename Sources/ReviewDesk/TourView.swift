@@ -37,7 +37,7 @@ enum TourStep: Int, CaseIterable {
             - The **review bar**: save drafts to your pending GitHub review, then **Finish Review**.
             """
         case .ai:
-            "Pick an engine: Claude Code runs its own `/code-review` (beta); Codex and Ollama review the context you approve (alpha). Findings become draft comments or part of your summary, and older analyses are marked outdated after a push."
+            "Pick an engine: Claude Code runs its own `/code-review` (beta); Codex and Ollama review the context you approve (alpha). Findings about code go straight into your pending review as inline comments (only you see them until you submit); general remarks go into your summary."
         case .notes:
             "Private notes on a pull request or a whole stack. They stay on this Mac and are never sent to GitHub."
         case .settings:

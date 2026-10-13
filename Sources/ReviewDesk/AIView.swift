@@ -202,7 +202,7 @@ struct RunView: View {
 
     var body: some View {
         let outdated = run.headRefOid != pr.headRefOid
-        let (inline, _) = AIContext.validate(run.result, files: model.files[pr.id] ?? [])
+        let changed = model.files[pr.id] ?? []
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: "sparkles").foregroundStyle(.purple)
@@ -230,7 +230,7 @@ struct RunView: View {
                 .background(Color.yellow.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
             }
             ForEach(Array(run.result.findings.enumerated()), id: \.offset) { index, finding in
-                FindingCard(finding: finding, isInline: !outdated && inline.contains(finding), handled: run.handled.contains(index)) {
+                FindingCard(finding: finding, placement: AIContext.placement(finding, files: changed), handled: run.handled.contains(index)) {
                     model.accept(run.id, finding: index)
                 } dismiss: {
                     model.dismiss(run.id, finding: index)
@@ -246,7 +246,7 @@ struct RunView: View {
 
 struct FindingCard: View {
     let finding: Finding
-    let isInline: Bool
+    let placement: AIContext.Placement
     let handled: Bool
     let accept: () -> Void
     let dismiss: () -> Void
@@ -257,8 +257,7 @@ struct FindingCard: View {
                 Badge(text: finding.severity.uppercased(), color: color)
                 Text(finding.title).bold()
                 Spacer()
-                Text(verbatim: isInline ? "\(finding.path ?? ""):\(finding.line ?? 0)" : "General")
-                    .font(.caption.monospaced()).foregroundStyle(.secondary)
+                Text(verbatim: location).font(.caption.monospaced()).foregroundStyle(.secondary)
             }
             Text(inlineMarkdown(finding.rationale)).font(.callout).foregroundStyle(.secondary)
             MarkdownText(finding.comment).font(.callout)
@@ -266,7 +265,10 @@ struct FindingCard: View {
                 .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
             if !handled {
                 HStack {
-                    Button(isInline ? "Add as Draft Comment" : "Add to Review Summary", action: accept)
+                    Button(isInline ? "Add to Pending Review" : "Add to Review Summary", action: accept)
+                        .help(isInline
+                              ? "Adds it as an inline comment to your pending review on GitHub: only you see it until you submit the review"
+                              : "Adds it to the summary of your review")
                     Button("Dismiss", action: dismiss).buttonStyle(.link)
                 }
             }
@@ -275,6 +277,17 @@ struct FindingCard: View {
         .background(.background, in: RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(color.opacity(0.35)))
         .opacity(handled ? 0.5 : 1)
+    }
+
+    private var isInline: Bool { if case .inline = placement { true } else { false } }
+
+    /// Where it will land: the line it's placed on (and the one it meant, when GitHub can't comment there), or General.
+    private var location: String {
+        switch placement {
+        case .inline(let anchor, _):
+            finding.line.map { $0 == anchor.line ? "\(anchor.path):\($0)" : "\(anchor.path):\(anchor.line) (about line \($0))" } ?? "\(anchor.path):\(anchor.line)"
+        case .summary: finding.path.map { "\($0) · Summary" } ?? "General"
+        }
     }
 
     private var color: Color {

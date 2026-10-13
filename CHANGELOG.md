@@ -5,6 +5,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+- **AI findings go straight into your pending review:** a finding about code becomes an inline comment on your pending GitHub review (on its line, or the nearest line GitHub accepts, naming the one it meant) instead of landing in the review summary. Only general remarks still go to the summary.
 - A Claude Code review that couldn't read the pull request's diff now fails with an error saying so, instead of looking like a clean pull request with no findings.
 - **AI review works when ReviewDesk is opened from Finder or the Dock:** `/code-review` couldn't find `gh` (apps opened that way get a minimal `PATH`), so it never saw the diff. The tools ReviewDesk starts now get the folders of `gh`, `claude` and the usual install locations on their `PATH`.
 - Every icon in the sidebar explains itself in plain words on hover (open, draft, changed since your review, merged, closed, comments not sent yet, your review, replies waiting for you, review requested, notifications off), and hovering a row explains all of its icons at once.
