@@ -5,6 +5,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+- **Key Areas Only:** a toggle in Changes shows only the hunks with key areas or comments, folding the rest of each file behind an "N lines hidden" row you can click to open.
 - **Mark files Viewed as you read:** an option in Settings › General, off by default, marks a file as Viewed on GitHub once you've marked all its key areas as read.
 - **One reading list for Risk and Focus:** key areas are numbered in the same reading order in both, show which ones you've read, and can be marked as read from Risk too. Clicking one in Risk opens that exact area in *Changes › Focus*.
 - **Key areas across files:** ⌃⌘] past a file's last key area opens the first one of the next file that has some, in the Focus list's order, and ⌃⌘[ past the first goes back to the previous file's last one.
