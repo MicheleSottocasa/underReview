@@ -146,6 +146,12 @@ public enum Markdown {
         return result
     }
 
+    /// Whether a link from Markdown (untrusted: anyone can comment) may be handed to the system: web and mail
+    /// links only, never `file://` or another app's URL scheme.
+    public static func opensOutside(_ url: URL) -> Bool {
+        ["https", "http", "mailto"].contains(url.scheme?.lowercased() ?? "")
+    }
+
     /// What a reference shows and where it points, or nil when it isn't one (e.g. a hex word without digits).
     static func autolink(_ text: String, repo: String?) -> (title: String, url: URL)? {
         func isSHA(_ word: Substring) -> Bool {
