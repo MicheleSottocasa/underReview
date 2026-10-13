@@ -11,6 +11,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 - **Your threads stand out:** a review thread you started has a teal border and bar, one started by someone else a violet one, tinted when you replied in it; folded resolved threads keep their color, dimmed. Your own comments get a light teal background and a **You** badge, so ownership doesn't depend on color alone.
 - A folded resolved thread tells you what it's about without opening it: who resolved it, who took part (up to 3, then +N, you as "you"), how many comments, and the first line of the first comment (hover for all of it).
 - While ReviewDesk opens, the sidebar shows "Loading pull requests…" instead of an empty list or "No pull requests", and a spinner replaces the toolbar's Refresh button whenever the list is being fetched.
+- Refreshing while ReviewDesk is still connecting to GitHub no longer leads to a wrong "Your review was requested" notification for each pull request awaiting your review: refreshes wait until your GitHub account is known.
 
 ## 0.8.1
 
