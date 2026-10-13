@@ -74,3 +74,9 @@ struct MarkdownText: View {
         return text
     }
 }
+
+/// One line of AI text (a rationale, a reason) with its `code` and **bold** rendered, for places too small for blocks.
+func inlineMarkdown(_ text: String) -> AttributedString {
+    let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+    return MarkdownText.styled((try? AttributedString(markdown: text, options: options)) ?? AttributedString(text))
+}

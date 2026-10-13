@@ -200,7 +200,7 @@ private struct AreaRow: View {
         Button { model.openInChanges(area.path, line: area.startLine, pr: pr) } label: {
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: "\(area.path) · \(FileTree.lines(area))").font(.caption.monospaced()).foregroundStyle(Color.accentColor)
-                Text(area.reason).font(.callout).multilineTextAlignment(.leading)
+                Text(inlineMarkdown(area.reason)).font(.callout).multilineTextAlignment(.leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(8)

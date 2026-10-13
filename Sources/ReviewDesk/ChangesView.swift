@@ -263,7 +263,7 @@ struct FileTree: View {
                     Button { openArea(item.path, area.startLine) } label: {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(Self.lines(area) + (area.question.map { " · \($0.label)" } ?? "")).font(.caption.monospaced()).foregroundStyle(.secondary)
-                            Text(area.reason).font(.caption).lineLimit(3).multilineTextAlignment(.leading)
+                            Text(inlineMarkdown(area.reason)).font(.caption).lineLimit(3).multilineTextAlignment(.leading)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
