@@ -134,17 +134,21 @@ extension AppModel {
         await afterOwnWrite(pr)
     }
 
-    /// Deletes locally and, if it was saved, from the pending review.
+    /// Deletes locally and, if it was saved, from the pending review. A saved draft stays (dimmed) until the reload,
+    /// so its pending comment doesn't show up again in the meantime.
     func deleteDraft(_ draft: Draft, pr: PullRequest) async {
         guard !blockDemo(pr) else { return }
+        guard draft.remoteID != nil else { return deleteLocalDraft(draft.id) }
         await whilePending(draft.id.uuidString) {
+            var deleted = true
             do {
                 try await reviewSync.delete(draft)
-                deleteLocalDraft(draft.id)
             } catch {
                 report(error)
+                deleted = false
             }
             await afterOwnWrite(pr)
+            if deleted { deleteLocalDraft(draft.id) }
         }
     }
 
@@ -156,12 +160,15 @@ extension AppModel {
     }
 
     func publish(_ pr: PullRequest, event: ReviewEvent) async -> Bool {
-        await commentWrite(pr, pending: pr.id) {
+        let published = await commentWrite(pr, pending: pr.id) {
             try await reviewSync.publish(pr: pr, event: event, body: reviewDrafts.bodies[pr.id] ?? "", viewer: viewer)
-            // Saved drafts are now published comments; local-only ones stay for later.
-            reviewDrafts.drafts.removeAll { $0.prID == pr.id && $0.remoteID != nil }
-            reviewDrafts.bodies[pr.id] = nil
         }
+        guard published else { return false }
+        // Saved drafts are now published comments; local-only ones stay for later. Dropped after the reload, so
+        // their comments don't show twice in the meantime.
+        reviewDrafts.drafts.removeAll { $0.prID == pr.id && $0.remoteID != nil }
+        reviewDrafts.bodies[pr.id] = nil
+        return true
     }
 
     func reply(to threadID: String, body: String, pr: PullRequest) async -> Bool {
