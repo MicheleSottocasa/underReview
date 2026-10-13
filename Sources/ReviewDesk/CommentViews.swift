@@ -184,6 +184,7 @@ struct ThreadView: View {
             .modifier(ThreadBox())
         }
     }
+
 }
 
 /// A local draft inline in the diff: edit, delete, or confirm after a push.
@@ -206,18 +207,21 @@ struct DraftView: View {
                 CommentView(author: model.viewer, date: nil, text: draft.body) {
                     status
                 } actions: {
-                    Menu {
-                        Button("Edit") {
+                    HStack(spacing: 6) {
+                        if draft.isStale {
+                            Button { model.keepDraftAtHead(draft.id, pr: pr) } label: { Image(systemName: "checkmark.circle") }
+                                .help("Still correct at the new head")
+                        }
+                        Button {
                             text = draft.body
                             editing = true
-                        }
-                        if draft.isStale { Button("Still Correct at New Head") { model.keepDraftAtHead(draft.id, pr: pr) } }
-                        Divider()
-                        Button("Delete", role: .destructive) { Task { await model.deleteDraft(draft, pr: pr) } }
-                    } label: { Image(systemName: "ellipsis") }
-                        .menuStyle(.borderlessButton)
-                        .menuIndicator(.hidden)
-                        .fixedSize()
+                        } label: { Image(systemName: "pencil") }
+                            .help("Edit draft")
+                        Button { Task { await model.deleteDraft(draft, pr: pr) } } label: { Image(systemName: "trash") }
+                            .help(draft.remoteID == nil ? "Delete draft" : "Delete draft, also from your pending review on GitHub")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
                 }
             }
         }
@@ -253,7 +257,7 @@ struct ThreadBox: ViewModifier {
 
 // MARK: - GitHub comment actions
 
-/// Edit and Delete for a comment on GitHub, shown only when GitHub allows them.
+/// Edit and Delete icons for a comment on GitHub, shown only when GitHub allows them.
 struct CommentMenu: View {
     @Environment(AppModel.self) private var model
     let pr: PullRequest
@@ -262,20 +266,25 @@ struct CommentMenu: View {
     @ViewState private var confirmingDelete = false
 
     var body: some View {
-        if comment.viewerCanUpdate || comment.viewerCanDelete {
-            Menu {
-                if comment.viewerCanUpdate { Button("Edit") { editing = true } }
-                if comment.viewerCanDelete { Button("Delete…", role: .destructive) { confirmingDelete = true } }
-            } label: { Image(systemName: "ellipsis") }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .confirmationDialog("Delete this comment?", isPresented: $confirmingDelete) {
-                    Button("Delete", role: .destructive) { Task { await model.deleteComment(comment, pr: pr) } }
-                } message: {
-                    Text("It is deleted on GitHub for everyone. This can't be undone.")
-                }
+        HStack(spacing: 6) {
+            if comment.viewerCanUpdate {
+                Button { editing = true } label: { Image(systemName: "pencil") }
+                    .buttonStyle(.borderless)
+                    .disabled(editing)
+                    .help("Edit comment")
+            }
+            if comment.viewerCanDelete {
+                Button { confirmingDelete = true } label: { Image(systemName: "trash") }
+                    .buttonStyle(.borderless)
+                    .help("Delete comment")
+                    .confirmationDialog("Delete this comment?", isPresented: $confirmingDelete) {
+                        Button("Delete", role: .destructive) { Task { await model.deleteComment(comment, pr: pr) } }
+                    } message: {
+                        Text("It is deleted on GitHub for everyone. This can't be undone.")
+                    }
+            }
         }
+        .foregroundStyle(.secondary)
     }
 }
 
