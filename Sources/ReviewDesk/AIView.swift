@@ -230,8 +230,8 @@ struct RunView: View {
                 .background(Color.yellow.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
             }
             ForEach(Array(run.result.findings.enumerated()), id: \.offset) { index, finding in
-                FindingCard(finding: finding, placement: AIContext.placement(finding, files: changed), handled: run.handled.contains(index)) {
-                    model.accept(run.id, finding: index)
+                FindingCard(finding: finding, files: changed, handled: run.handled.contains(index)) { includeSuggestion in
+                    model.accept(run.id, finding: index, includeSuggestion: includeSuggestion)
                 } dismiss: {
                     model.dismiss(run.id, finding: index)
                 }
@@ -246,10 +246,13 @@ struct RunView: View {
 
 struct FindingCard: View {
     let finding: Finding
-    let placement: AIContext.Placement
+    let files: [FileChange]
     let handled: Bool
-    let accept: () -> Void
+    let accept: (_ includeSuggestion: Bool) -> Void
     let dismiss: () -> Void
+    @ViewState private var includeSuggestion = true
+
+    private var placement: AIContext.Placement { AIContext.placement(finding, files: files, includeSuggestion: includeSuggestion) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -263,9 +266,29 @@ struct FindingCard: View {
             MarkdownText(finding.comment).font(.callout)
                 .padding(8)
                 .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+            if let suggestion = finding.suggestion {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Toggle("Include the suggested change", isOn: $includeSuggestion)
+                            .toggleStyle(.checkbox)
+                            .disabled(handled)
+                        Spacer()
+                        Text(suggestionNote).font(.caption).foregroundStyle(.secondary)
+                    }
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        Text(suggestion.isEmpty ? "(deletes the lines)" : suggestion)
+                            .font(.system(.callout, design: .monospaced))
+                            .textSelection(.enabled)
+                            .padding(8)
+                    }
+                    .background(Color.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.green.opacity(0.35)))
+                    .opacity(includeSuggestion ? 1 : 0.4)
+                }
+            }
             if !handled {
                 HStack {
-                    Button(isInline ? "Add to Pending Review" : "Add to Review Summary", action: accept)
+                    Button(isInline ? "Add to Pending Review" : "Add to Review Summary") { accept(includeSuggestion) }
                         .help(isInline
                               ? "Adds it as an inline comment to your pending review on GitHub: only you see it until you submit the review"
                               : "Adds it to the summary of your review")
@@ -281,13 +304,23 @@ struct FindingCard: View {
 
     private var isInline: Bool { if case .inline = placement { true } else { false } }
 
-    /// Where it will land: the line it's placed on (and the one it meant, when GitHub can't comment there), or General.
+    /// Where it will land: the lines it's placed on (and the one it meant, when GitHub can't comment there), or General.
     private var location: String {
         switch placement {
-        case .inline(let anchor, _):
-            finding.line.map { $0 == anchor.line ? "\(anchor.path):\($0)" : "\(anchor.path):\(anchor.line) (about line \($0))" } ?? "\(anchor.path):\(anchor.line)"
-        case .summary: finding.path.map { "\($0) · Summary" } ?? "General"
+        case .inline(let anchor, let startLine, _):
+            if let startLine { return "\(anchor.path):\(startLine)–\(anchor.line)" }
+            return finding.line.map { $0 == anchor.line ? "\(anchor.path):\($0)" : "\(anchor.path):\(anchor.line) (about line \($0))" } ?? "\(anchor.path):\(anchor.line)"
+        case .summary: return finding.path.map { "\($0) · Summary" } ?? "General"
         }
+    }
+
+    /// Whether GitHub will offer "Commit suggestion" for it, or it travels as plain code.
+    private var suggestionNote: String {
+        guard includeSuggestion else { return "Left out" }
+        if case .inline(_, _, let body) = placement, body.contains("```suggestion") {
+            return "GitHub suggested change: the author can apply it in one click"
+        }
+        return "Sent as plain code: its lines aren't all in the diff"
     }
 
     private var color: Color {

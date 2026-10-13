@@ -14,6 +14,8 @@ public struct Draft: Codable, Hashable, Identifiable, Sendable {
     public var syncedBody: String?
     /// The file changed after a push: the user must re-place the draft before syncing.
     public var isStale = false
+    /// First line of a multi-line comment (same side as the anchor), e.g. a suggested change spanning lines.
+    public var startLine: Int?
 
     public init(prID: String, anchor: Anchor, body: String, commitOID: String) {
         self.prID = prID
@@ -196,14 +198,26 @@ public struct ReviewSync: Sendable {
 
     func addThread(reviewID: String, draft: Draft) async throws -> String {
         let data = try await github.graphql("""
-        mutation($review: ID!, $path: String!, $line: Int!, $side: DiffSide!, $body: String!) {
-          addPullRequestReviewThread(input: {pullRequestReviewId: $review, path: $path, line: $line, side: $side, body: $body}) {
+        mutation($review: ID!, $path: String!, $line: Int!, $side: DiffSide!, $body: String!, $startLine: Int, $startSide: DiffSide) {
+          addPullRequestReviewThread(input: {pullRequestReviewId: $review, path: $path, line: $line, side: $side, body: $body,
+                                             startLine: $startLine, startSide: $startSide}) {
             thread { comments(first: 1) { nodes { id } } }
           }
         }
-        """, ["review": reviewID, "path": draft.anchor.path, "line": draft.anchor.line, "side": draft.anchor.side.rawValue, "body": draft.body])
+        """, variables(draft, review: reviewID))
         let thread = (data["addPullRequestReviewThread"] as? [String: Any])?["thread"] as? [String: Any]
         return GitHub.nodes(thread?["comments"]).first?["id"] as? String ?? ""
+    }
+
+    /// A multi-line comment also sends where it starts; GitHub takes a missing start as a single line.
+    func variables(_ draft: Draft, review: String) -> [String: any Sendable] {
+        var variables: [String: any Sendable] = ["review": review, "path": draft.anchor.path, "line": draft.anchor.line,
+                                                 "side": draft.anchor.side.rawValue, "body": draft.body]
+        if let start = draft.startLine, start < draft.anchor.line {
+            variables["startLine"] = start
+            variables["startSide"] = draft.anchor.side.rawValue
+        }
+        return variables
     }
 
     func updateComment(id: String, body: String) async throws {

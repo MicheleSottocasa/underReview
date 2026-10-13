@@ -203,16 +203,16 @@ extension AppModel {
     /// A finding about code goes straight into the viewer's pending review on GitHub, as an inline comment on its line
     /// (or the nearest commentable one, naming the line); general remarks go into the review summary. Pending stays
     /// visible only to the viewer until they submit the review.
-    func accept(_ runID: UUID, finding index: Int) {
+    func accept(_ runID: UUID, finding index: Int, includeSuggestion: Bool = true) {
         guard let runIndex = aiRuns.firstIndex(where: { $0.id == runID }), let pr = prs[aiRuns[runIndex].prID] else { return }
         guard !blockDemo(pr) else { return }
         let finding = aiRuns[runIndex].result.findings[index]
         aiRuns[runIndex].handled.insert(index)
         Task {
             if files[pr.id] == nil { await loadFiles(pr) }
-            switch AIContext.placement(finding, files: files[pr.id] ?? []) {
-            case .inline(let anchor, let body):
-                let id = addDraft(pr, anchor: anchor, body: body)
+            switch AIContext.placement(finding, files: files[pr.id] ?? [], includeSuggestion: includeSuggestion) {
+            case .inline(let anchor, let startLine, let body):
+                let id = addDraft(pr, anchor: anchor, body: body, startLine: startLine)
                 await saveDrafts([id], pr: pr)
             case .summary(let text):
                 let body = reviewDrafts.bodies[pr.id].map { $0 + "\n\n" } ?? ""

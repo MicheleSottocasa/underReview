@@ -151,3 +151,12 @@ private final class Box<T>: @unchecked Sendable {
     try await ReviewSync(github: GitHub(runner: runner)).delete(draft("local only"))
     #expect(runner.calls.count == 1)
 }
+
+@Test func multiLineDraftsSendWhereTheyStart() {
+    let sync = ReviewSync(github: GitHub(runner: FakeRunner { _ in ok("") }))
+    var draft = Draft(prID: "PR_1", anchor: Anchor(path: "a.swift", line: 12), body: "b", commitOID: "head")
+    #expect(sync.variables(draft, review: "R")["startLine"] == nil) // one line: GitHub's default
+    draft.startLine = 9
+    let range = sync.variables(draft, review: "R")
+    #expect(range["startLine"] as? Int == 9 && range["startSide"] as? String == "RIGHT" && range["line"] as? Int == 12)
+}

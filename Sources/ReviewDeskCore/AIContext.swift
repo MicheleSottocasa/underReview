@@ -7,9 +7,15 @@ public struct Finding: Codable, Hashable, Sendable {
     public var path: String?
     public var line: Int?
     public var comment: String
+    /// First line a suggested change replaces, when it spans more than `line` (new side). Nil in older results.
+    public var startLine: Int?
+    /// Replacement code for lines `startLine...line` on the new side ("" deletes them); nil when there's no fix to propose.
+    public var suggestion: String?
 
-    public init(severity: String, title: String, rationale: String, path: String?, line: Int?, comment: String) {
+    public init(severity: String, title: String, rationale: String, path: String?, line: Int?, comment: String,
+                startLine: Int? = nil, suggestion: String? = nil) {
         (self.severity, self.title, self.rationale, self.path, self.line, self.comment) = (severity, title, rationale, path, line, comment)
+        (self.startLine, self.suggestion) = (startLine, suggestion)
     }
 
     public var anchor: Anchor? {
@@ -158,13 +164,15 @@ public enum AIContext {
           "reason":{"type":"string"},
           "risk":{"type":"string","enum":["data","access","scale","failure","explain","other"]}}}},
       "findings":{"type":"array","items":{"type":"object","additionalProperties":false,
-        "required":["severity","title","rationale","path","line","comment"],"properties":{
+        "required":["severity","title","rationale","path","line","comment","startLine","suggestion"],"properties":{
           "severity":{"type":"string","enum":["critical","high","medium","low"]},
           "title":{"type":"string"},
           "rationale":{"type":"string"},
           "path":{"type":["string","null"]},
           "line":{"type":["integer","null"]},
-          "comment":{"type":"string"}}}}}}
+          "comment":{"type":"string"},
+          "startLine":{"type":["integer","null"]},
+          "suggestion":{"type":["string","null"]}}}}}}
     """
 
     // ponytail: chars/4 token estimate; the CLIs expose no tokenizer. Swap in a real count if budgets bite.
@@ -182,6 +190,14 @@ public enum AIContext {
     }
 
     /// How key areas are asked for, shared by every review prompt.
+    /// How suggested changes are asked for, shared by the review prompts.
+    static let suggestionInstructions = """
+    When a finding has a small, certain fix, put the exact replacement code in `suggestion`: it replaces the NEW-side
+    lines `startLine` through `line` of that file (use null `startLine` for a single line), keeps their indentation and
+    becomes a GitHub suggested change the author can apply with one click. Use an empty string to delete those lines.
+    Leave `suggestion` and `startLine` null when the fix needs a judgement call or touches code outside those lines.
+    """
+
     static let keyAreasInstructions = """
     In `keyAreas`, list the files and sections the reviewer must read personally before submitting the review
     (usually 3 to 8). Review risk, not lines: tag each with `risk`, in this order of priority: `data` (migrations,
@@ -204,6 +220,7 @@ public enum AIContext {
     Report real problems (bugs, security, data loss, concurrency, missing error handling, unclear code) as findings.
     For inline findings set `path` and `line` to a line number on the NEW side of the diff that appears in a hunk.
     Use null path/line for general remarks. `comment` is the text to post on GitHub, in Markdown.
+    \(suggestionInstructions)
     Check the change against the repository rules included below (AGENTS.md, CLAUDE.md, CONTRIBUTING.md and the
     like): report each violation as a finding that quotes the rule, but skip rules a linter or formatter enforces.
     \(keyAreasInstructions)
@@ -226,6 +243,7 @@ public enum AIContext {
     medium or low), write a short title and the rationale, and set `path` and `line` to a line on the NEW side of the
     diff that appears in a hunk, or null for general remarks. `summary` is the review's verdict in two or three
     sentences. If the review found nothing, return no findings and say so in the summary.
+    \(suggestionInstructions) Only propose a suggestion the review itself gives or clearly implies.
     \(keyAreasInstructions)
     """
 
@@ -334,26 +352,49 @@ public enum AIContext {
     /// when GitHub accepts a comment there, otherwise on the nearest line it does in that file, with the original line
     /// named in the text. Only general remarks, and files without a diff, go to the review summary.
     public enum Placement: Equatable, Sendable {
-        case inline(Anchor, body: String)
+        /// `startLine` is set when the comment spans several lines (a multi-line suggested change).
+        case inline(Anchor, startLine: Int?, body: String)
         case summary(String)
     }
 
-    public static func placement(_ finding: Finding, files: [FileChange]) -> Placement {
+    public static func placement(_ finding: Finding, files: [FileChange], includeSuggestion: Bool = true) -> Placement {
+        let suggestion = includeSuggestion ? finding.suggestion : nil
         guard let path = finding.path, let patch = files.first(where: { $0.filename == path })?.patch else {
             let reference = finding.path.map { "`\($0)\(finding.line.map { ":\($0)" } ?? "")`: " } ?? ""
-            return .summary(reference + finding.comment)
+            return .summary(reference + finding.comment + plainCode(suggestion, finding))
         }
         let anchors = Diff.anchors(path: path, patch: patch)
         if let line = finding.line, anchors.contains(Anchor(path: path, line: line)) {
-            return .inline(Anchor(path: path, line: line), body: finding.comment)
+            // A suggested change replaces exactly the lines it covers, so every one of them must be commentable.
+            let first = min(finding.startLine ?? line, line)
+            if let suggestion, (first...line).allSatisfy({ anchors.contains(Anchor(path: path, line: $0)) }) {
+                return .inline(Anchor(path: path, line: line), startLine: first < line ? first : nil,
+                               body: finding.comment + "\n\n" + fenced(suggestion, info: "suggestion"))
+            }
+            return .inline(Anchor(path: path, line: line), startLine: nil, body: finding.comment + plainCode(suggestion, finding))
         }
         // Prefer the new side (what the PR adds or keeps), then the closest line, then the earlier one on a tie.
         let target = finding.line ?? 0
         guard let nearest = anchors.min(by: { a, b in
             (a.side == .left ? 1 : 0, abs(a.line - target), a.line) < (b.side == .left ? 1 : 0, abs(b.line - target), b.line)
-        }) else { return .summary("`\(path)`: " + finding.comment) }
+        }) else { return .summary("`\(path)`: " + finding.comment + plainCode(suggestion, finding)) }
         let note = finding.line.map { "**Line \($0):** " } ?? "**This file:** "
-        return .inline(nearest, body: note + finding.comment)
+        return .inline(nearest, startLine: nil, body: note + finding.comment + plainCode(suggestion, finding))
+    }
+
+    /// A suggestion that can't be a GitHub suggested change (its lines aren't all in the diff) still travels, as
+    /// plain code: a suggestion block there would replace the wrong lines.
+    private static func plainCode(_ suggestion: String?, _ finding: Finding) -> String {
+        guard let suggestion else { return "" }
+        let lines = finding.line.map { line in finding.startLine.map { $0 < line ? "lines \($0)–\(line)" : "line \(line)" } ?? "line \(line)" }
+        return "\n\nSuggested change\(lines.map { " (\($0))" } ?? ""):\n" + fenced(suggestion, info: "")
+    }
+
+    /// A fenced block that can't be closed early by backticks in the code.
+    private static func fenced(_ code: String, info: String) -> String {
+        let code = code.hasSuffix("\n") ? String(code.dropLast()) : code
+        let fence = String(repeating: "`", count: max(3, (code.components(separatedBy: "\n").map { $0.prefix { $0 == "`" }.count }.max() ?? 0) + 1))
+        return "\(fence)\(info)\n\(code)\n\(fence)"
     }
 
     /// Splits findings into ones GitHub will accept inline and general suggestions.

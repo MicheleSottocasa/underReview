@@ -97,8 +97,9 @@ extension AppModel {
     }
 
     @discardableResult
-    func addDraft(_ pr: PullRequest, anchor: Anchor, body: String) -> UUID {
-        let draft = Draft(prID: pr.id, anchor: anchor, body: body, commitOID: pr.headRefOid)
+    func addDraft(_ pr: PullRequest, anchor: Anchor, body: String, startLine: Int? = nil) -> UUID {
+        var draft = Draft(prID: pr.id, anchor: anchor, body: body, commitOID: pr.headRefOid)
+        draft.startLine = startLine
         reviewDrafts.drafts.append(draft)
         return draft.id
     }
