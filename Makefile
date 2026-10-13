@@ -12,6 +12,10 @@ DIST := dist
 # Empty = this Mac's architecture; the dmg target builds a universal (Apple silicon + Intel) app.
 ARCH_FLAGS ?=
 
+# Several copies of the app under one bundle id (a dev build, an old disk image) can leave Notification Center
+# without the icon: register only the installed copy.
+LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+
 .PHONY: test app run icon install dmg
 
 test:
@@ -39,6 +43,8 @@ install: app
 	@sleep 1; pkill -x ReviewDesk 2>/dev/null; true
 	rm -rf $(INSTALL_DIR)/$(APP)
 	ditto $(APP) $(INSTALL_DIR)/$(APP)
+	-$(LSREGISTER) -u $(CURDIR)/$(APP)
+	$(LSREGISTER) -f $(INSTALL_DIR)/$(APP)
 	rm -rf $(APP)
 	$(LAUNCH) $(INSTALL_DIR)/$(APP)
 

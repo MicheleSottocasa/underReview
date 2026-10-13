@@ -6,6 +6,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 ## Unreleased
 
 - AI rationales and key-area reasons show `code` and **bold** formatting instead of raw Markdown.
+- Notifications show the app icon again after installing over an older copy.
 ## 0.4.0
 
 - **Chat about a comment:** ✨ *Explain* now opens a chat where you can ask follow-up questions, and 💬 *Ask* opens it straight away for your own question. Both keep the same context: the PR description, the conversation and the diff.
