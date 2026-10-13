@@ -360,7 +360,7 @@ public enum AIContext {
         text += ProjectContext.section(extra)
         if let path {
             text += "\n## Code: \(path)\(line.map { ", line \($0)" } ?? "")\n"
-            text += patch.map { "```diff\n\($0)\n```\n" } ?? "(diff not available)\n"
+            text += patch.map { fenced($0, info: "diff") + "\n" } ?? "(diff not available)\n"
         }
         text += "\n## Conversation\n"
         for entry in conversation {
@@ -466,14 +466,10 @@ public enum AIContext {
         \(body)
 
         ## Diff: \(path)
-        ```diff
-        \(patch)
-        ```
+        \(fenced(patch, info: "diff"))
 
         ## Selected lines: \(path), \(linesLabel(selected))
-        ```diff
-        \(selected.filter { $0.kind != .hunk }.map(diffText).joined(separator: "\n"))
-        ```
+        \(fenced(selected.filter { $0.kind != .hunk }.map(diffText).joined(separator: "\n"), info: "diff"))
 
         """
     }

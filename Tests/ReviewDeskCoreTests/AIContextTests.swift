@@ -68,6 +68,16 @@ private func finding(_ path: String?, _ line: Int?) -> Finding {
     #expect(prompt.contains("## Selected lines: a.swift, lines 1–2\n```diff\n ctx\n-old\n+new\n```"))
 }
 
+@Test func fencesOutgrowEveryBacktickRunInTheCode() {
+    // An indented fence closes a block too, and so would a run in the middle of a line.
+    #expect(AIContext.fenced("+    ```\n+x", info: "diff") == "````diff\n+    ```\n+x\n````")
+    #expect(AIContext.fenced("a `````b", info: "") == "``````\na `````b\n``````")
+    #expect(AIContext.fenced("plain", info: "diff") == "```diff\nplain\n```")
+    let prompt = AIContext.explainPrompt(title: "T", body: "", path: "README.md", line: 1, patch: "@@ -1 +1 @@\n+  ```",
+                                         conversation: [], comment: Comment(id: "C", author: "a", body: "", createdAt: .now))
+    #expect(prompt.contains("````diff\n@@ -1 +1 @@\n+  ```\n````"))
+}
+
 @Test func linesLabelPrefersTheNewSide() {
     let lines = Diff.parse("@@ -3,2 +3,1 @@\n-a\n-b\n+c")
     #expect(AIContext.linesLabel(lines) == "line 3")
