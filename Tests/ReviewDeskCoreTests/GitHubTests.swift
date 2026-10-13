@@ -2,6 +2,13 @@ import Foundation
 import Testing
 @testable import ReviewDeskCore
 
+@Test func countsTheCommitsPushedSinceAnOlderHead() async throws {
+    let runner = FakeRunner { _ in ok("3\n") }
+    #expect(try await GitHub(runner: runner).commitsAhead(repo: "o/r", from: "old", to: "new") == 3)
+    #expect(runner.calls.first?.args == ["api", "repos/o/r/compare/old...new", "--jq", ".ahead_by"])
+    #expect(GitHub.compareURL(repo: "o/r", from: "old", to: "new")?.absoluteString == "https://github.com/o/r/compare/old...new")
+}
+
 @Test func parsesPullRequestReferences() {
     #expect(PRRef("https://github.com/o/r/pull/12/files") == PRRef(nameWithOwner: "o/r", number: 12))
     #expect(PRRef("  o/r#7 ") == PRRef(nameWithOwner: "o/r", number: 7))

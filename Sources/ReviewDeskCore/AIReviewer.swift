@@ -73,6 +73,15 @@ public struct AIRun: Codable, Hashable, Identifiable, Sendable {
     public init(prID: String, engine: AIEngine, headRefOid: String, result: ReviewResult) {
         (self.prID, self.engine, self.headRefOid, self.result) = (prID, engine, headRefOid, result)
     }
+
+    /// The author pushed since this run: its findings, key areas and line numbers may no longer match the code.
+    public func isOutdated(for pr: PullRequest) -> Bool { headRefOid != pr.headRefOid }
+
+    /// What the stale-analysis banner says; `commits` is nil when GitHub couldn't count them (e.g. after a force-push).
+    public func outdatedMessage(for pr: PullRequest, commits: Int?) -> String {
+        let pushed = commits.map { "\($0) commit\($0 == 1 ? "" : "s")" } ?? "new commits"
+        return "The author pushed \(pushed) since this analysis (\(headRefOid.prefix(7)) → \(pr.headRefOid.prefix(7)))."
+    }
 }
 
 /// Runs reviews through the official CLIs with their own login. Tools, hooks, plugins and MCP are off,
