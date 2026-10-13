@@ -449,8 +449,7 @@ struct FileDiffView: View {
                     .font(.system(size: 12.5, design: .monospaced))
                 }
                 .background(DiffColors.editor)
-                .onHover { hScroll.hovering = $0 }
-                .onGeometryChange(for: CGFloat.self, of: \.size.width) { hScroll.paneWidth = $0 }
+                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { hScroll.frame = $0 }
                 .onChange(of: Pair(wrap ? 0 : (diff?.widest ?? 0) + 32, mode), initial: true) { _, new in
                     hScroll.codeWidth = new.a
                     hScroll.columns = new.b == .split ? 2 : 1
@@ -758,19 +757,18 @@ final class HorizontalScroll {
 
     var x: CGFloat = 0
     /// What `limit` comes from, set by layout without redrawing anything: the code's full width (0 while wrapping),
-    /// the diff pane's width, and how many code columns share it with the gutter.
+    /// the diff pane's frame in the window, and how many code columns share it with the gutter.
     @ObservationIgnored var codeWidth: CGFloat = 0 { didSet { clamp() } }
-    @ObservationIgnored var paneWidth: CGFloat = 0 { didSet { clamp() } }
+    @ObservationIgnored var frame: CGRect = .zero { didSet { clamp() } }
     @ObservationIgnored var columns: CGFloat = 1 { didSet { clamp() } }
     private let gutter: CGFloat
 
     init(gutter: CGFloat) { self.gutter = gutter }
 
     /// How far the widest line reaches past its code column.
-    var limit: CGFloat { max(0, codeWidth - (paneWidth - gutter) / columns) }
+    var limit: CGFloat { max(0, codeWidth - (frame.width - gutter) / columns) }
 
     private func clamp() { if x > limit { x = limit } }
-    @ObservationIgnored var hovering = false
     @ObservationIgnored private var monitor: Any?
     /// Whether the current trackpad gesture scrolls sideways, decided by its first movement: a mostly vertical
     /// swipe never drifts sideways, and a diagonal one doesn't flip between the two.
@@ -783,9 +781,9 @@ final class HorizontalScroll {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
             let (dx, dy, precise) = (event.scrollingDeltaX, event.scrollingDeltaY, event.hasPreciseScrollingDeltas)
-            let (phase, momentum) = (event.phase, event.momentumPhase)
+            let (phase, momentum, window, location) = (event.phase, event.momentumPhase, event.window, event.locationInWindow)
             MainActor.assumeIsolated {
-                guard let self, self.hovering else { return }
+                guard let self, self.contains(location, in: window) else { return }
                 if phase.contains(.began) || phase.contains(.mayBegin) { self.sideways = nil }
                 // A mouse wheel has no phases: each of its events decides alone.
                 let inGesture = !phase.isEmpty || !momentum.isEmpty
@@ -795,6 +793,17 @@ final class HorizontalScroll {
             }
             return event
         }
+    }
+
+    /// The pointer is over the diff: checked against its frame rather than hover, which isn't reported when the diff
+    /// appears under a still pointer. Popovers and sheets over the diff are windows that can't be main, so they're skipped.
+    private func contains(_ location: NSPoint, in eventWindow: NSWindow?) -> Bool {
+        // Events posted by other tools come without a window, located on screen: take the frontmost window there.
+        guard let window = eventWindow ?? NSApp.orderedWindows.first(where: { $0.isVisible && $0.frame.contains(location) }),
+              window.canBecomeMain, let content = window.contentView else { return false }
+        let inWindow = eventWindow == nil ? window.convertPoint(fromScreen: location) : location
+        let point = content.convert(inWindow, from: nil) // SwiftUI's global space is the content view's, top-left origin
+        return frame.contains(CGPoint(x: point.x, y: content.isFlipped ? point.y : content.bounds.height - point.y))
     }
 
     func stop() {
