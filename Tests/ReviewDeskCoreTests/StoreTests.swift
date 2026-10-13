@@ -15,6 +15,22 @@ import Testing
     #expect(file.load(default: Organization()) == org)
 }
 
+@Test func pullRequestCacheRoundTripsThroughJSONFile() async throws {
+    let file = JSONFile<PRCache>(FileManager.default.temporaryDirectory.appendingPathComponent("prs-\(UUID()).json"))
+    defer { try? FileManager.default.removeItem(at: file.url) }
+    #expect(file.load(default: PRCache()).refreshed == nil)
+
+    let stack = #"{"number":4,"entries":{"nodes":[{"position":1,"pullRequest":{"id":"PR_1","number":1}}]}}"#
+    let runner = FakeRunner { _ in data(#"{"nodes":[\#(prNode(stack: stack, latestReview: "APPROVED"))]}"#) }
+    let pr = try #require(try await GitHub(runner: runner).pullRequests(ids: ["PR_1"]).first)
+    let refreshed = Date(timeIntervalSince1970: 1_760_000_000)
+    try file.save(PRCache(prs: [pr.id: pr], refreshed: refreshed, fullRefresh: refreshed))
+
+    let loaded = file.load(default: PRCache())
+    #expect(loaded.prs == [pr.id: pr])
+    #expect(loaded.refreshed == refreshed && loaded.fullRefresh == refreshed)
+}
+
 @Test func deletingFolderRemovesSubfoldersAndUnfilesItems() {
     var org = Organization()
     let project = org.addFolder("P")
