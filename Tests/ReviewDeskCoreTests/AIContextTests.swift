@@ -107,6 +107,12 @@ private func finding(_ path: String?, _ line: Int?) -> Finding {
     #expect(AIContext.placement(fix("a.swift", 2), files: all, includeSuggestion: false) == .inline(Anchor(path: "a.swift", line: 2), startLine: nil, body: "c"))
     // Code containing a fence gets a longer one, and an empty suggestion deletes the lines.
     if case .inline(_, _, let body) = AIContext.placement(fix("a.swift", 2, "```\nx\n```"), files: all) { #expect(body.hasSuffix("````suggestion\n```\nx\n```\n````")) }
+    // An indented fence closes a block too (up to 3 spaces), and so would a longer run inside a line.
+    if case .inline(_, _, let body) = AIContext.placement(fix("a.swift", 2, "doc = \"\"\"\n   ```\n\"\"\""), files: all) {
+        #expect(body.hasSuffix("````suggestion\ndoc = \"\"\"\n   ```\n\"\"\"\n````"))
+    }
+    #expect(AIContext.fenced("a ````` b", info: "") == "``````\na ````` b\n``````")
+    #expect(AIContext.fixPrompt(title: "T", body: "B", path: "a.md", patch: "@@ -1 +1 @@\n+  ```", problem: "p").contains("````\n@@ -1 +1 @@\n    1 +  ```\n````"))
     #expect(AIContext.placement(fix("a.swift", 2, ""), files: all) == .inline(Anchor(path: "a.swift", line: 2), startLine: nil, body: "c\n\n```suggestion\n\n```"))
 }
 
