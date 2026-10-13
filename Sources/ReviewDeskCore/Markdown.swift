@@ -21,12 +21,14 @@ public struct MarkdownBlock: Hashable, Sendable {
 
 public enum Markdown {
     /// Splits Markdown into blocks using Foundation's parser; falls back to one plain paragraph.
-    public static func blocks(_ source: String) -> [MarkdownBlock] {
+    /// Commit SHAs and PR references become links (see `linkify`); `repo` is the PR's own, for `#123` and bare SHAs.
+    public static func blocks(_ source: String, repo: String? = nil) -> [MarkdownBlock] {
         let source = cleanHTML(source)
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .full, failurePolicy: .returnPartiallyParsedIfPossible)
-        guard let parsed = try? AttributedString(markdown: source, options: options) else {
+        guard let markdown = try? AttributedString(markdown: source, options: options) else {
             return [MarkdownBlock(kind: .paragraph, text: AttributedString(source), quoted: false)]
         }
+        let parsed = linkify(markdown, repo: repo)
 
         var blocks: [MarkdownBlock] = []
         var currentKey: Int?
@@ -100,6 +102,81 @@ public enum Markdown {
             while trimmed.text.characters.last == "\n" { trimmed.text.characters.removeLast() }
             return trimmed
         }
+    }
+
+    /// GitHub's autolinks, outside code: commit SHAs (7 to 40 hex characters with a letter and a digit), `#123`,
+    /// `GH-123`, `owner/repo#123`, `owner/repo@sha`, and GitHub URLs to PRs, issues and commits, shown short.
+    /// Links point at github.com; the app opens the PRs it follows itself. Without `repo`, `#123`, `GH-123` and
+    /// bare SHAs stay text.
+    public static func linkify(_ text: AttributedString, repo: String?) -> AttributedString {
+        let pattern = try! NSRegularExpression(pattern: [
+            #"https://github\.com/[\w.-]+/[\w.-]+/(?:pull|issues|commit)/\w+"#,
+            #"(?<![\w./-])[\w.-]+/[\w.-]+(?:#\d+|@[0-9a-f]{7,40})\b"#,
+            #"(?<![\w&#/])(?:#|GH-)\d+\b"#,
+            #"(?<![\w#/@.-])[0-9a-f]{7,40}(?![\w-])"#,
+        ].joined(separator: "|"))
+        var result = AttributedString()
+        for run in text.runs {
+            let piece = AttributedString(text[run.range])
+            let string = String(piece.characters)
+            let inCode = run.inlinePresentationIntent?.contains(.code) == true
+                || run.presentationIntent?.components.contains { if case .codeBlock = $0.kind { true } else { false } } == true
+            if inCode {
+                result.append(piece)
+            } else if let link = run.link {
+                // A bare URL shows short, as on GitHub; a written link keeps its text.
+                if string == link.absoluteString, let short = autolink(string, repo: repo)?.title {
+                    result.append(AttributedString(short, attributes: run.attributes))
+                } else {
+                    result.append(piece)
+                }
+            } else {
+                var rest = string.startIndex
+                for match in pattern.matches(in: string, range: NSRange(string.startIndex..., in: string)) {
+                    guard let range = Range(match.range, in: string), let target = autolink(String(string[range]), repo: repo) else { continue }
+                    result.append(AttributedString(String(string[rest..<range.lowerBound]), attributes: run.attributes))
+                    var linked = AttributedString(target.title, attributes: run.attributes)
+                    linked.link = target.url
+                    result.append(linked)
+                    rest = range.upperBound
+                }
+                result.append(AttributedString(String(string[rest...]), attributes: run.attributes))
+            }
+        }
+        return result
+    }
+
+    /// What a reference shows and where it points, or nil when it isn't one (e.g. a hex word without digits).
+    static func autolink(_ text: String, repo: String?) -> (title: String, url: URL)? {
+        func isSHA(_ word: Substring) -> Bool {
+            (7...40).contains(word.count) && word.allSatisfy(\.isHexDigit) && word.contains(where: \.isLetter) && word.contains(where: \.isNumber)
+        }
+        func link(_ title: String, _ name: String, _ kind: String, _ id: Substring) -> (title: String, url: URL)? {
+            URL(string: "https://github.com/\(name)/\(kind)/\(id)").map { (title, $0) }
+        }
+        let github = "https://github.com/"
+        if text.hasPrefix(github) {
+            let parts = text.dropFirst(github.count).split(separator: "/")
+            guard parts.count >= 4, let url = URL(string: text) else { return nil }
+            let name = "\(parts[0])/\(parts[1])", id = parts[3].prefix { $0.isLetter || $0.isNumber }
+            switch parts[2] {
+            case "pull", "issues": return Int(id) == nil ? nil : ("\(name)#\(id)", url)
+            case "commit": return isSHA(id) ? (String(id.prefix(7)), url) : nil
+            default: return nil
+            }
+        }
+        if let at = text.firstIndex(of: "@") {
+            let sha = text[text.index(after: at)...], name = String(text[..<at])
+            return isSHA(sha) ? link("\(name)@\(sha.prefix(7))", name, "commit", sha) : nil
+        }
+        if let hash = text.firstIndex(of: "#"), hash != text.startIndex {
+            return link(text, String(text[..<hash]), "pull", text[text.index(after: hash)...])
+        }
+        guard let repo else { return nil }
+        if text.hasPrefix("#") || text.hasPrefix("GH-") {
+            return link(text, repo, "pull", text.drop { !$0.isNumber })
+        }
+        return isSHA(text[...]) ? link(String(text.prefix(7)), repo, "commit", text[...]) : nil
     }
 
     /// GitHub renders inline HTML and hides comments; Foundation's parser shows them raw. Bots (e.g. review

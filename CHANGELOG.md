@@ -14,6 +14,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 - While ReviewDesk opens, the sidebar shows "Loading pull requests…" instead of an empty list or "No pull requests", and a spinner replaces the toolbar's Refresh button whenever the list is being fetched.
 - Refreshing while ReviewDesk is still connecting to GitHub no longer leads to a wrong "Your review was requested" notification for each pull request awaiting your review: refreshes wait until your GitHub account is known.
 - **Collapse the conversation:** each card in the Conversation tab (the description, comments and reviews) has a chevron that folds it to its header, and *Collapse All* / *Expand All* folds or unfolds them all at once.
+- **Linked commits and PRs:** commit SHAs, `#123`, `GH-123`, `owner/repo#123`, `owner/repo@sha` and GitHub URLs in descriptions, comments and AI text are links, as on GitHub (not inside code). A PR ReviewDesk follows opens in the app; anything else opens on GitHub. The header shows the head commit's short SHA.
 
 ## 0.8.1
 

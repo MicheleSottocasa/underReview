@@ -3,11 +3,13 @@ import SwiftUI
 
 /// GitHub-flavoured Markdown: headings, lists, quotes, code blocks, tables and rules.
 struct MarkdownText: View {
-    let blocks: [MarkdownBlock]
+    let source: String
+    @Environment(\.markdownRepo) private var repo
 
-    init(_ source: String) { blocks = Markdown.blocks(source) }
+    init(_ source: String) { self.source = source }
 
     var body: some View {
+        let blocks = Markdown.blocks(source, repo: repo)
         VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
                 if block.quoted {
@@ -76,7 +78,39 @@ struct MarkdownText: View {
 }
 
 /// One line of AI text (a rationale, a reason) with its `code` and **bold** rendered, for places too small for blocks.
-func inlineMarkdown(_ text: String) -> AttributedString {
+func inlineMarkdown(_ text: String, repo: String?) -> AttributedString {
     let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-    return MarkdownText.styled((try? AttributedString(markdown: text, options: options)) ?? AttributedString(text))
+    return MarkdownText.styled(Markdown.linkify((try? AttributedString(markdown: text, options: options)) ?? AttributedString(text), repo: repo))
+}
+
+private struct MarkdownRepoKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
+extension EnvironmentValues {
+    /// The PR's repo, so Markdown can link `#123` and commit SHAs to it.
+    var markdownRepo: String? {
+        get { self[MarkdownRepoKey.self] }
+        set { self[MarkdownRepoKey.self] = newValue }
+    }
+}
+
+/// Opens the PRs the app follows in the app, and other links (other PRs, commits) in the browser.
+/// The demo never opens GitHub.
+struct LinkHandler: ViewModifier {
+    @Environment(AppModel.self) private var model
+    let pr: PullRequest
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.markdownRepo, pr.repo)
+            .environment(\.openURL, OpenURLAction { url in
+                let ref = PRRef(url.absoluteString)
+                if let ref, let target = model.prs.values.first(where: { $0.repo.lowercased() == ref.nameWithOwner.lowercased() && $0.number == ref.number }) {
+                    model.selection = [.pr(target.id)]
+                    return .handled
+                }
+                return model.blockDemo(pr) ? .handled : .systemAction
+            })
+    }
 }
