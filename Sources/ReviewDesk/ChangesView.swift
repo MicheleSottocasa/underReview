@@ -397,6 +397,9 @@ struct FileDiffView: View {
     @ViewState private var collapsed: Set<ReviewDeskCore.Anchor> = []
     /// The parsed and highlighted patch, rebuilt only when the patch or the mode changes, not on every redraw.
     @ViewState private var rendered: RenderedDiff?
+    /// Shared horizontal offset of the code while soft wrap is off.
+    @ViewState private var hScroll = HorizontalScroll()
+    @ViewState private var paneWidth: CGFloat = 0
     private static let numberWidth: CGFloat = 42
     private static let markerWidth: CGFloat = 20
 
@@ -447,6 +450,11 @@ struct FileDiffView: View {
                     .font(.system(size: 12.5, design: .monospaced))
                 }
                 .background(DiffColors.editor)
+                .onHover { hScroll.hovering = $0 }
+                .onGeometryChange(for: CGFloat.self, of: \.size.width) { paneWidth = $0 }
+                .onChange(of: scrollLimit(diff), initial: true) { _, limit in hScroll.limit = limit }
+                .onAppear { hScroll.start() }
+                .onDisappear { hScroll.stop() }
                 .onChange(of: key, initial: true) { _, key in
                     rendered = RenderedDiff(key, path: file.filename)
                 }
@@ -461,6 +469,13 @@ struct FileDiffView: View {
                                        description: Text("GitHub doesn't provide a diff for binary or very large files."))
             }
         }
+    }
+
+    /// How far the longest line reaches past its code column (each half in split mode).
+    private func scrollLimit(_ diff: RenderedDiff?) -> CGFloat {
+        guard let diff, !wrap else { return 0 }
+        let column = (paneWidth - Self.numberWidth * 2 - Self.markerWidth) / (mode == .split ? 2 : 1)
+        return max(0, CGFloat(diff.longest) * HorizontalScroll.charWidth + 32 - column)
     }
 
     private func isKey(_ line: DiffLine?) -> Bool {
@@ -583,10 +598,14 @@ struct FileDiffView: View {
     private func code(_ line: DiffLine?, text: [DiffLine: AttributedString]) -> some View {
         Group {
             if let line {
-                Text(text[line] ?? AttributedString(line.text))
-                    .lineLimit(wrap ? nil : 1)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
+                let code = Text(text[line] ?? AttributedString(line.text)).textSelection(.enabled)
+                if wrap {
+                    code.fixedSize(horizontal: false, vertical: true)
+                } else {
+                    // Full length over a one-line placeholder, so a long line scrolls instead of widening the row.
+                    Text(" ").hidden().frame(maxWidth: .infinity, alignment: .leading)
+                        .overlay(alignment: .leading) { ScrolledLine(scroll: hScroll) { code.fixedSize() } }
+                }
             } else {
                 Text(" ")
             }
@@ -687,6 +706,8 @@ struct RenderedDiff {
     /// Empty in unified mode.
     var rows: [DiffRow]
     var text: [DiffLine: AttributedString]
+    /// Characters in the longest line, a tab counted as 4.
+    var longest: Int
 
     @MainActor init(_ key: Key, path: String) {
         let lines = Diff.parse(key.patch)
@@ -697,6 +718,7 @@ struct RenderedDiff {
         }
         (self.key, self.lines, self.text) = (key, lines, text)
         changes = Diff.changes(lines)
+        longest = lines.map { $0.text.count + $0.text.count { $0 == "\t" } * 3 }.max() ?? 0
         rows = key.mode == .split ? Diff.sideBySide(lines) : []
     }
 
@@ -719,6 +741,44 @@ private struct HoverRow<Content: View>: View {
     var body: some View {
         content(hovered).onHover { hovered = $0 }
     }
+}
+
+/// Horizontal offset shared by every code cell while soft wrap is off, so long lines scroll together like in an
+/// editor. Only the cells that read `x` redraw while scrolling; numbers, markers and comments stay put.
+@Observable @MainActor
+final class HorizontalScroll {
+    static let charWidth = ("M" as NSString).size(withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: 12.5, weight: .regular)]).width
+
+    var x: CGFloat = 0
+    @ObservationIgnored var limit: CGFloat = 0 { didSet { x = min(x, limit) } }
+    @ObservationIgnored var hovering = false
+    @ObservationIgnored private var monitor: Any?
+
+    // ponytail: trackpad and (shift-)wheel only, no visible scroller, and dragging a selection past the edge
+    // doesn't scroll; add an NSScroller if people miss it.
+    func start() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            let (dx, dy, precise) = (event.scrollingDeltaX, event.scrollingDeltaY, event.hasPreciseScrollingDeltas)
+            MainActor.assumeIsolated {
+                guard let self, self.hovering, abs(dx) > abs(dy) else { return }
+                self.x = min(max(0, self.x - (precise ? dx : dx * Self.charWidth * 3)), self.limit)
+            }
+            return event
+        }
+    }
+
+    func stop() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+    }
+}
+
+private struct ScrolledLine<Content: View>: View {
+    let scroll: HorizontalScroll
+    @ViewBuilder let content: Content
+
+    var body: some View { content.offset(x: -scroll.x) }
 }
 
 /// Two values as one `task(id:)`.
