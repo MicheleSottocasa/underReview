@@ -91,7 +91,7 @@ extension AppModel {
                 changed = diff
                 logStep("\(diff.count) file\(diff.count == 1 ? "" : "s") changed since your review", pr: key)
             } else {
-                if files[pr.id] == nil { files[pr.id] = try await github.files(pr.ref) }
+                if files[pr.id] == nil { try await fetchFiles(pr) }
                 changed = files[pr.id] ?? []
                 sinceReview = false
                 logStep("What changed since your review isn't available: using the whole diff", pr: key)
