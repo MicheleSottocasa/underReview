@@ -23,6 +23,30 @@ public enum EditorLink {
             .replacingOccurrences(of: "{line}", with: String(max(line, 1))))
     }
 
+    public enum Refusal: Error, Equatable, LocalizedError {
+        case missing(String), outsideClone(String), notAFile(String)
+
+        public var errorDescription: String? {
+            switch self {
+            case .missing(let path): "\(path) isn't in the local clone. Check out the pull request first."
+            case .outsideClone(let path): "\(path) is a link to something outside the local clone, so it isn't opened."
+            case .notAFile(let path): "\(path) isn't a regular file, so it isn't opened."
+            }
+        }
+    }
+
+    /// Security boundary: the changed file at `path` inside `clone`, only when, after following symlinks, it is a
+    /// regular file still inside the clone. A symlink in a pull request can't point the editor at an app, a folder
+    /// or a file elsewhere on the Mac.
+    public static func file(_ path: String, inClone clone: URL) throws -> URL {
+        let root = clone.resolvingSymlinksInPath().standardizedFileURL.path
+        let url = clone.appendingPathComponent(path).resolvingSymlinksInPath().standardizedFileURL
+        guard FileManager.default.fileExists(atPath: url.path) else { throw Refusal.missing(path) }
+        guard url.path.hasPrefix(root + "/") else { throw Refusal.outsideClone(path) }
+        guard (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { throw Refusal.notAFile(path) }
+        return url
+    }
+
     /// The new-side line of a patch's first change; for a pure deletion, the line that now follows it.
     public static func firstChange(in patch: String) -> Int {
         let lines = Diff.parse(patch)
