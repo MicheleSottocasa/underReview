@@ -569,13 +569,13 @@ public enum AIContext {
         return "\n\nSuggested change\(lines.map { " (\($0))" } ?? ""):\n" + fenced(suggestion, info: "")
     }
 
-    /// A fenced block that can't be closed early by backticks in the code.
     /// |a − b| without trapping on extreme line numbers from the AI (Int.min, or far past the file).
     private static func distance(_ a: Int, _ b: Int) -> UInt {
         let (difference, overflow) = a.subtractingReportingOverflow(b)
         return overflow ? .max : difference.magnitude
     }
 
+    /// A fenced block that can't be closed early by backticks in the code.
     static func fenced(_ code: String, info: String) -> String {
         let code = code.hasSuffix("\n") ? String(code.dropLast()) : code
         // A fence can be closed by an indented line, so count the longest run of backticks anywhere, not just at line starts.
