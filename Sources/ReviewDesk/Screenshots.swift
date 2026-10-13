@@ -51,13 +51,19 @@ enum Screenshots {
                 }
             }
         }
-        // `--appearance` also saves Settings › Appearance, then the Changes tab after a theme edit (kept in memory only).
+        // `--appearance` also saves Settings › Appearance and Import from IDE, then the Changes tab after a theme edit (kept in memory only).
         if CommandLine.arguments.contains("--appearance") {
             let settings = NSWindow(contentViewController: NSHostingController(rootView: AppearanceSettings().frame(width: 640, height: 1100)))
             settings.makeKeyAndOrderFront(nil)
             try? await Task.sleep(for: .seconds(1.5))
             save(settings, to: folder.appendingPathComponent("appearance.png"))
             settings.close()
+            // The review step of Import from IDE, on a bundled preset (never the user's own IDEs).
+            let sheet = NSWindow(contentViewController: NSHostingController(rootView: IDEImportSheet(file: JetBrainsScheme.presets["Darcula"])))
+            sheet.makeKeyAndOrderFront(nil)
+            try? await Task.sleep(for: .seconds(1.5))
+            save(sheet, to: folder.appendingPathComponent("import-ide.png"))
+            sheet.close()
             ThemeStore.shared.edit {
                 $0[.keyword, dark: false] = HexColor(0xD00000)
                 $0[.keyword, dark: true] = HexColor(0xFF6060)
