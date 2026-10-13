@@ -266,3 +266,18 @@ import Testing
     thread.comments = []
     #expect(thread.topic == "")
 }
+
+@Test func tellsWhetherAThreadInvolvesTheViewer() {
+    let thread = { (comments: [(String, String)]) in
+        ReviewThread(id: "T", path: "a", line: 1, side: .right, isResolved: false, isOutdated: false,
+                     comments: comments.map { Comment(id: $0.0, author: $0.0, body: $0.1, createdAt: .now) })
+    }
+    let started = thread([("me", "why?"), ("bob", "because")])
+    #expect(started.isStarted(by: "me") && started.hasComment(from: "me") && started.involves("me"))
+    let replied = thread([("bob", "why?"), ("me", "because")])
+    #expect(!replied.isStarted(by: "me") && replied.hasComment(from: "me") && replied.involves("me"))
+    #expect(thread([("bob", "cc @Me, thoughts?")]).involves("me"))
+    #expect(!thread([("bob", "ask @me-too or mail x@me")]).involves("me"))
+    #expect(!thread([("bob", "why?")]).involves("me"))
+    #expect(!started.involves("") && !started.isStarted(by: ""))
+}
