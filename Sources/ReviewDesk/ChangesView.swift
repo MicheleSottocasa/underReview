@@ -328,7 +328,7 @@ struct FileTree: View {
     private func fileRow(_ file: FileChange, name: String, involved: Int? = nil) -> some View {
         let viewed = model.viewedFiles[pr.id]?.contains(file.filename) ?? false
         return HStack(spacing: 6) {
-            if model.pending.contains(pr.id + file.filename) {
+            if model.pending.contains("\(pr.id):\(file.filename)") {
                 ProgressView().controlSize(.mini).frame(width: 14).help("Saving to GitHub…")
             } else {
                 Toggle("Viewed", isOn: Binding(get: { viewed }, set: { _ in Task { await model.toggleViewed(file.filename, pr: pr) } }))
