@@ -383,18 +383,19 @@ struct FileDiffView: View {
                             ForEach(detached) { ThreadView(pr: pr, thread: $0, hidden: hiddenIDs) }
                         }
                         let lines = Diff.parse(patch)
+                        let syntax = language.map { Syntax.tokens(diff: lines, language: $0) } ?? [:]
                         switch mode {
                         case .unified:
                             let changes = Diff.changes(lines)
                             ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                                unifiedRow(line, change: changes[index], language: language)
+                                unifiedRow(line, change: changes[index], syntax: syntax)
                                 if let anchor = line.anchor(path: file.filename) {
                                     annotations(anchor).padding(.leading, Self.numberWidth * 2 + Self.markerWidth)
                                 }
                             }
                         case .split:
                             ForEach(Array(Diff.sideBySide(lines).enumerated()), id: \.offset) { _, row in
-                                splitRow(row, language: language)
+                                splitRow(row, syntax: syntax)
                                 splitAnnotations(row)
                             }
                         }
@@ -436,7 +437,7 @@ struct FileDiffView: View {
     // MARK: Rows
 
     /// PyCharm layout: old code | old and new line numbers | new code.
-    private func splitRow(_ row: DiffRow, language: SyntaxLanguage?) -> some View {
+    private func splitRow(_ row: DiffRow, syntax: [DiffLine: [SyntaxToken]]) -> some View {
         let left = side(row.left, left: true), right = side(row.right, left: false)
         let leftColor = row.left == nil ? DiffColors.filler(row.change) : DiffColors.block(row.change, side: .left)
         let rightColor = row.right == nil ? DiffColors.filler(row.change) : DiffColors.block(row.change, side: .right)
@@ -445,7 +446,7 @@ struct FileDiffView: View {
                 hunk(text)
             } else {
                 HStack(spacing: 0) {
-                    code(row.left, language: language).background(leftColor)
+                    code(row.left, syntax: syntax).background(leftColor)
                     HStack(spacing: 0) {
                         number(row.left?.oldLine).background(leftColor)
                         number(row.right?.newLine).background(rightColor)
@@ -453,7 +454,7 @@ struct FileDiffView: View {
                     }
                     .overlay(alignment: .leading) { Rectangle().fill(DiffColors.separator).frame(width: 1) }
                     .overlay(alignment: .trailing) { Rectangle().fill(DiffColors.separator).frame(width: 1) }
-                    code(row.right, language: language).background(rightColor)
+                    code(row.right, syntax: syntax).background(rightColor)
                         .overlay(alignment: .leading) { if isKey(row.right) { keyBar } }
                 }
                 .onHover { track(right ?? left, $0) }
@@ -461,7 +462,7 @@ struct FileDiffView: View {
         }
     }
 
-    private func unifiedRow(_ line: DiffLine, change: DiffChange?, language: SyntaxLanguage?) -> some View {
+    private func unifiedRow(_ line: DiffLine, change: DiffChange?, syntax: [DiffLine: [SyntaxToken]]) -> some View {
         let anchor = line.anchor(path: file.filename)
         let color = DiffColors.block(change, side: line.kind == .removed ? .left : .right)
         return Group {
@@ -472,7 +473,7 @@ struct FileDiffView: View {
                     number(line.oldLine)
                     number(line.newLine)
                     marker(anchor)
-                    code(line, language: language)
+                    code(line, syntax: syntax)
                         .overlay(alignment: .leading) { if isKey(line) { keyBar } }
                 }
                 .background(color)
@@ -527,10 +528,10 @@ struct FileDiffView: View {
     }
 
     @ViewBuilder
-    private func code(_ line: DiffLine?, language: SyntaxLanguage?) -> some View {
+    private func code(_ line: DiffLine?, syntax: [DiffLine: [SyntaxToken]]) -> some View {
         Group {
             if let line {
-                Text(Self.highlighted(line.text, language: language))
+                Text(Self.highlighted(line.text, tokens: syntax[line] ?? []))
                     .lineLimit(wrap ? nil : 1)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
@@ -544,11 +545,11 @@ struct FileDiffView: View {
         .clipped()
     }
 
-    static func highlighted(_ text: String, language: SyntaxLanguage?) -> AttributedString {
+    /// `tokens` come from the whole diff, so strings opened on earlier lines (docstrings) keep their color.
+    static func highlighted(_ text: String, tokens: [SyntaxToken]) -> AttributedString {
         var result = AttributedString(text.isEmpty ? " " : text)
         result.foregroundColor = DiffColors.text
-        guard let language else { return result }
-        for token in Syntax.tokens(text, language: language) {
+        for token in tokens {
             let start = result.index(result.startIndex, offsetByCharacters: token.range.lowerBound)
             let end = result.index(result.startIndex, offsetByCharacters: token.range.upperBound)
             result[start..<end].foregroundColor = DiffColors.syntax(token.kind)
