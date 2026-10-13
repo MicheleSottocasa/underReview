@@ -21,10 +21,6 @@ public struct AppRelease: Equatable, Sendable {
     }
 }
 
-extension AppRelease: Identifiable {
-    public var id: String { version }
-}
-
 /// What one version changed: its CHANGELOG.md section, or its release description.
 public struct VersionNotes: Equatable, Sendable, Identifiable {
     public var version: String
@@ -52,6 +48,13 @@ public enum AppVersion {
             if x != y { return x > y }
         }
         return false
+    }
+
+    /// At launch, the version that ran before this one, when this build is newer: show what changed since.
+    /// Nil for a fresh install (nothing ran before), a `dev` build or the same version.
+    public static func updated(from lastLaunched: String?, to current: String) -> String? {
+        guard current != "dev", let lastLaunched, isNewer(current, than: lastLaunched) else { return nil }
+        return lastLaunched
     }
 
     /// The `## <version>` sections of a changelog (the headings `scripts/release-notes.sh` reads) in

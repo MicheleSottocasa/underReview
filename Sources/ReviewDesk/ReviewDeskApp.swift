@@ -27,6 +27,7 @@ struct ReviewDeskApp: App {
             }
             CommandGroup(replacing: .help) {
                 Button("Show Tour") { model.startTour() }
+                Button("What's New") { model.showCurrentNotes() }
             }
             CommandGroup(after: .newItem) {
                 Button("Refresh") { model.refreshNow() }.keyboardShortcut("r")
@@ -170,7 +171,7 @@ struct ContentView: View {
 
     var body: some View {
         content
-        .sheet(item: Bindable(model).whatsNew) { WhatsNewView(release: $0) }
+        .sheet(item: Bindable(model).whatsNew) { WhatsNewView(content: $0) }
         .task {
             // First launch: tour the app on demo data before any real pull request shows up.
             guard model.shouldStartTour, model.tourStep == nil, !Screenshots.isRequested else { return }
@@ -255,7 +256,7 @@ struct SettingsView: View {
 
 struct GeneralSettings: View {
     @Environment(AppModel.self) private var model
-    @ViewState private var whatsNew: AppRelease?
+    @ViewState private var whatsNew: WhatsNew?
     @AppStorage("checkForUpdates") private var checkForUpdates = true
     @ViewState private var checking = false
     @AppStorage("pollForeground") private var foreground = Updates.defaultForeground
@@ -282,7 +283,7 @@ struct GeneralSettings: View {
                                 model.installUpdate(update)
                             }
                             .buttonStyle(.link)
-                            Button("What's New") { whatsNew = update }.buttonStyle(.link)
+                            Button("What's New") { whatsNew = .update(update) }.buttonStyle(.link)
                         } else if let error = model.updateCheckError {
                             Text("Last check failed: \(error)").foregroundStyle(.orange).lineLimit(2)
                         } else if let checked = model.lastUpdateCheck {
@@ -324,7 +325,7 @@ struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
-        .sheet(item: $whatsNew) { WhatsNewView(release: $0) }
+        .sheet(item: $whatsNew) { WhatsNewView(content: $0) }
     }
 
     private func seconds(_ title: String, _ value: Binding<Int>) -> some View {

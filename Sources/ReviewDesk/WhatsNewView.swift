@@ -1,19 +1,33 @@
 import ReviewDeskCore
 import SwiftUI
 
-/// "What's New in X": the changes of every version after the installed one up to `release`, newest first,
-/// with the banner's install button and Later.
+/// What the "What's New" sheet shows.
+enum WhatsNew: Identifiable {
+    /// Before updating: the changes from the installed version up to this release, from GitHub, with install and Later.
+    case update(AppRelease)
+    /// This build's own changes, from the CHANGELOG.md in its bundle: after an update, or from Help.
+    case installed([VersionNotes])
+
+    var id: String {
+        switch self {
+        case .update(let release): "update-\(release.version)"
+        case .installed: "installed"
+        }
+    }
+}
+
+/// "What's New in X": the changes of every version in the range, newest first.
 struct WhatsNewView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
-    let release: AppRelease
+    let content: WhatsNew
     /// Nil while loading.
     @ViewState private var notes: [VersionNotes]?
     @ViewState private var error: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("What's New in ReviewDesk \(release.version)")
+            Text("What's New in ReviewDesk \(release?.version ?? model.currentVersion)")
                 .font(.title2.bold())
                 .padding()
             Divider()
@@ -41,7 +55,9 @@ struct WhatsNewView: View {
                     } else {
                         ProgressView().frame(maxWidth: .infinity)
                     }
-                    Text("You have \(model.currentVersion)").font(.headline).foregroundStyle(.secondary)
+                    if release != nil {
+                        Text("You have \(model.currentVersion)").font(.headline).foregroundStyle(.secondary)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding()
@@ -49,21 +65,29 @@ struct WhatsNewView: View {
             Divider()
             HStack {
                 Spacer()
-                Button("Later") {
-                    model.dismissedUpdate = release.version
-                    dismiss()
+                if let release {
+                    Button("Later") {
+                        model.dismissedUpdate = release.version
+                        dismiss()
+                    }
+                    .help("Hide the update until a newer version comes out")
+                    Button(model.canInstallUpdates ? "Install and Relaunch" : "Download") {
+                        dismiss()
+                        model.installUpdate(release)
+                    }
+                    .keyboardShortcut(.defaultAction)
+                } else {
+                    Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
                 }
-                .help("Hide the update until a newer version comes out")
-                Button(model.canInstallUpdates ? "Install and Relaunch" : "Download") {
-                    dismiss()
-                    model.installUpdate(release)
-                }
-                .keyboardShortcut(.defaultAction)
             }
             .padding()
         }
         .frame(width: 560, height: 600)
         .task {
+            guard let release else {
+                if case .installed(let installed) = content { notes = installed }
+                return
+            }
             do {
                 notes = try await model.github.releaseNotes(repo: AppVersion.repository, after: model.currentVersion, through: release.version)
             } catch {
@@ -71,5 +95,9 @@ struct WhatsNewView: View {
                 notes = []
             }
         }
+    }
+
+    private var release: AppRelease? {
+        if case .update(let release) = content { release } else { nil }
     }
 }

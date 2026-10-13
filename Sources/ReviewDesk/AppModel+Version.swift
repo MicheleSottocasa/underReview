@@ -76,6 +76,27 @@ extension AppModel {
         }
     }
 
+    /// The CHANGELOG.md sections up to this build, from the copy `make app` puts in the bundle (none under `swift run`).
+    private func bundledNotes(after previous: String) -> [VersionNotes] {
+        guard let url = Bundle.main.url(forResource: "CHANGELOG", withExtension: "md"),
+              let changelog = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+        return AppVersion.notes(in: changelog, after: previous, through: currentVersion)
+    }
+
+    /// At launch: once after an update, what changed since the version that ran before. Then remembers this one.
+    func showWhatsNewAfterUpdate() {
+        let defaults = UserDefaults.standard
+        let previous = AppVersion.updated(from: defaults.string(forKey: "lastLaunchedVersion"), to: currentVersion)
+        if currentVersion != "dev" { defaults.set(currentVersion, forKey: "lastLaunchedVersion") }
+        if let previous { whatsNew = .installed(bundledNotes(after: previous)) }
+    }
+
+    /// Help › What's New: this version's notes.
+    func showCurrentNotes() {
+        openMainWindow?()
+        whatsNew = .installed(Array(bundledNotes(after: "0").prefix(1)))
+    }
+
     func openRelease(_ release: AppRelease) {
         if let url = URL(string: release.url) { NSWorkspace.shared.open(url) }
     }
@@ -98,7 +119,7 @@ extension AppModel {
                 case .alertFirstButtonReturn: installUpdate(release)
                 case .alertSecondButtonReturn:
                     openMainWindow?()
-                    whatsNew = release
+                    whatsNew = .update(release)
                 default: break
                 }
             } else if let error = updateCheckError {

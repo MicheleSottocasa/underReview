@@ -30,6 +30,7 @@ app:
 	cp assets/Info.plist $(APP)/Contents/
 	mkdir -p $(APP)/Contents/Resources
 	cp assets/AppIcon.icns $(APP)/Contents/Resources/
+	cp CHANGELOG.md $(APP)/Contents/Resources/
 	/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(VERSION)" -c "Set :CFBundleVersion $(BUILD)" $(APP)/Contents/Info.plist
 	codesign --force --sign - $(APP)
 
