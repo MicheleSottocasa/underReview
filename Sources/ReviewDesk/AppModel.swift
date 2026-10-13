@@ -76,6 +76,8 @@ final class AppModel {
     /// When the PR list last refreshed successfully, and why the latest refresh failed, if it did.
     var lastRefresh: Date?
     var refreshError: String?
+    /// From launch until the first refresh succeeds or fails, and during every later refresh.
+    var isLoading: Bool { isRefreshing || (lastRefresh == nil && refreshError == nil && setupError == nil) }
     /// A newer published release than this build, if the last check found one.
     var availableUpdate: AppRelease?
     /// What the in-app update is doing (downloading, checking, installing), while it runs.

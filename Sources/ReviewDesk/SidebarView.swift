@@ -42,7 +42,9 @@ struct SidebarView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) { RefreshFooter() }
         .tourAnchor([.sidebar], edge: .trailing)
         .overlay {
-            if model.prs.isEmpty && !model.isRefreshing {
+            if model.prs.isEmpty && model.isLoading {
+                ProgressView("Loading pull requests…")
+            } else if model.prs.isEmpty {
                 ContentUnavailableView {
                     Label("No pull requests", systemImage: "arrow.triangle.pull")
                 } actions: {
@@ -532,7 +534,7 @@ struct RefreshFooter: View {
             // Re-rendered every 30 s so "2 minutes ago" stays true between fetches.
             TimelineView(.periodic(from: .now, by: 30)) { context in
                 HStack(spacing: 6) {
-                    if model.isRefreshing {
+                    if model.isLoading {
                         ProgressView().controlSize(.mini)
                         Text("Updating…")
                     } else if let error = model.refreshError {
@@ -554,7 +556,7 @@ struct RefreshFooter: View {
                         .help("\(AppModel.betaNotice) Version \(model.currentVersion).")
                     Button { model.refreshNow() } label: { Image(systemName: "arrow.clockwise") }
                         .buttonStyle(.borderless)
-                        .disabled(model.isRefreshing)
+                        .disabled(model.isLoading)
                         .help("Refresh now")
                 }
                 .font(.caption)
