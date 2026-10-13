@@ -142,6 +142,8 @@ final class AppModel {
     var explanations: [String: Explanation] = [:]
     /// Finding ("run#index") or comment id → the AI's proposed fix, waiting for the reviewer. In memory only.
     var fixes: [String: Fix] = [:]
+    /// Head commit → path → file text, read for ⌘-click definitions; "" marks a file that isn't there. In memory only.
+    var headFiles: [String: [String: String]] = [:]
     var aiTasks: [String: Task<Void, Never>] = [:]
     /// "oldHead..newHead" → commits pushed in between (nil: unknown), for the stale-analysis banner. In memory only.
     var commitsSince: [String: Int?] = [:]
