@@ -74,9 +74,20 @@ public struct PullRequest: Codable, Hashable, Identifiable, Sendable {
     public var additions = 0
     public var deletions = 0
     public var changedFiles = 0
+    /// MERGEABLE, CONFLICTING or UNKNOWN: GitHub computes it lazily, so the first answer is often UNKNOWN.
+    public var mergeable: String?
+    /// DIRTY, BEHIND, BLOCKED, CLEAN, UNSTABLE, HAS_HOOKS, DRAFT or UNKNOWN.
+    public var mergeStateStatus: String?
 
     public var ref: PRRef { PRRef(nameWithOwner: repo, number: number) }
     public var stackPosition: Int? { stack?.entries.first { $0.id == id }?.position }
+
+    /// Open and can't be merged cleanly into its base.
+    public var hasConflicts: Bool { state == "OPEN" && mergeable == "CONFLICTING" }
+    /// Open and its base has commits it doesn't have yet (merging is blocked until it's updated).
+    public var isBehind: Bool { state == "OPEN" && mergeStateStatus == "BEHIND" }
+    /// GitHub hasn't computed mergeability yet: worth asking again on the next poll.
+    public var mergeabilityPending: Bool { state == "OPEN" && mergeable == "UNKNOWN" }
 
     /// Open, not the viewer's own, already reviewed by them, and the head moved since: new commits to look at.
     /// A dismissed review counts too (stale approvals are usually dismissed because of new pushes).
@@ -495,6 +506,7 @@ public struct GitHub: Sendable {
 
     fragment PR on PullRequest {
       id number title url state isDraft updatedAt headRefOid headRefName baseRefName additions deletions changedFiles
+      mergeable mergeStateStatus
       author { login } repository { nameWithOwner }
       comments { totalCount } reviews { totalCount }
       viewerDidAuthor viewerLatestReview { state commit { oid } }
@@ -545,7 +557,9 @@ public struct GitHub: Sendable {
             threadsAwaitingReply: awaitingReply(nodes(node["reviewThreads"]), viewerIsAuthor: node["viewerDidAuthor"] as? Bool ?? false),
             additions: node["additions"] as? Int ?? 0,
             deletions: node["deletions"] as? Int ?? 0,
-            changedFiles: node["changedFiles"] as? Int ?? 0
+            changedFiles: node["changedFiles"] as? Int ?? 0,
+            mergeable: node["mergeable"] as? String,
+            mergeStateStatus: node["mergeStateStatus"] as? String
         )
     }
 
