@@ -57,7 +57,10 @@ import Testing
     let source = ContextSource(kind: .repository, location: "o/lib", path: "docs/", ref: "v2")
     let files = await ProjectContext.readRepository(source, github: GitHub(runner: runner))
     #expect(runner.calls.first?.args.prefix(2) == ["api", "repos/o/lib/git/trees/v2?recursive=1"])
-    #expect(files.map(\.path) == ["o/lib:docs/diagram.png", "o/lib:docs/dump.sql", "o/lib:docs/guide.md"])
+    #expect(files.map(\.path) == ["o/lib@v2:docs/diagram.png", "o/lib@v2:docs/dump.sql", "o/lib@v2:docs/guide.md"])
+    var main = source
+    main.ref = ""
+    #expect(await ProjectContext.readRepository(main, github: GitHub(runner: runner)).map(\.path).contains("o/lib:docs/guide.md"))
     #expect(files.map(\.included) == [false, false, true] && files[2].content == "guide")
     #expect(files[1].excludedReason == "Larger than 100 KB")
 
