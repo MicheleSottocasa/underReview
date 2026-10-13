@@ -243,9 +243,25 @@ extension AppModel {
             if !folders.isEmpty {
                 logStep("Project context, readable (read-only): " + folders.map { ($0 as NSString).abbreviatingWithTildeInPath }.joined(separator: ", "), pr: key)
             }
-            let unused = sources.filter { ProjectContext.folders([$0]).isEmpty } // single files and repositories
+            // Everything not added says why: gone, refused as a folder, or a kind /code-review doesn't take.
+            var missing: [String] = [], refused: [String] = [], unused: [String] = []
+            for source in sources where ProjectContext.folders([source]).isEmpty {
+                var isFolder: ObjCBool = false
+                if source.kind == .local, !FileManager.default.fileExists(atPath: (source.location as NSString).expandingTildeInPath, isDirectory: &isFolder) {
+                    missing.append(source.label)
+                } else if source.kind == .local, isFolder.boolValue {
+                    refused.append(source.label)
+                } else {
+                    unused.append(source.label)
+                }
+            }
+            if !missing.isEmpty { logStep("Project context not found: " + missing.joined(separator: ", "), pr: key) }
+            if !refused.isEmpty {
+                logStep("Not given to /code-review (the whole disk, your home folder or above it, or a path with *?[]!#\\,() in it): "
+                        + refused.joined(separator: ", "), pr: key)
+            }
             if !unused.isEmpty {
-                logStep("Not used by /code-review (Codex, Ollama and Explain use them): " + unused.map(\.label).joined(separator: ", "), pr: key)
+                logStep("Not used by /code-review (Codex, Ollama and Ask use them): " + unused.joined(separator: ", "), pr: key)
             }
             aiStatus[key] = "Running /code-review (\(options.effort))\(on) with \(engine.name)…"
             let context = AIContext.build(pr: pr, body: details[pr.id]?.body ?? "", files: changed, contents: [:],
