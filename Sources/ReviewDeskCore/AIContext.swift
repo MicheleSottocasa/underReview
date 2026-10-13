@@ -408,9 +408,11 @@ public enum AIContext {
         """
     }
 
-    /// A finding, as the problem to fix.
-    public static func fixProblem(_ finding: Finding) -> String {
-        "**\(finding.title)** (\(finding.severity))\(finding.line.map { ", line \($0)" } ?? "")\n\n\(finding.rationale)\n\n\(finding.comment)"
+    /// A finding, as the problem to fix. `lineHint` is false for a finding from an analysis of an older commit: its
+    /// line number may point at other code now, so the AI finds the place from the description instead.
+    public static func fixProblem(_ finding: Finding, lineHint: Bool = true) -> String {
+        let line = lineHint ? finding.line.map { ", line \($0)" } ?? "" : ""
+        return "**\(finding.title)** (\(finding.severity))\(line)\n\n\(finding.rationale)\n\n\(finding.comment)"
     }
 
     /// A review comment in its thread, as the problem to fix.

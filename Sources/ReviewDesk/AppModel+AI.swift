@@ -318,13 +318,16 @@ extension AppModel {
 
     /// Asks the AI for a fix to `problem` in `path`, tool-less, with the PR description and the file's diff (the same
     /// material as Explain). The proposal waits in `fixes[key]` for the reviewer to edit, accept or discard.
-    func suggestFix(key: String, problem: String, path: String, pr: PullRequest) {
+    /// `note` is shown with the proposal (e.g. that the finding came from an older commit).
+    func suggestFix(key: String, problem: String, path: String, pr: PullRequest, note: String? = nil) {
         guard !blockDemo(pr) else { return }
         let engine = preferredEngine(for: pr)
-        let fix = Fix(engine: engine, path: path, head: pr.headRefOid)
+        var fix = Fix(engine: engine, path: path, head: pr.headRefOid)
+        fix.note = note
         fixes[key] = fix
         // Only this request may fill or clear its entry: a discarded one (or one asked again) must not.
-        let isThisFix = { [weak self] in self?.fixes[key]?.id == fix.id }
+        let id = fix.id
+        let isThisFix = { [weak self] in self?.fixes[key]?.id == id }
         fixes[key]?.task = Task {
             do {
                 if files[pr.id] == nil { files[pr.id] = try await github.files(pr.ref) }
@@ -489,6 +492,8 @@ struct Fix {
     var patch: String?
     /// Nil while the AI is working.
     var proposal: FixProposal?
+    /// Shown with the proposal, when there's something to warn about.
+    var note: String?
     /// The request, while it runs, so Discard can cancel it.
     var task: Task<Void, Never>?
 
