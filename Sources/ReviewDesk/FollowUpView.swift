@@ -90,6 +90,10 @@ private struct StackFollowUp: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Label("Stack #\(pr.stack?.number ?? 0)", systemImage: "square.stack.3d.up").font(.headline)
+                let approved = model.stackPullRequests(of: pr).filter { $0.state == "OPEN" && $0.isApprovedByViewer }.count
+                if approved > 0 {
+                    Text("\(approved) approved by you, hidden").font(.caption).foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button("Check Stack (\(due.count))") { model.startStackFollowUp(due, from: pr.id) }
                     .disabled(due.isEmpty || model.isAIBusy(pr))

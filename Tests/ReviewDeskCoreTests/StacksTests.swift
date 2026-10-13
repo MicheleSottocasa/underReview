@@ -44,3 +44,15 @@ private func pr(_ id: String, _ number: Int, stack: Int? = nil, entries: [String
     #expect(first == ["pr:B", "pr:A"]) // repo o/a before o/r
     #expect(Stacks.items([a, b]).map(\.key) == first)
 }
+
+@Test func stackRunsSkipClosedAndApprovedPullRequests() {
+    func pr(_ id: String, state: String = "OPEN", review: String? = nil) -> PullRequest {
+        var pr = PullRequest(id: id, number: 1, title: "", url: "", state: state, isDraft: false, updatedAt: .now, headRefOid: "h",
+                             headRefName: "", baseRefName: "", author: "", repo: "o/r", commentCount: 0, reviewCount: 0,
+                             threadCommentCount: 0, requestedReviewers: [], stack: nil)
+        pr.viewerReviewState = review
+        return pr
+    }
+    let stack = [pr("A", review: "APPROVED"), pr("B", review: "CHANGES_REQUESTED"), pr("C", state: "MERGED"), pr("D"), pr("E", review: "COMMENTED")]
+    #expect(Stacks.toReview(stack).map(\.id) == ["B", "D", "E"])
+}

@@ -96,11 +96,14 @@ struct AIView: View {
             }
             Spacer()
             if let stack = model.allItems.first(where: { $0.key == pr.itemKey && $0.isStack }) {
-                Button("Review Stack (\(stack.pullRequests.count))") {
-                    model.startStackReview(stack.pullRequests.filter { $0.state == "OPEN" }, engine: engine, budget: budget, options: options, from: pr.id)
+                // PRs you already approved are done for you: no new agent on them.
+                let toReview = Stacks.toReview(stack.pullRequests)
+                Button("Review Stack (\(toReview.count))") {
+                    model.startStackReview(toReview, engine: engine, budget: budget, options: options, from: pr.id)
                 }
-                .disabled(busy)
-                .help("One agent per open PR, several at once (Settings › AI), each reviewing its own PR")
+                .disabled(busy || toReview.isEmpty)
+                .help(toReview.isEmpty ? "Every open PR of this stack is approved by you"
+                                       : "One agent per open PR you haven't approved, several at once (Settings › AI)")
             }
             Button(usesCodeReview ? "Run /code-review" : preparing ? "Preparing…" : "Prepare Context") { start() }
                 .buttonStyle(.borderedProminent)

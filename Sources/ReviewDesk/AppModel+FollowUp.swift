@@ -14,10 +14,15 @@ extension AppModel {
         return pr.needsReReview || pr.threadsAwaitingReply > 0
     }
 
-    /// The open PRs of `pr`'s stack, bottom first; empty when it isn't in one.
+    /// The PRs of `pr`'s stack still to review, bottom first: open and not approved by the viewer. Empty outside a stack.
     func stackMembers(of pr: PullRequest) -> [PullRequest] {
+        Stacks.toReview(stackPullRequests(of: pr))
+    }
+
+    /// Every PR of `pr`'s stack, bottom first; empty when it isn't in one.
+    func stackPullRequests(of pr: PullRequest) -> [PullRequest] {
         guard pr.stack != nil else { return [] }
-        return allItems.first { $0.key == pr.itemKey && $0.isStack }?.pullRequests.filter { $0.state == "OPEN" } ?? []
+        return allItems.first { $0.key == pr.itemKey && $0.isStack }?.pullRequests ?? []
     }
 
     /// Shown while this PR, or another in its stack, has something to check or a past check to read.

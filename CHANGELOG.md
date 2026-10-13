@@ -5,6 +5,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+- Pull requests you approved are left out of stack runs: the Follow-up stack list hides them ("N approved by you, hidden"), and *Review Stack* and *Check Stack* don't start agents on them.
 - In-app updates no longer leave a temporary copy registered with macOS, which could blank the icon in notifications.
 ## 0.7.0
 

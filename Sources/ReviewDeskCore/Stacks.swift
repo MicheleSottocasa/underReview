@@ -38,3 +38,15 @@ public enum Stacks {
         return Array(Set(prs.flatMap { $0.stack?.entries.map(\.id) ?? [] }).subtracting(known)).sorted()
     }
 }
+
+extension PullRequest {
+    /// The viewer's latest review approves it: done for them, so stack-wide runs leave it alone.
+    public var isApprovedByViewer: Bool { viewerReviewState == "APPROVED" }
+}
+
+extension Stacks {
+    /// The stack members a stack-wide review or follow-up check works on: open, and not already approved by the viewer.
+    public static func toReview(_ prs: [PullRequest]) -> [PullRequest] {
+        prs.filter { $0.state == "OPEN" && !$0.isApprovedByViewer }
+    }
+}
