@@ -94,6 +94,15 @@ public struct Theme: Codable, Hashable, Sendable {
         (self.name, self.colors) = (name, colors)
     }
 
+    private enum CodingKeys: String, CodingKey { case name, colors }
+
+    /// A missing name is empty (Import names the theme after its file) and missing colors are the defaults.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        colors = try container.decodeIfPresent([String: ThemeColor].self, forKey: .colors) ?? [:]
+    }
+
     public static let `default` = Theme(name: "Default")
 
     /// The built-in colors. The draft accent has none: it follows the system accent color.
@@ -142,6 +151,17 @@ public struct Theme: Codable, Hashable, Sendable {
             for dark in [false, true] { theme[key, dark: dark] = color(key, dark: dark) }
         }
         return theme
+    }
+
+    /// Theme files are small; anything bigger is refused before it's read.
+    public static let maxFileSize = 1_000_000
+
+    /// The contents of a file to import, refusing one too large to be a theme.
+    public static func fileData(_ url: URL) throws -> Data {
+        if let size = try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int, size > maxFileSize {
+            throw ThemeFileError("This file is too large to be a theme.")
+        }
+        return try Data(contentsOf: url)
     }
 
     /// Reads a theme file. Throws a `ThemeFileError` saying what's wrong on anything that isn't one
