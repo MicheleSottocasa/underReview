@@ -114,8 +114,7 @@ struct LinkHandler: ViewModifier {
                     model.openCommit(commit.oid, pr: pr)
                     return .handled
                 }
-                let ref = PRRef(url.absoluteString)
-                if let ref, let target = model.prs.values.first(where: { $0.repo.lowercased() == ref.nameWithOwner.lowercased() && $0.number == ref.number }) {
+                if let target = PullRequest.linked(by: url, in: model.prs.values) {
                     model.selection = [.pr(target.id)]
                     return .handled
                 }
