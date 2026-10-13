@@ -5,8 +5,14 @@ import Testing
 @Test func countsTheCommitsPushedSinceAnOlderHead() async throws {
     let runner = FakeRunner { _ in ok("3\n") }
     #expect(try await GitHub(runner: runner).commitsAhead(repo: "o/r", from: "old", to: "new") == 3)
-    #expect(runner.calls.first?.args == ["api", "repos/o/r/compare/old...new", "--jq", ".ahead_by"])
+    #expect(runner.calls.first?.args == ["api", "repos/o/r/compare/old...new", "--jq", #"if .status == "ahead" then .ahead_by else null end"#])
     #expect(GitHub.compareURL(repo: "o/r", from: "old", to: "new")?.absoluteString == "https://github.com/o/r/compare/old...new")
+}
+
+@Test func aRebasedHeadHasNoCommitCount() async throws {
+    // After a rebase or force-push the compare is "diverged": its ahead_by counts the rebased commits, not the new ones.
+    let runner = FakeRunner { _ in ok("null\n") }
+    #expect(try await GitHub(runner: runner).commitsAhead(repo: "o/r", from: "old", to: "new") == nil)
 }
 
 @Test func parsesPullRequestReferences() {

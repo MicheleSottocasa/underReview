@@ -522,10 +522,13 @@ public struct GitHub: Sendable {
         return try JSONDecoder().decode([FileChange].self, from: data)
     }
 
-    /// How many commits `head` has that `base` doesn't. Throws when `base` is gone (e.g. after a force-push).
-    public func commitsAhead(repo: String, from base: String, to head: String) async throws -> Int {
-        let data = try await runner.output("gh", ["api", "repos/\(repo)/compare/\(base)...\(head)", "--jq", ".ahead_by"])
-        return try JSONDecoder().decode(Int.self, from: data)
+    /// How many commits were pushed on top of `base` to reach `head`. Nil when `head` doesn't simply extend `base`
+    /// (a rebase, force-push or merge from the base branch makes them diverge, and GitHub's count means nothing then).
+    /// Throws when `base` is gone.
+    public func commitsAhead(repo: String, from base: String, to head: String) async throws -> Int? {
+        let data = try await runner.output("gh", ["api", "repos/\(repo)/compare/\(base)...\(head)",
+                                                  "--jq", #"if .status == "ahead" then .ahead_by else null end"#])
+        return try JSONDecoder().decode(Int?.self, from: data)
     }
 
     /// GitHub's page for the changes between two commits.
