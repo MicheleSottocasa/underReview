@@ -68,6 +68,7 @@ public enum ThemeKey: String, CaseIterable, Sendable {
     case separator = "editor.separator", fold = "editor.fold"
     case modified = "diff.modified", added = "diff.added", removed = "diff.removed"
     case keyArea = "accent.keyArea", draft = "accent.draft", outdated = "accent.outdated"
+    case mine = "accent.mine", others = "accent.others"
     case keyword = "syntax.keyword", string = "syntax.string", comment = "syntax.comment"
     case number = "syntax.number", call = "syntax.call"
 
@@ -118,6 +119,8 @@ public struct Theme: Codable, Hashable, Sendable {
         // macOS's system yellow and orange, which these used before themes existed.
         .keyArea: ThemeColor(light: HexColor(0xFFCC00, alpha: 0xD9), dark: HexColor(0xFFD60A, alpha: 0xD9)),
         .outdated: pair(dark: 0xFF9F0A, light: 0xFF9500),
+        .mine: pair(dark: 0x4DB6AC, light: 0x00897B),
+        .others: pair(dark: 0xB388EB, light: 0x8E44AD),
         .keyword: pair(dark: 0xCF8E6D, light: 0x0033B3),
         .string: pair(dark: 0x6AAB73, light: 0x067D17),
         .comment: pair(dark: 0x7A7E85, light: 0x8C8C8C),
