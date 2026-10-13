@@ -120,7 +120,7 @@ private func codeReviewRunner(report: String = "1. a.py:3 off by one") -> FakeRu
     FakeRunner { call in
         if call.args.first == "auth" { return subscribed }
         if call.args.contains("--json-schema") {
-            return ok(#"{"type":"result","is_error":false,"structured_output":{"summary":"ok","findings":[],"keyAreas":[{"path":"a.py","startLine":3,"endLine":9,"reason":"r"}]}}"#)
+            return ok(#"{"type":"result","is_error":false,"structured_output":{"summary":"ok","findings":[],"keyAreas":[{"path":"a.py","startLine":3,"endLine":9,"reason":"r","risk":"data"}]}}"#)
         }
         return ok(#"{"type":"result","is_error":false,"result":"\#(report)"}"#)
     }
@@ -132,7 +132,7 @@ private func codeReviewRunner(report: String = "1. a.py:3 off by one") -> FakeRu
         .claudeCode, prURL: "https://github.com/o/r/pull/1", context: context,
         options: CodeReviewOptions(model: "opus", effort: "xhigh"), instructions: "be kind")
 
-    #expect(review.keyAreas == [KeyArea(path: "a.py", startLine: 3, endLine: 9, reason: "r")])
+    #expect(review.keyAreas == [KeyArea(path: "a.py", startLine: 3, endLine: 9, reason: "r", risk: "data")])
     let reviews = runner.calls.filter { $0.args.first == "-p" }
     #expect(reviews.count == 2)
     let command = reviews[0]

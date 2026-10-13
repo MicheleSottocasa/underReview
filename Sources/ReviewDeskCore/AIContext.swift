@@ -25,10 +25,14 @@ public struct KeyArea: Codable, Hashable, Sendable {
     public var startLine: Int?
     public var endLine: Int?
     public var reason: String
+    /// Which risk question it answers (a `RiskQuestion` raw value, or "other"). Nil in reviews saved before risk tags.
+    public var risk: String?
 
-    public init(path: String, startLine: Int? = nil, endLine: Int? = nil, reason: String) {
-        (self.path, self.startLine, self.endLine, self.reason) = (path, startLine, endLine, reason)
+    public init(path: String, startLine: Int? = nil, endLine: Int? = nil, reason: String, risk: String? = nil) {
+        (self.path, self.startLine, self.endLine, self.reason, self.risk) = (path, startLine, endLine, reason, risk)
     }
+
+    public var question: RiskQuestion? { risk.flatMap(RiskQuestion.init) }
 
     public func contains(line: Int) -> Bool {
         guard let startLine else { return false }
@@ -96,11 +100,12 @@ public enum AIContext {
     {"type":"object","additionalProperties":false,"required":["summary","findings","keyAreas"],"properties":{
       "summary":{"type":"string"},
       "keyAreas":{"type":"array","items":{"type":"object","additionalProperties":false,
-        "required":["path","startLine","endLine","reason"],"properties":{
+        "required":["path","startLine","endLine","reason","risk"],"properties":{
           "path":{"type":"string"},
           "startLine":{"type":["integer","null"]},
           "endLine":{"type":["integer","null"]},
-          "reason":{"type":"string"}}}},
+          "reason":{"type":"string"},
+          "risk":{"type":"string","enum":["data","access","scale","failure","explain","other"]}}}},
       "findings":{"type":"array","items":{"type":"object","additionalProperties":false,
         "required":["severity","title","rationale","path","line","comment"],"properties":{
           "severity":{"type":"string","enum":["critical","high","medium","low"]},
@@ -125,9 +130,14 @@ public enum AIContext {
 
     /// How key areas are asked for, shared by every review prompt.
     static let keyAreasInstructions = """
-    In `keyAreas`, list the files and sections the reviewer must read personally before submitting the review: the
-    riskiest, most central or hardest-to-verify changes, most important first (usually 3 to 8). Give line ranges on the
-    NEW side of the diff; use null lines for a whole file. `reason` says in one sentence what to check there.
+    In `keyAreas`, list the files and sections the reviewer must read personally before submitting the review
+    (usually 3 to 8). Review risk, not lines: tag each with `risk`, in this order of priority: `data` (migrations,
+    model changes, writes, transactions, defaults), `access` (who may do this: permission checks, queries scoped to
+    the user or organisation), `scale` (behaviour at 100x the data: N+1 queries, missing indexes, whole tables loaded
+    into memory), `failure` (timeouts, retries, tasks running twice, double submits), `explain` (non-trivial design
+    the author should explain) or `other`. If the PR description has Risk notes, make every item the author is unsure
+    about a key area. Never flag formatting, naming or style. Give line ranges on the NEW side of the diff; use null
+    lines for a whole file. `reason` says in one sentence what to check there.
     """
 
     /// Editable in Settings. The JSON schema is always appended, so a custom prompt can't break parsing.

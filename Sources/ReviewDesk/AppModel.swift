@@ -48,6 +48,12 @@ final class AppModel {
     var files: [String: [FileChange]] = [:]
     /// Paths marked as viewed on GitHub, per PR. GitHub is the source of truth; nothing is stored locally.
     var viewedFiles: [String: Set<String>] = [:]
+    /// The PR detail tab, here so other tabs can send the user to Changes.
+    var detailTab = DetailTab.conversation
+    /// A file and line for the Changes tab to open next.
+    var changesTarget: LineTarget?
+    /// PR id → risk question → head commit it was checked at. Kept locally, never sent anywhere.
+    var riskChecks: [String: [String: String]] { didSet { save(riskChecksFile, riskChecks) } }
 
     /// Sidebar multi-selection. The detail follows the last single-selected PR and stays put otherwise.
     var selection: Set<SidebarID> = [] {
@@ -102,6 +108,7 @@ final class AppModel {
     private let draftsFile = JSONFile<ReviewDrafts>.appSupport("drafts.json")
     private let aiRunsFile = JSONFile<[AIRun]>.appSupport("ai-runs.json")
     private let agentLinksFile = JSONFile<[String: AgentLink]>.appSupport("agent-links.json")
+    private let riskChecksFile = JSONFile<[String: [String: String]]>.appSupport("risk-checks.json")
     private var pollTask: Task<Void, Never>?
     private var lastFullRefresh = Date.distantPast
 
@@ -118,6 +125,7 @@ final class AppModel {
         reviewer = AIReviewer(runner: runner)
         agents = ClaudeAgents(runner: runner)
         agentLinks = agentLinksFile.load(default: [:])
+        riskChecks = riskChecksFile.load(default: [:])
     }
 
     var selectedPR: PullRequest? { selectedPRID.flatMap { prs[$0] } }

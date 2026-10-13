@@ -27,6 +27,32 @@ extension AppModel {
                            changed: files[pr.id]?.map(\.filename) ?? [])
     }
 
+    /// Opens Changes at a file, scrolled to `line` when given.
+    func openInChanges(_ path: String, line: Int?, pr: PullRequest) {
+        changesTarget = LineTarget(path: path, line: line ?? 0)
+        detailTab = .changes
+    }
+
+    /// The commit a risk question was checked at, if it was.
+    func riskCheck(_ question: RiskQuestion, pr: PullRequest) -> String? {
+        riskChecks[pr.id]?[question.rawValue]
+    }
+
+    /// Checking stores the current head, so a later push shows the check as stale.
+    func setRiskCheck(_ question: RiskQuestion, checked: Bool, pr: PullRequest) {
+        riskChecks[pr.id, default: [:]][question.rawValue] = checked ? pr.headRefOid : nil
+        if riskChecks[pr.id]?.isEmpty == true { riskChecks[pr.id] = nil }
+    }
+
+    /// Question 5 as a line in the review summary, so it's posted with the review.
+    static let explainRequest = "Could you explain the approach in two or three sentences?"
+
+    func askAuthorToExplain(_ pr: PullRequest) {
+        let body = reviewDrafts.bodies[pr.id] ?? ""
+        guard !body.contains(Self.explainRequest) else { return }
+        reviewDrafts.bodies[pr.id] = body.isEmpty ? Self.explainRequest : body + "\n\n" + Self.explainRequest
+    }
+
     func loadFiles(_ pr: PullRequest) async {
         do {
             async let viewed = github.viewedFiles(prID: pr.id)

@@ -2,18 +2,19 @@ import ReviewDeskCore
 import SwiftUI
 
 enum DetailTab: String, CaseIterable {
-    case conversation = "Conversation", changes = "Changes", ai = "AI Review", notes = "Notes"
+    case conversation = "Conversation", risk = "Risk", changes = "Changes", ai = "AI Review", notes = "Notes"
 }
 
 struct DetailView: View {
     @Environment(AppModel.self) private var model
     let pr: PullRequest
-    @ViewState private var tab = DetailTab.conversation
 
     var body: some View {
+        @Bindable var model = model
+        let tab = model.detailTab
         VStack(alignment: .leading, spacing: 0) {
             header.padding()
-            Picker("", selection: $tab) {
+            Picker("", selection: $model.detailTab) {
                 ForEach(DetailTab.allCases, id: \.self) { Text($0.rawValue) }
             }
             .pickerStyle(.segmented)
@@ -22,6 +23,7 @@ struct DetailView: View {
             Divider().padding(.top, 8)
             switch tab {
             case .conversation: ConversationView(pr: pr, detail: model.details[pr.id])
+            case .risk: RiskView(pr: pr)
             case .changes: ChangesView(pr: pr)
             case .ai: AIView(pr: pr)
             case .notes: NotesView(pr: pr)

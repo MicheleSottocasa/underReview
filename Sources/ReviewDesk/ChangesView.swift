@@ -40,6 +40,13 @@ struct ChangesView: View {
             }
         }
         .task { if model.files[pr.id] == nil { await model.loadFiles(pr) } }
+        .onChange(of: model.changesTarget?.id, initial: true) {
+            // Sent here from another tab (e.g. Risk): open the file and, when there's a line, scroll to it.
+            guard let next = model.changesTarget else { return }
+            selectedPath = next.path
+            target = next.line > 0 ? next : nil
+            model.changesTarget = nil
+        }
     }
 }
 
@@ -255,7 +262,7 @@ struct FileTree: View {
                 ForEach(Array(item.areas.enumerated()), id: \.offset) { _, area in
                     Button { openArea(item.path, area.startLine) } label: {
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(Self.lines(area)).font(.caption.monospaced()).foregroundStyle(.secondary)
+                            Text(Self.lines(area) + (area.question.map { " · \($0.label)" } ?? "")).font(.caption.monospaced()).foregroundStyle(.secondary)
                             Text(area.reason).font(.caption).lineLimit(3).multilineTextAlignment(.leading)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
