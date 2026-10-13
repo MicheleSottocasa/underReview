@@ -1,9 +1,10 @@
 name: CI
 
-# Every push (any branch) and every pull request: build the app and run the tests.
+# Every pull request, and every push to main: build the app and run the tests. Branch pushes aren't run on
+# their own, since their pull request already runs them (two runs per push filled the runner queue).
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
 
 # A newer push to the same branch or PR supersedes a run still in progress.
