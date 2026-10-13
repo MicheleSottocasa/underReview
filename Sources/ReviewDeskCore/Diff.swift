@@ -168,3 +168,15 @@ extension Diff {
 extension DiffRow {
     var isChange: Bool { hunk == nil && (left?.kind == .removed || right?.kind == .added) }
 }
+
+extension Diff {
+    /// Index of the first line at or after new-side `line`, to scroll there; nil when the diff ends before it.
+    public static func index(ofNewLine line: Int, in lines: [DiffLine]) -> Int? {
+        lines.firstIndex { $0.kind != .removed && ($0.newLine ?? 0) >= line }
+    }
+
+    /// The same for side-by-side rows.
+    public static func index(ofNewLine line: Int, in rows: [DiffRow]) -> Int? {
+        rows.firstIndex { ($0.right?.newLine ?? 0) >= line }
+    }
+}

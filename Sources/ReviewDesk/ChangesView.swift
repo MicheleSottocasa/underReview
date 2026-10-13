@@ -10,7 +10,7 @@ struct ChangesView: View {
     @Environment(AppModel.self) private var model
     let pr: PullRequest
     @AppStorage("diffMode") private var mode = DiffMode.split
-    @ViewState private var selectedPath: String?
+    @ViewState private var selection: ChangesItem?
     @ViewState private var target: LineTarget?
 
     var body: some View {
@@ -20,6 +20,7 @@ struct ChangesView: View {
         let missing = key.flatMap { model.missingComparisons[$0] }
         let shown = key.flatMap { missing == nil ? $0 : nil }
         let changed = if let shown { model.comparisons[shown] } else { model.files[pr.id] }
+        let linesMoved = shown != nil && bounds?.head != pr.headRefOid
         let notice = missing ?? (shown != nil && (changed?.count ?? 0) >= 300
             ? "GitHub lists at most 300 files when comparing commits, so some may be missing here." : nil)
         VStack(spacing: 0) {
@@ -39,24 +40,20 @@ struct ChangesView: View {
             }
             if let files = changed {
                 HSplitView {
-                    FileTree(pr: pr, files: files, selection: $selectedPath, showsCommits: shown != nil,
-                             linesMoved: shown != nil && bounds?.head != pr.headRefOid) { path, line in
-                        selectedPath = path
-                        target = line.map { LineTarget(path: path, line: $0) }
-                    }
+                    FileTree(pr: pr, files: files, selection: $selection, showsCommits: shown != nil, linesMoved: linesMoved)
                         .frame(minWidth: 180, idealWidth: 240, maxWidth: 300)
                     Group {
-                        if let file = files.first(where: { $0.filename == selectedPath }) ?? files.first {
+                        if let file = files.first(where: { $0.filename == selection?.path }) ?? files.first {
                             let commitView = shown == nil ? nil : CommitView(
                                 endsAtHead: bounds?.head == pr.headRefOid,
                                 // Only from the PR diff at this head: an older list's lines may have moved.
                                 prAnchors: model.filesHead[pr.id] != pr.headRefOid ? []
                                     : model.files[pr.id]?.first { $0.filename == file.filename }?.patch
                                         .map { Diff.anchors(path: file.filename, patch: $0) } ?? [])
+                            let areas = commitView?.endsAtHead == false ? [] : keyAreas(file.filename)
                             // An added or deleted file has one empty side: show it full width.
                             FileDiffView(pr: pr, file: file, mode: ["added", "removed"].contains(file.status) ? .unified : mode, target: target?.path == file.filename ? target : nil,
-                                         keyAreas: commitView?.endsAtHead == false ? []
-                                             : analysis?.result.keyAreas.filter { $0.path == file.filename } ?? [],
+                                         keyAreas: areas, selectedArea: selectedArea(in: areas),
                                          keyAreasOutdated: analysis?.isOutdated(for: pr) == true,
                                          commitView: commitView)
                                 .id(file.filename + (shown ?? ""))
@@ -79,9 +76,44 @@ struct ChangesView: View {
         .onChange(of: model.changesTarget?.id, initial: true) {
             // Sent here from another tab (e.g. Risk): open the file and, when there's a line, scroll to it.
             guard let next = model.changesTarget else { return }
-            selectedPath = next.path
+            let area = keyAreas(next.path).firstIndex { next.line > 0 && next.side == .right && $0.startLine == next.line }
+            selection = area.map { .area(next.path, $0) } ?? .file(next.path)
             target = next.line > 0 ? next : nil
             model.changesTarget = nil
+        }
+        .onChange(of: selection) {
+            switch selection {
+            case .area(let path, let index)?:
+                guard !linesMoved else { target = nil; break }
+                target = keyAreas(path).dropFirst(index).first?.startLine.map { LineTarget(path: path, line: $0) }
+            case .file(let path)?:
+                // A jump left over from an earlier visit would otherwise replay when the file is shown again.
+                if target?.path != path { target = nil }
+            case nil:
+                target = nil
+            }
+        }
+    }
+
+    /// The file's key areas from the latest AI review, in the order the file list shows them.
+    private func keyAreas(_ path: String) -> [KeyArea] {
+        model.keyAreasRun(for: pr)?.result.keyAreas.filter { $0.path == path } ?? []
+    }
+
+    private func selectedArea(in areas: [KeyArea]) -> KeyArea? {
+        guard case .area(_, let index)? = selection, areas.indices.contains(index) else { return nil }
+        return areas[index]
+    }
+}
+
+/// A row of the file list: a file, or one of its key areas (an index into the file's areas).
+enum ChangesItem: Hashable {
+    case file(String)
+    case area(String, Int)
+
+    var path: String {
+        switch self {
+        case .file(let path), .area(let path, _): path
         }
     }
 }
@@ -339,13 +371,12 @@ struct FileTree: View {
     @Environment(AppModel.self) private var model
     let pr: PullRequest
     let files: [FileChange]
-    @Binding var selection: String?
+    /// Key area rows are selectable too, so the list shows which one is open and arrow keys reach them.
+    @Binding var selection: ChangesItem?
     /// Some commits are shown: Viewed marks a file in the whole pull request, so it's left alone here.
     var showsCommits = false
     /// The commits shown end before the head: key areas' line numbers don't apply.
     var linesMoved = false
-    /// A key area was clicked: open the file and, when it has lines, scroll there.
-    let openArea: (String, Int?) -> Void
     @ViewState private var collapsed: Set<String> = []
     @AppStorage("focusFilter") private var focusOnly = false
     @AppStorage("involvedFilter") private var involvedOnly = false
@@ -373,7 +404,7 @@ struct FileTree: View {
                         if let file = row.node.file {
                             fileRow(file, name: row.node.name, involved: involved[file.filename])
                                 .padding(.leading, CGFloat(row.depth) * 14 + 16)
-                                .tag(file.filename)
+                                .tag(ChangesItem.file(file.filename))
                         } else {
                             folderRow(row.node)
                                 .padding(.leading, CGFloat(row.depth) * 14)
@@ -383,7 +414,7 @@ struct FileTree: View {
             }
             .listStyle(.sidebar)
         }
-        .onAppear { if selection == nil { selection = files.first?.filename } }
+        .onAppear { if selection == nil { selection = files.first.map { .file($0.filename) } } }
     }
 
     @ViewBuilder
@@ -394,18 +425,15 @@ struct FileTree: View {
         }
         ForEach(focus, id: \.path) { item in
             if let file = files.first(where: { $0.filename == item.path }) {
-                fileRow(file, name: item.path).tag(file.filename)
-                ForEach(Array(item.areas.enumerated()), id: \.offset) { _, area in
-                    Button { openArea(item.path, area.startLine) } label: {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(Self.lines(area) + (area.question.map { " · \($0.label)" } ?? "")).font(.caption.monospaced()).foregroundStyle(.secondary)
-                            Text(inlineMarkdown(area.reason)).font(.caption).lineLimit(3).multilineTextAlignment(.leading)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
+                fileRow(file, name: item.path).tag(ChangesItem.file(file.filename))
+                // Ids unique across files: offsets alone repeat in every file, and the list then mixed up their rows.
+                ForEach(item.areas.enumerated().map { (ChangesItem.area(item.path, $0.offset), $0.element) }, id: \.0) { tag, area in
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(Self.lines(area) + (area.question.map { " · \($0.label)" } ?? "")).font(.caption.monospaced()).foregroundStyle(.secondary)
+                        Text(inlineMarkdown(area.reason)).font(.caption).lineLimit(3).multilineTextAlignment(.leading)
                     }
-                    .buttonStyle(.plain)
                     .padding(.leading, 22)
+                    .tag(tag)
                     .disabled(linesMoved)
                     .help(linesMoved ? "These lines are in the latest commit: pick All commits, or a range ending at it, to jump there"
                           : area.startLine == nil ? "Open the file" : "Jump to these lines")
@@ -516,6 +544,8 @@ struct FileDiffView: View {
     var target: LineTarget?
     /// Sections the AI asked the reviewer to read, marked in the gutter.
     var keyAreas: [KeyArea] = []
+    /// The key area picked in the file list, marked more strongly than the others.
+    var selectedArea: KeyArea?
     /// The key areas come from an older head: their lines may have moved, so they're marked dimmed.
     var keyAreasOutdated = false
     /// Set when Changes shows some commits: comments go only where they map onto the whole PR's diff.
@@ -540,6 +570,11 @@ struct FileDiffView: View {
                 Text("+\(file.additions)").foregroundStyle(.green).font(.callout.monospacedDigit())
                 Text("−\(file.deletions)").foregroundStyle(.red).font(.callout.monospacedDigit())
                 Spacer()
+                if let target, let rendered, rendered.key.patch == file.patch, rendered.row(for: target.line, side: target.side) == nil {
+                    Label("Line \(target.line) isn't in this diff", systemImage: "exclamationmark.triangle")
+                        .font(.callout).foregroundStyle(.orange)
+                        .help("The key area starts after the last changed lines, or comes from an older commit")
+                }
                 Button("Open in Editor") { Task { await model.openInEditor(pr, file: file, line: target?.line) } }
                     .controlSize(.small)
                     .disabled(file.status == "removed")
@@ -566,17 +601,22 @@ struct FileDiffView: View {
                         if let diff {
                             switch mode {
                             case .unified:
+                                // One view per id, so a jump lands on the line and not on its comments.
                                 ForEach(diff.lines.indices, id: \.self) { index in
                                     let line = diff.lines[index]
-                                    unifiedRow(line, change: diff.changes[index], text: diff.text, commented: commented)
-                                    if let anchor = line.anchor(path: file.filename) {
-                                        annotations(anchor, threads: shownThreads).padding(.leading, Self.numberWidth * 2 + Self.markerWidth)
+                                    VStack(alignment: .leading, spacing: 0) {
+                                        unifiedRow(line, change: diff.changes[index], text: diff.text, commented: commented)
+                                        if let anchor = line.anchor(path: file.filename) {
+                                            annotations(anchor, threads: shownThreads).padding(.leading, Self.numberWidth * 2 + Self.markerWidth)
+                                        }
                                     }
                                 }
                             case .split:
                                 ForEach(diff.rows.indices, id: \.self) { index in
-                                    splitRow(diff.rows[index], text: diff.text, commented: commented)
-                                    splitAnnotations(diff.rows[index], commented: commented, threads: shownThreads)
+                                    VStack(alignment: .leading, spacing: 0) {
+                                        splitRow(diff.rows[index], text: diff.text, commented: commented)
+                                        splitAnnotations(diff.rows[index], commented: commented, threads: shownThreads)
+                                    }
                                 }
                             }
                         }
@@ -596,8 +636,12 @@ struct FileDiffView: View {
                 }
                 .task(id: Pair(target?.id, diff != nil)) {
                     guard let target, let diff, let row = diff.row(for: target.line, side: target.side) else { return }
-                    await Task.yield() // let the lazy stack lay out before jumping
-                    withAnimation { proxy.scrollTo(row, anchor: .top) }
+                    // ponytail: the lazy stack guesses the height of rows it hasn't drawn (threads, drafts), so jump,
+                    // let it lay them out and jump again. Doing better needs scroll-offset tracking.
+                    for _ in 0..<3 {
+                        do { try await Task.sleep(for: .milliseconds(60)) } catch { return }
+                        proxy.scrollTo(row, anchor: .top)
+                    }
                 }
                 }
             } else {
@@ -605,11 +649,6 @@ struct FileDiffView: View {
                                        description: Text("GitHub doesn't provide a diff for binary or very large files."))
             }
         }
-    }
-
-    private func isKey(_ line: DiffLine?) -> Bool {
-        guard let line, line.kind != .removed, let number = line.newLine else { return false }
-        return keyAreas.contains { $0.contains(line: number) }
     }
 
     private var allThreads: [ReviewThread] {
@@ -657,7 +696,7 @@ struct FileDiffView: View {
                         .overlay(alignment: .leading) { Rectangle().fill(DiffColors.separator).frame(width: 1) }
                         .overlay(alignment: .trailing) { Rectangle().fill(DiffColors.separator).frame(width: 1) }
                         code(row.right, text: text).background(rightColor)
-                            .overlay(alignment: .leading) { if isKey(row.right) { keyBar } }
+                            .overlay(alignment: .leading) { keyMark(row.right) }
                     }
                 }
             }
@@ -678,7 +717,7 @@ struct FileDiffView: View {
                         number(line.newLine)
                         marker(anchor, hovered: hovered, commented: commented)
                         code(line, text: text)
-                            .overlay(alignment: .leading) { if isKey(line) { keyBar } }
+                            .overlay(alignment: .leading) { keyMark(line) }
                     }
                     .background(color)
                 }
@@ -693,11 +732,22 @@ struct FileDiffView: View {
         return line.kind == .removed ? nil : line.anchor(path: file.filename)
     }
 
-    /// Marks lines inside the AI's key areas.
-    private var keyBar: some View {
-        Rectangle().fill(DiffColors.keyArea.opacity(keyAreasOutdated ? 0.35 : 1)).frame(width: 3)
-            .help(keyAreasOutdated ? "Key area from an analysis of an older commit: the lines may have moved since"
-                                   : "Key area: read this before submitting")
+    /// Marks lines inside the AI's key areas, dimmed when they come from an older head; the one picked in the file
+    /// list gets a wider bar and a tint.
+    @ViewBuilder
+    private func keyMark(_ line: DiffLine?) -> some View {
+        if let line, line.kind != .removed, let number = line.newLine {
+            if selectedArea?.contains(line: number) == true {
+                DiffColors.keyArea.opacity(0.15).allowsHitTesting(false)
+                    .overlay(alignment: .leading) {
+                        Rectangle().fill(Color.orange).frame(width: 5).help("The key area selected in the file list")
+                    }
+            } else if keyAreas.contains(where: { $0.contains(line: number) }) {
+                Rectangle().fill(DiffColors.keyArea.opacity(keyAreasOutdated ? 0.35 : 1)).frame(width: 3)
+                    .help(keyAreasOutdated ? "Key area from an analysis of an older commit: the lines may have moved since"
+                                           : "Key area: read this before submitting")
+            }
+        }
     }
 
     private func number(_ value: Int?) -> some View {
@@ -879,9 +929,9 @@ struct RenderedDiff {
     /// Offset of the first diff row at or after a line of `side`, matching the ForEach ids.
     func row(for line: Int, side: DiffSide) -> Int? {
         switch (mode, side) {
-        case (.unified, .right): lines.firstIndex { $0.kind != .removed && ($0.newLine ?? 0) >= line }
+        case (.unified, .right): Diff.index(ofNewLine: line, in: lines)
         case (.unified, .left): lines.firstIndex { $0.kind != .added && ($0.oldLine ?? 0) >= line }
-        case (.split, .right): rows.firstIndex { ($0.right?.newLine ?? 0) >= line }
+        case (.split, .right): Diff.index(ofNewLine: line, in: rows)
         case (.split, .left): rows.firstIndex { ($0.left?.oldLine ?? 0) >= line }
         }
     }

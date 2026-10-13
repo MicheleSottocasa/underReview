@@ -75,3 +75,16 @@ private let patch = """
     let rows = Diff.sideBySide(lines)
     #expect(rows.map(\.change) == [nil, nil, .modified, .modified, nil, .added, nil, .removed])
 }
+
+@Test func keyAreaLinesMapToTheirDiffRows() {
+    let lines = Diff.parse(patch)
+    // Line 11 is also the removed "let b = 2" (old side): the jump must land on the added line 11.
+    #expect(Diff.index(ofNewLine: 11, in: lines) == 3)
+    #expect(Diff.index(ofNewLine: 10, in: lines) == 1)
+    #expect(Diff.index(ofNewLine: 20, in: lines) == 8) // between hunks: the next hunk's first new line
+    #expect(Diff.index(ofNewLine: 42, in: lines) == nil) // past the last hunk: not in this diff
+    let rows = Diff.sideBySide(lines)
+    #expect(Diff.index(ofNewLine: 11, in: rows).flatMap { rows[$0].right?.text } == "let b = 3")
+    #expect(Diff.index(ofNewLine: 41, in: rows).flatMap { rows[$0].right?.text } == "new")
+    #expect(Diff.index(ofNewLine: 42, in: rows) == nil)
+}
