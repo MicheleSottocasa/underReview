@@ -107,17 +107,23 @@ public enum VSCodeTheme {
         var colors: [String: String] = [:]
         var rules: [(scopes: [String], foreground: String)] = []
         var isTheme = false
+        /// An `include` that couldn't be read: the theme is imported without it.
+        var missingInclude: String?
 
         mutating func read(_ url: URL, depth: Int) throws {
             guard depth < 10 else { return }
             guard let json = try JSONC.object(Theme.fileData(url)) as? [String: Any] else { return }
             if let include = json["include"] as? String {
-                try read(url.deletingLastPathComponent().appendingPathComponent(include), depth: depth + 1)
+                do {
+                    try read(url.deletingLastPathComponent().appendingPathComponent(include), depth: depth + 1)
+                } catch {
+                    missingInclude = missingInclude ?? (include as NSString).lastPathComponent
+                }
                 isTheme = true
             }
             if depth == 0 { name = json["name"] as? String }
             type = json["type"] as? String ?? type
-            if let colors = json["colors"] as? [String: String], !colors.isEmpty {
+            if let colors = (json["colors"] as? [String: Any])?.compactMapValues({ $0 as? String }), !colors.isEmpty {
                 self.colors.merge(colors) { $1 }
                 isTheme = true
             }
@@ -196,7 +202,8 @@ public enum VSCodeTheme {
         case "dark", "hc", "hcDark": true
         default: dark ?? colors[.background].map { luminance($0) < 0.5 } ?? true
         }
-        return IDETheme(name: name, dark: isDark, colors: colors)
+        let note = raw.missingInclude.map { "“\($0)” wasn't found or couldn't be read, so only this file's colors were imported." }
+        return IDETheme(name: name, dark: isDark, colors: colors, note: note)
     }
 
     /// TextMate matching, simplified: a selector matches a scope it's a dot-prefix of; the longest selector wins,
@@ -233,19 +240,19 @@ public enum VSCodeTheme {
         Flavor(name: "Cursor", support: "Cursor", extensions: ".cursor/extensions", app: "Cursor.app", defaultTheme: "Cursor Dark"),
     ]
 
-    static func installed(home: URL, applications: URL) -> [IDESource] {
+    static func installed(home: URL, applications: [URL]) -> [IDESource] {
         let files = FileManager.default
         return flavors.compactMap { flavor in
             let user = home.appendingPathComponent("Library/Application Support/\(flavor.support)/User")
-            let app = applications.appendingPathComponent(flavor.app)
-            guard files.fileExists(atPath: user.path) || files.fileExists(atPath: app.path) else { return nil }
-            let settings = (try? Data(contentsOf: user.appendingPathComponent("settings.json")))
+            let app = applications.map { $0.appendingPathComponent(flavor.app) }.first { files.fileExists(atPath: $0.path) }
+            guard files.fileExists(atPath: user.path) || app != nil else { return nil }
+            let settings = (try? Theme.fileData(user.appendingPathComponent("settings.json")))
                 .flatMap { try? JSONC.object($0) as? [String: Any] } ?? [:]
             let names = settings["window.autoDetectColorScheme"] as? Bool == true
                 ? [settings["workbench.preferredLightColorTheme"] as? String ?? "Default Light Modern",
                    settings["workbench.preferredDarkColorTheme"] as? String ?? "Default Dark Modern"]
                 : [settings["workbench.colorTheme"] as? String ?? flavor.defaultTheme]
-            let folders = [home.appendingPathComponent(flavor.extensions), app.appendingPathComponent("Contents/Resources/app/extensions")]
+            let folders = [home.appendingPathComponent(flavor.extensions)] + (app.map { [$0.appendingPathComponent("Contents/Resources/app/extensions")] } ?? [])
             let contributed = themeFiles(in: folders)
             var themes: [IDETheme] = [], missing: [String] = []
             for name in names {
@@ -257,7 +264,7 @@ public enum VSCodeTheme {
                 }
             }
             let problem = missing.isEmpty ? nil : "Couldn't find the theme \(missing.map { "“\($0)”" }.joined(separator: " and "))."
-            return IDESource(id: user.path, name: flavor.name, themes: themes, problem: problem)
+            return IDESource(id: user.path, name: flavor.name, themes: oneThemePerAppearance(themes), problem: problem)
         }
     }
 
@@ -267,10 +274,10 @@ public enum VSCodeTheme {
         var result: [String: (url: URL, dark: Bool)] = [:]
         for folder in folders {
             for extensionURL in (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [] {
-                guard let data = try? Data(contentsOf: extensionURL.appendingPathComponent("package.json")),
+                guard let data = try? Theme.fileData(extensionURL.appendingPathComponent("package.json")),
                       let package = try? JSONC.object(data) as? [String: Any],
                       let themes = (package["contributes"] as? [String: Any])?["themes"] as? [[String: Any]] else { continue }
-                let strings = (try? Data(contentsOf: extensionURL.appendingPathComponent("package.nls.json")))
+                let strings = (try? Theme.fileData(extensionURL.appendingPathComponent("package.nls.json")))
                     .flatMap { try? JSONC.object($0) as? [String: Any] } ?? [:]
                 for theme in themes {
                     guard let path = theme["path"] as? String else { continue }
@@ -290,9 +297,7 @@ public enum VSCodeTheme {
 public enum JetBrainsScheme {
     /// Reads an `.icls` scheme. Its `parent_scheme` is looked up next to it, then among the bundled presets.
     public static func load(file: URL) throws -> IDETheme {
-        let folder = file.deletingLastPathComponent()
-        let scheme = try Scheme(Theme.fileData(file))
-        return resolve(scheme, schemes: schemes(in: folder))
+        try resolve(Scheme(Theme.fileData(file)), folder: file.deletingLastPathComponent())
     }
 
     struct Scheme {
@@ -304,7 +309,7 @@ public enum JetBrainsScheme {
 
         init(_ data: Data) throws {
             let document: XMLDocument
-            do { document = try XMLDocument(data: data) } catch { throw ThemeFileError("This isn't a JetBrains color scheme.") }
+            do { document = try XMLDocument(data: data, options: [.nodeLoadExternalEntitiesNever]) } catch { throw ThemeFileError("This isn't a JetBrains color scheme.") }
             guard let root = document.rootElement(), root.name == "scheme", let name = root.attribute(forName: "name")?.stringValue else {
                 throw ThemeFileError("This isn't a JetBrains color scheme.")
             }
@@ -349,17 +354,20 @@ public enum JetBrainsScheme {
         return value.count > 6 ? HexColor(hex: String(repeating: "0", count: 8 - value.count) + value) : HexColor(number)
     }
 
-    static func schemes(in folder: URL) -> [String: Scheme] {
-        var result: [String: Scheme] = [:]
-        for file in (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
-        where file.pathExtension == "icls" {
-            if let scheme = try? Scheme(Data(contentsOf: file)) { result[scheme.name] = scheme }
+    /// The scheme named `name` in `folder`, found by file name as JetBrains saves them (`<name>.icls`, or
+    /// `_@user_<name>.icls` for a changed copy). Only the files of the chain are read, never the whole folder.
+    static func scheme(named name: String, in folder: URL) -> Scheme? {
+        guard !name.contains("/") else { return nil }
+        for file in [name, userPrefix + name] {
+            if let data = try? Theme.fileData(folder.appendingPathComponent(file + ".icls")), let scheme = try? Scheme(data) {
+                return scheme
+            }
         }
-        return result
+        return nil
     }
 
     /// The scheme over its parents: a partial save's original scheme, else its `parent_scheme`, down to a bundled preset.
-    static func resolve(_ scheme: Scheme, schemes: [String: Scheme]) -> IDETheme {
+    static func resolve(_ scheme: Scheme, folder: URL) -> IDETheme {
         var chain = [scheme], note: String?, base: IDETheme?
         var next = scheme.original ?? scheme.parent
         while let name = next, chain.count < 10 {
@@ -367,7 +375,7 @@ public enum JetBrainsScheme {
                 base = preset
                 break
             }
-            if let parent = schemes[name] ?? schemes[userPrefix + name], !chain.contains(where: { $0.name == parent.name }) {
+            if let parent = self.scheme(named: name, in: folder), !chain.contains(where: { $0.name == parent.name }) {
                 chain.append(parent)
                 next = parent.original ?? parent.parent
                 continue
@@ -435,20 +443,21 @@ public enum JetBrainsScheme {
         for vendor in ["JetBrains", "Google"] {
             for folder in (try? FileManager.default.contentsOfDirectory(at: support.appendingPathComponent(vendor), includingPropertiesForKeys: nil)) ?? [] {
                 let name = folder.lastPathComponent
-                guard let match = name.firstMatch(of: /^([A-Za-z]+)(\d{4})\.(\d+)$/),
+                guard let match = name.firstMatch(of: /^([A-Za-z]+)(\d{4})\.(\d+)$/.asciiOnlyDigits()),
+                      let year = Int(match.2), let minor = Int(match.3),
                       FileManager.default.fileExists(atPath: folder.appendingPathComponent("options").path) else { continue }
-                let product = String(match.1), version = [Int(match.2)!, Int(match.3)!]
+                let product = String(match.1), version = [year, minor]
                 if newest[product].map({ $0.version.lexicographicallyPrecedes(version) }) ?? true { newest[product] = (version, folder) }
             }
         }
         return newest.sorted { $0.key < $1.key }.map { product, entry in
             let name = (product == "IntelliJIdea" ? "IntelliJ IDEA" : product) + " " + entry.version.map(String.init).joined(separator: ".")
             let names = currentSchemes(entry.url.appendingPathComponent("options"))
-            let schemes = schemes(in: entry.url.appendingPathComponent("colors"))
+            let colors = entry.url.appendingPathComponent("colors")
             var themes: [IDETheme] = [], missing: [String] = []
             for name in names {
-                if let scheme = schemes[name] ?? schemes[userPrefix + name] {
-                    themes.append(resolve(scheme, schemes: schemes))
+                if let scheme = scheme(named: name, in: colors) {
+                    themes.append(resolve(scheme, folder: colors))
                 } else if let preset = presets[displayName(name)] {
                     themes.append(preset)
                 } else {
@@ -457,7 +466,7 @@ public enum JetBrainsScheme {
             }
             let problem = missing.isEmpty ? nil
                 : "“\(missing.map(displayName).joined(separator: "” and “"))” can't be read: it's inside the IDE or a plugin. Choose it in the IDE, then export or duplicate it to read it here."
-            return IDESource(id: entry.url.path, name: name, themes: themes, problem: problem)
+            return IDESource(id: entry.url.path, name: name, themes: oneThemePerAppearance(themes), problem: problem)
         }
     }
 
@@ -465,7 +474,9 @@ public enum JetBrainsScheme {
     static func currentSchemes(_ options: URL) -> [String] {
         // Documents, not their root elements: an element whose document is freed finds nothing.
         func document(_ file: String) -> XMLDocument? {
-            try? XMLDocument(data: Data(contentsOf: options.appendingPathComponent(file)))
+            (try? Theme.fileData(options.appendingPathComponent(file))).flatMap {
+                try? XMLDocument(data: $0, options: [.nodeLoadExternalEntitiesNever])
+            }
         }
         func first(_ node: XMLNode?, _ path: String) -> XMLElement? {
             (try? node?.nodes(forXPath: path))?.first as? XMLElement
@@ -493,8 +504,16 @@ public enum JetBrainsScheme {
 
 public enum IDEThemes {
     /// Every installed VS Code, Cursor and JetBrains IDE with its current theme. Reads files only.
-    public static func detect(home: URL = FileManager.default.homeDirectoryForCurrentUser,
-                              applications: URL = URL(fileURLWithPath: "/Applications")) -> [IDESource] {
-        VSCodeTheme.installed(home: home, applications: applications) + JetBrainsScheme.installed(home: home)
+    /// Apps are looked for in /Applications and ~/Applications.
+    public static func detect(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [IDESource] {
+        let applications = [URL(fileURLWithPath: "/Applications"), home.appendingPathComponent("Applications")]
+        return VSCodeTheme.installed(home: home, applications: applications) + JetBrainsScheme.installed(home: home)
     }
+}
+
+/// A light and a dark theme, in that order, from an IDE following the system. When both turn out to have the same
+/// appearance (a dark theme picked as the light one), only the one in its own slot is kept.
+func oneThemePerAppearance(_ themes: [IDETheme]) -> [IDETheme] {
+    guard themes.count == 2, themes[0].dark == themes[1].dark else { return themes }
+    return [themes[0].dark ? themes[1] : themes[0]]
 }
