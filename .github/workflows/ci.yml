@@ -1,0 +1,32 @@
+name: CI
+
+# Every push (any branch) and every pull request: build the app and run the tests.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# A newer push to the same branch or PR supersedes a run still in progress.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Toolchain
+        run: swift --version
+
+      # The app target isn't built by `swift test`, so build everything first.
+      - name: Build
+        run: swift build
+
+      # Xcode on the runner finds the Swift Testing macros itself, so plain `swift test` (not `make test`).
+      - name: Test
+        run: swift test
