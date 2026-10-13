@@ -30,6 +30,22 @@ import Testing
     #expect(next(read: [], after: ("gone", 3)) == "a#0")
 }
 
+@Test func steppingPastAFilesAreasContinuesInTheNextFileWithAreas() {
+    let area = KeyArea(path: "", reason: "")
+    let files = [FocusFile(path: "a", areas: [area, area], pendingComments: 0), FocusFile(path: "b", areas: [], pendingComments: 1),
+                 FocusFile(path: "c", areas: [area, area, area], pendingComments: 0)]
+    func step(_ path: String, forward: Bool) -> String? {
+        Focus.area(beyond: path, in: files, forward: forward).map { "\($0.path)#\($0.index)" }
+    }
+    #expect(step("a", forward: true) == "c#0") // skips b, which has only comments
+    #expect(step("c", forward: false) == "a#1") // lands on the previous file's last area
+    #expect(step("b", forward: false) == "a#1")
+    #expect(step("c", forward: true) == nil) // no wrapping, like the other steppers
+    #expect(step("a", forward: false) == nil)
+    #expect(step("elsewhere", forward: true) == "a#0") // a file outside the list starts at either end
+    #expect(step("elsewhere", forward: false) == "c#2")
+}
+
 @Test func readKeysNameTheFileLinesAndRisk() {
     #expect(KeyArea(path: "a.swift", startLine: 3, endLine: 9, reason: "x").readKey == "a.swift:3-9:")
     #expect(KeyArea(path: "a.swift", startLine: 3, endLine: 9, reason: "reworded").readKey == "a.swift:3-9:")
