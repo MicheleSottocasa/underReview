@@ -75,3 +75,23 @@ private func pr(_ id: String, _ number: Int, stack: Int? = nil, entries: [String
     #expect(stack.neighbors(of: "C").above == nil)
     #expect(stack.neighbors(of: "gone").below == nil && stack.neighbors(of: "gone").above == nil)
 }
+
+@Test func reviewedItemsWaitForNothing() {
+    func reviewed(_ id: String, _ number: Int, stack: Int? = nil, entries: [String] = []) -> PullRequest {
+        var reviewed = pr(id, number, stack: stack, entries: entries)
+        reviewed.viewerReviewState = "APPROVED"
+        reviewed.viewerReviewedOid = reviewed.headRefOid
+        return reviewed
+    }
+    var reRequested = reviewed("again", 2)
+    reRequested.requestedReviewers = ["me"]
+    var pushed = reviewed("pushed", 3)
+    pushed.headRefOid = "new"
+    var merged = pr("merged", 4)
+    merged.state = "MERGED"
+    // One member still waiting keeps the whole stack in To Review; a fully reviewed stack moves.
+    let waitingStack = [reviewed("A", 5, stack: 1, entries: ["A", "B"]), pr("B", 6, stack: 1, entries: ["A", "B"])]
+    let doneStack = [reviewed("C", 7, stack: 2, entries: ["C", "D"]), reviewed("D", 8, stack: 2, entries: ["C", "D"])]
+    let all = [reviewed("done", 1), reRequested, pushed, merged, pr("new", 9)] + waitingStack + doneStack
+    #expect(Stacks.reviewedItemKeys(all) { _ in "me" } == ["pr:done", "pr:merged", "stack:o/r#2"])
+}

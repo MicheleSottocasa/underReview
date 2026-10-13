@@ -56,3 +56,21 @@ extension Stacks {
         prs.filter { $0.state == "OPEN" && !$0.isApprovedByViewer }
     }
 }
+
+extension PullRequest {
+    /// Open, not the viewer's own, and waiting for them as a reviewer: their review is requested (again after
+    /// reviewing, too), the author pushed since their review, or they haven't reviewed it yet.
+    public func awaitsReview(by viewer: String) -> Bool {
+        state == "OPEN" && !viewerIsAuthor
+            && (requestedReviewers.contains(viewer) || needsReReview || viewerReviewState == nil)
+    }
+}
+
+extension Stacks {
+    /// Keys of the items with nothing waiting for the viewer: To Review moves them into its Reviewed group.
+    /// A stack stays in To Review while any of its PRs waits. Pass every PR, as for `viewersItemKeys`.
+    public static func reviewedItemKeys(_ prs: [PullRequest], viewer: (PullRequest) -> String) -> Set<String> {
+        let waiting = Set(prs.filter { $0.awaitsReview(by: viewer($0)) }.map(\.itemKey))
+        return Set(prs.map(\.itemKey)).subtracting(waiting)
+    }
+}
