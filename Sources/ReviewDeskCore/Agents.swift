@@ -75,7 +75,9 @@ public struct ClaudeAgents: Sendable {
     static func repo(fromRemote url: String) -> String? {
         var trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
         while trimmed.hasSuffix("/") { trimmed.removeLast() }
-        guard let range = trimmed.range(of: #"github\.com(:\d+)?[:/]"#, options: .regularExpression) else { return nil }
+        // Anchored at the start, so the host really is github.com and not e.g. `evil.example/github.com/o/r`.
+        let host = #"^(?:(?:https?|ssh|git)://)?(?:[^@/]+@)?(?:ssh\.)?github\.com(?::\d+)?[:/]"#
+        guard let range = trimmed.range(of: host, options: [.regularExpression, .caseInsensitive]) else { return nil }
         var path = String(trimmed[range.upperBound...])
         if path.hasSuffix(".git") { path.removeLast(4) }
         let parts = path.split(separator: "/")
