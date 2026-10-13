@@ -399,6 +399,7 @@ struct PromptSettings: View {
     @AppStorage(Prompts.explainKey) private var explain = ""
     @AppStorage(Prompts.followUpKey) private var followUp = ""
     @AppStorage(Prompts.fixKey) private var fix = ""
+    @AppStorage(Prompts.selectionKey) private var selection = ""
 
     var body: some View {
         Form {
@@ -414,6 +415,8 @@ struct PromptSettings: View {
                    text: $explain, fallback: AIContext.defaultExplainInstructions)
             editor("Suggest a fix", note: "Asks for a fix to a finding or a comment as a GitHub suggested change. The result format, the PR description, the file's diff with line numbers and the problem are always appended.",
                    text: $fix, fallback: AIContext.defaultFixInstructions)
+            editor("Explain selected lines", note: "Starts the prompt. The PR description, the file's diff and the selected lines are always appended.",
+                   text: $selection, fallback: AIContext.defaultSelectionInstructions)
         }
         .formStyle(.grouped)
         .frame(minHeight: 560)

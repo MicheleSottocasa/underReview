@@ -21,6 +21,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 - After the author rebases, *Check if addressed* reads the whole diff instead of a comparison that mixed in the base branch's own changes.
 - **Review commit by commit:** a picker in Changes shows all commits, those since your last review, one commit or a range (Shift-click), and Conversation lists the commits, each opening Changes on it, as a link to one of them does. New comments go only on lines that are also in the whole pull request's diff.
 - **Show a definition:** ⌘-click a function, class, constant or variable in the diff to see its declaration, doc comment, file and line, and whether this pull request changes it, then jump to it. Works for Python, Swift, JavaScript, TypeScript and Go.
+- **Ask the AI about part of the diff:** in Changes, click a line number to select a line and Shift-click to extend; ✨ Explain or 💬 Ask then opens the same chat as for a comment, about those lines.
 - Pull requests inside a stack show their number under the title in the sidebar, like standalone ones.
 - The Conversation tab uses the whole width of the window instead of stopping at 900 points, so long descriptions and comments wrap less.
 - The **Add reaction** button opens the 8 reactions in one row, as on GitHub, with the ones you gave highlighted and each one named on hover. Arrow keys move between them, Return picks, Esc closes.

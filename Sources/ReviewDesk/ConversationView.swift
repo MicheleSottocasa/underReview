@@ -194,7 +194,7 @@ struct TimelineCard: View {
                     VStack(alignment: .leading, spacing: 8) {
                         EditableCommentBody(pr: pr, comment: comment, editing: $editing)
                         ReactionBar(pr: pr, comment: comment)
-                        ExplanationView(comment: comment)
+                        ExplanationView(key: comment.id)
                     }
                     .padding(12)
                 } else {
