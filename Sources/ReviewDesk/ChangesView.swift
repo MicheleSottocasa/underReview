@@ -57,7 +57,8 @@ struct ChangesView: View {
                             FileDiffView(pr: pr, file: file, mode: ["added", "removed"].contains(file.status) ? .unified : mode, target: target?.path == file.filename ? target : nil,
                                          keyAreas: areas, selectedArea: selectedArea(in: areas),
                                          keyAreasOutdated: analysis?.isOutdated(for: pr) == true,
-                                         commitView: commitView, fileStep: fileStep(files, current: file))
+                                         commitView: commitView, fileStep: fileStep(files, current: file),
+                                         selectArea: { selection = .area(file.filename, $0) })
                                 .id(file.filename + (shown ?? ""))
                         } else {
                             ContentUnavailableView("No changed files", systemImage: "doc")
@@ -167,7 +168,7 @@ struct StepControl: View {
                 .keyboardShortcut("[", modifiers: modifiers)
                 .disabled(back == nil)
                 .help("Previous \(noun) (\(keys)[)")
-            Text(current.flatMap { Set(positions).sorted().firstIndex(of: $0) }.map { "\(noun.capitalized) \($0 + 1) of \(count)" }
+            Text(current.flatMap { Set(positions).sorted().firstIndex(of: $0) }.map { "\(noun.prefix(1).uppercased() + noun.dropFirst()) \($0 + 1) of \(count)" }
                  ?? "\(count) \(noun)\(count == 1 ? "" : "s")")
                 .font(.callout.monospacedDigit()).foregroundStyle(.secondary)
             Button { step(forward: true) } label: { Image(systemName: "chevron.down") }
@@ -620,6 +621,8 @@ struct FileDiffView: View {
     /// Set when Changes shows some commits: comments go only where they map onto the whole PR's diff.
     var commitView: CommitView?
     var fileStep: StepControl?
+    /// Selects the key area at this index in the file list, which scrolls the diff to it.
+    var selectArea: (Int) -> Void = { _ in }
     @AppStorage("wrapLines") private var wrap = false
     @AppStorage("involvedFilter") private var involvedOnly = false
     @ViewState private var composing: ReviewDeskCore.Anchor?
@@ -642,6 +645,7 @@ struct FileDiffView: View {
     var body: some View {
         let shownThreads = threads // once per redraw: `involves` runs a regex per thread
         let withComments = commentRows(shownThreads)
+        let areaRowsNow = areaRows
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Text(file.filename).font(.callout.monospaced()).textSelection(.enabled)
@@ -663,6 +667,12 @@ struct FileDiffView: View {
                     StepControl(noun: "comment", modifiers: [.command, .option], state: { (Array(withComments.keys), cursor) }) { row in
                         collapsed.subtract(withComments[row] ?? []) // show the comments you jump to, if they were folded
                         jump = Jump(row: row)
+                    }
+                }
+                if areaRowsNow.contains(where: { $0 != nil }) {
+                    StepControl(noun: "key area", modifiers: [.command, .control], state: { (areaRowsNow.compactMap { $0 }, cursor) }) { row in
+                        if let index = areaRowsNow.firstIndex(of: row) { selectArea(index) }
+                        jump = Jump(row: row) // also when that area is already selected, after a jump elsewhere
                     }
                 }
                 fileStep
@@ -757,6 +767,12 @@ struct FileDiffView: View {
     /// show until `onChange` renders again.
     private var currentDiff: RenderedDiff? {
         rendered?.key.patch == file.patch && rendered?.key.mode == mode ? rendered : nil
+    }
+
+    /// The diff row of each key area, index-aligned with `keyAreas`; nil for whole-file areas and lines not in the diff.
+    private var areaRows: [Int?] {
+        guard let diff = currentDiff else { return [] }
+        return keyAreas.map { area in area.lines.flatMap { diff.index.row(ofNewLines: $0) } }
     }
 
     /// Diff rows with shown threads (Involving Me hides the others) or drafts, and the anchors on each (a split row
