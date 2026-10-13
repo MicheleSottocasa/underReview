@@ -494,6 +494,13 @@ struct ReviewIndicator: View {
         default: nil
         }
     }
+
+    /// Words, symbol and color of a submitted review, dismissed ones included, for the PR header.
+    static func label(_ state: String) -> (text: String, symbol: String, color: Color)? {
+        let text = ["APPROVED": "Approved", "CHANGES_REQUESTED": "Changes requested", "COMMENTED": "Commented", "DISMISSED": "Dismissed"][state]
+        let (symbol, color) = submitted(state) ?? ("xmark.circle", .secondary)
+        return text.map { ($0, symbol, color) }
+    }
 }
 
 /// On the viewer's own PR: how many others approved, asked for changes or only commented (once each).
@@ -546,13 +553,28 @@ struct StateBadge: View {
         let (text, color): (String, Color) = switch pr.state {
         case "MERGED": ("Merged", .purple)
         case "CLOSED": ("Closed", .red)
-        default: pr.isDraft ? ("Draft", .gray) : pr.needsReReview ? ("Changed since your review", .orange) : ("Open", .green)
+        // "Changed since your review" is on the review badge next to it (`MyReviewStatus`).
+        default: pr.isDraft ? ("Draft", .gray) : ("Open", .green)
         }
-        Text(text)
-            .font(.caption2.weight(.semibold))
-            .padding(.horizontal, 5)
-            .background(color.opacity(0.18), in: Capsule())
-            .foregroundStyle(color)
+        Pill(text: text, color: color)
+    }
+}
+
+/// A small tinted capsule, optionally with an icon: the header's badges.
+struct Pill: View {
+    let text: String
+    var symbol: String?
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 3) {
+            if let symbol { Image(systemName: symbol) }
+            Text(text)
+        }
+        .font(.caption2.weight(.semibold))
+        .padding(.horizontal, 5)
+        .background(color.opacity(0.18), in: Capsule())
+        .foregroundStyle(color)
     }
 }
 

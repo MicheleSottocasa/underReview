@@ -368,6 +368,14 @@ final class AppModel {
         return await work()
     }
 
+    /// GitHub's diff of the commits pushed since the viewer's review.
+    /// ponytail: opens GitHub; show it in Changes once it can pick a commit range (#35).
+    func openChangesSinceReview(_ pr: PullRequest) {
+        guard !blockDemo(pr), let old = pr.viewerReviewedOid,
+              let url = URL(string: "\(pr.url)/files/\(old)..\(pr.headRefOid)") else { return }
+        NSWorkspace.shared.open(url)
+    }
+
     /// Shows an error in the banner, prefixed with what failed; cancellations (a closed view, Cancel) are dropped.
     func report(_ error: any Error, _ prefix: String? = nil) {
         guard let message = error.userMessage else { return }

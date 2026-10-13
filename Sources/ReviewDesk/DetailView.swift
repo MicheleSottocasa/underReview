@@ -73,6 +73,7 @@ struct DetailView: View {
                         .buttonStyle(.plain)
                         .help("The author pushed after the latest AI analysis. Open AI Review to run it again.")
                 }
+                MyReviewStatus(pr: pr)
                 Text(verbatim: "\(pr.repo)#\(pr.number) by \(pr.author)")
                 Text("\(pr.headRefName) → \(pr.baseRefName)").font(.caption.monospaced())
                 if let head = URL(string: "https://github.com/\(pr.repo)/commit/\(pr.headRefOid)") {
@@ -92,6 +93,113 @@ struct DetailView: View {
             }
             .font(.callout)
             .foregroundStyle(.secondary)
+            if let detail = model.details[pr.id] { ReviewersRow(pr: pr, detail: detail) }
+        }
+    }
+}
+
+/// Where the viewer's own review stands: in full in the header, compact in the Changes review bar
+/// (which counts pending comments itself).
+struct MyReviewStatus: View {
+    @Environment(AppModel.self) private var model
+    let pr: PullRequest
+    var compact = false
+    @ViewState private var showsWaiting = false
+
+    var body: some View {
+        let status = model.reviewStatus(pr)
+        let waiting = model.details[pr.id]?.threadsAwaitingReply(pr, viewer: model.viewer) ?? []
+        HStack(spacing: 6) {
+            if let state = pr.viewerReviewState, let label = ReviewIndicator.label(state) {
+                Pill(text: "You: \(label.text)", symbol: label.symbol, color: label.color)
+                    .help("Your latest review")
+            } else if !pr.viewerIsAuthor, pr.requestedReviewers.contains(model.viewer) {
+                Pill(text: "Your review is requested", symbol: "eye", color: .secondary)
+            }
+            if status.changedSinceReview {
+                Button { model.openChangesSinceReview(pr) } label: {
+                    Pill(text: "on an older commit", symbol: "arrow.triangle.2.circlepath", color: .orange)
+                }
+                .buttonStyle(.plain)
+                .help("The author pushed after your review. Click to see the new commits on GitHub.")
+            }
+            if !compact, status.hasPendingReview {
+                Button { model.detailTab = .changes } label: {
+                    Pill(text: status.toSend == 0 ? "Pending review" : "\(status.toSend) pending comment\(status.toSend == 1 ? "" : "s")",
+                         symbol: "paperplane.fill", color: .orange)
+                }
+                .buttonStyle(.plain)
+                .help("Your review isn't sent yet: only you can see it. Click to open Changes and finish it.")
+            }
+            if !waiting.isEmpty {
+                Button { showsWaiting = true } label: {
+                    Pill(text: "\(waiting.count) waiting for your reply", symbol: "arrowshape.turn.up.left.fill", color: .purple)
+                }
+                .buttonStyle(.plain)
+                .help("Conversations where someone answered you and it's your turn")
+                .popover(isPresented: $showsWaiting, arrowEdge: .bottom) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(waiting) { thread in
+                            Button {
+                                showsWaiting = false
+                                model.openInChanges(thread.path, line: thread.line, pr: pr)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(verbatim: "\(thread.path)\(thread.line.map { ":\($0)" } ?? "")").font(.caption.monospaced())
+                                    Text(verbatim: "\(thread.comments.last?.author ?? ""): \(thread.comments.last?.body ?? "")")
+                                        .lineLimit(1).foregroundStyle(.secondary)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding()
+                    .frame(maxWidth: 420, alignment: .leading)
+                }
+            }
+        }
+    }
+}
+
+/// GitHub's Reviewers box on one line: the merge decision, then everyone else's latest review or pending request.
+struct ReviewersRow: View {
+    @Environment(AppModel.self) private var model
+    let pr: PullRequest
+    let detail: PRDetail
+
+    var body: some View {
+        let reviewers = detail.reviewers(of: pr, viewer: model.viewer)
+        if detail.reviewDecision != nil || !reviewers.isEmpty {
+            HStack(spacing: 10) {
+                Text("Reviewers").foregroundStyle(.secondary)
+                if let (text, color) = Self.decision(detail.reviewDecision) {
+                    Pill(text: text, color: color).help("GitHub's review decision: whether the reviews so far allow merging")
+                }
+                // ponytail: one line; past 6 reviewers the rest go in the tooltip, wrap them if that's common.
+                ForEach(reviewers.prefix(6), id: \.login) { reviewer in
+                    let label = reviewer.state.flatMap(ReviewIndicator.label)
+                    HStack(spacing: 3) {
+                        Image(systemName: label?.symbol ?? "clock").foregroundStyle(label?.color ?? .secondary)
+                        Text(reviewer.login)
+                    }
+                    .opacity(reviewer.isOutdated ? 0.6 : 1)
+                    .help("\(reviewer.login): \(label?.text ?? "review requested")\(reviewer.isOutdated ? ", on an older commit" : "")")
+                }
+                if reviewers.count > 6 {
+                    Text(verbatim: "+\(reviewers.count - 6)").foregroundStyle(.secondary)
+                        .help(reviewers.dropFirst(6).map(\.login).joined(separator: ", "))
+                }
+            }
+            .font(.callout)
+        }
+    }
+
+    static func decision(_ decision: String?) -> (String, Color)? {
+        switch decision {
+        case "APPROVED": ("Approved", .green)
+        case "CHANGES_REQUESTED": ("Changes requested", .red)
+        case "REVIEW_REQUIRED": ("Review required", .orange)
+        default: nil
         }
     }
 }
