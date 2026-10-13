@@ -110,6 +110,26 @@ extension AppModel {
         }
     }
 
+    /// Resolves the threads one at a time, each showing its spinner until the single reload at the end.
+    /// A failure doesn't stop the others; the banner names the ones that stayed open.
+    func resolveAll(_ threads: [ReviewThread], pr: PullRequest) async {
+        guard !blockDemo(pr) else { return }
+        let threads = threads.filter { pending.insert($0.id).inserted }
+        defer { for thread in threads { pending.remove(thread.id) } }
+        var failures: [String] = []
+        for thread in threads {
+            do {
+                try await github.setResolved(threadID: thread.id, resolved: true)
+            } catch {
+                if let message = error.userMessage { failures.append("\(thread.path)\(thread.line.map { ":\($0)" } ?? ""): \(message)") }
+            }
+        }
+        await afterOwnWrite(pr)
+        if !failures.isEmpty {
+            lastError = "Couldn't resolve \(failures.count) of \(threads.count) conversations: " + failures.joined(separator: "; ")
+        }
+    }
+
     func deleteFollowUp(_ id: UUID) {
         followUps.removeAll { $0.id == id }
     }
