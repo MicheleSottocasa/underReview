@@ -359,16 +359,16 @@ struct FileDiffView: View {
     /// Sections the AI asked the reviewer to read, marked in the gutter.
     var keyAreas: [KeyArea] = []
     @AppStorage("wrapLines") private var wrap = false
-    @ViewState private var hovered: ReviewDeskCore.Anchor?
     @ViewState private var composing: ReviewDeskCore.Anchor?
     @ViewState private var draftText = ""
     /// Lines whose comments the user folded away with the gutter bubble.
     @ViewState private var collapsed: Set<ReviewDeskCore.Anchor> = []
+    /// The parsed and highlighted patch, rebuilt only when the patch or the mode changes, not on every redraw.
+    @ViewState private var rendered: RenderedDiff?
     private static let numberWidth: CGFloat = 42
     private static let markerWidth: CGFloat = 20
 
     var body: some View {
-        let language = Syntax.language(for: file.filename)
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Text(file.filename).font(.callout.monospaced()).textSelection(.enabled)
@@ -381,6 +381,8 @@ struct FileDiffView: View {
             .background(.bar)
             Divider()
             if let patch = file.patch {
+                let diff = rendered?.patch == patch && rendered?.mode == mode ? rendered : nil
+                let commented = commentedAnchors
                 ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -389,29 +391,32 @@ struct FileDiffView: View {
                             Text("Comments on lines no longer in the diff").font(.caption).foregroundStyle(.secondary).padding([.top, .leading], 12)
                             ForEach(detached) { ThreadView(pr: pr, thread: $0, hidden: hiddenIDs) }
                         }
-                        let lines = Diff.parse(patch)
-                        let syntax = language.map { Syntax.tokens(diff: lines, language: $0) } ?? [:]
-                        switch mode {
-                        case .unified:
-                            let changes = Diff.changes(lines)
-                            ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                                unifiedRow(line, change: changes[index], syntax: syntax)
-                                if let anchor = line.anchor(path: file.filename) {
-                                    annotations(anchor).padding(.leading, Self.numberWidth * 2 + Self.markerWidth)
+                        if let diff {
+                            switch mode {
+                            case .unified:
+                                ForEach(diff.lines.indices, id: \.self) { index in
+                                    let line = diff.lines[index]
+                                    unifiedRow(line, change: diff.changes[index], text: diff.text, commented: commented)
+                                    if let anchor = line.anchor(path: file.filename) {
+                                        annotations(anchor).padding(.leading, Self.numberWidth * 2 + Self.markerWidth)
+                                    }
                                 }
-                            }
-                        case .split:
-                            ForEach(Array(Diff.sideBySide(lines).enumerated()), id: \.offset) { _, row in
-                                splitRow(row, syntax: syntax)
-                                splitAnnotations(row)
+                            case .split:
+                                ForEach(diff.rows.indices, id: \.self) { index in
+                                    splitRow(diff.rows[index], text: diff.text, commented: commented)
+                                    splitAnnotations(diff.rows[index], commented: commented)
+                                }
                             }
                         }
                     }
                     .font(.system(size: 12.5, design: .monospaced))
                 }
                 .background(DiffColors.editor)
-                .task(id: target?.id) {
-                    guard let line = target?.line, let row = row(for: line, patch: patch) else { return }
+                .onChange(of: RenderedDiff.Key(patch: patch, mode: mode), initial: true) { _, key in
+                    rendered = RenderedDiff(key, path: file.filename)
+                }
+                .task(id: Pair(target?.id, diff != nil)) {
+                    guard let line = target?.line, let diff, let row = diff.row(for: line) else { return }
                     await Task.yield() // let the lazy stack lay out before jumping
                     withAnimation { proxy.scrollTo(row, anchor: .top) }
                 }
@@ -420,15 +425,6 @@ struct FileDiffView: View {
                 ContentUnavailableView("No diff available", systemImage: "doc.questionmark",
                                        description: Text("GitHub doesn't provide a diff for binary or very large files."))
             }
-        }
-    }
-
-    /// Offset of the first diff row at or after a new-side line, matching the ForEach ids below.
-    private func row(for line: Int, patch: String) -> Int? {
-        let lines = Diff.parse(patch)
-        switch mode {
-        case .unified: return lines.firstIndex { $0.kind != .removed && ($0.newLine ?? 0) >= line }
-        case .split: return Diff.sideBySide(lines).firstIndex { ($0.right?.newLine ?? 0) >= line }
         }
     }
 
@@ -441,10 +437,16 @@ struct FileDiffView: View {
 
     private var hiddenIDs: Set<String> { Set(model.drafts(for: pr.id).compactMap(\.remoteID)) }
 
+    /// Lines with threads or drafts, worked out once per redraw instead of once per row.
+    private var commentedAnchors: Set<ReviewDeskCore.Anchor> {
+        Set(threads.compactMap { thread in thread.line.map { ReviewDeskCore.Anchor(path: file.filename, line: $0, side: thread.side) } })
+            .union(model.drafts(for: pr.id).map(\.anchor))
+    }
+
     // MARK: Rows
 
     /// PyCharm layout: old code | old and new line numbers | new code.
-    private func splitRow(_ row: DiffRow, syntax: [DiffLine: [SyntaxToken]]) -> some View {
+    private func splitRow(_ row: DiffRow, text: [DiffLine: AttributedString], commented: Set<ReviewDeskCore.Anchor>) -> some View {
         let left = side(row.left, left: true), right = side(row.right, left: false)
         let leftColor = row.left == nil ? DiffColors.filler(row.change) : DiffColors.block(row.change, side: .left)
         let rightColor = row.right == nil ? DiffColors.filler(row.change) : DiffColors.block(row.change, side: .right)
@@ -452,39 +454,42 @@ struct FileDiffView: View {
             if let text = row.hunk {
                 hunk(text)
             } else {
-                HStack(spacing: 0) {
-                    code(row.left, syntax: syntax).background(leftColor)
+                HoverRow { hovered in
                     HStack(spacing: 0) {
-                        number(row.left?.oldLine).background(leftColor)
-                        number(row.right?.newLine).background(rightColor)
-                        marker(right ?? left).background(rightColor)
+                        code(row.left, text: text).background(leftColor)
+                        HStack(spacing: 0) {
+                            number(row.left?.oldLine).background(leftColor)
+                            number(row.right?.newLine).background(rightColor)
+                            marker(right ?? left, hovered: hovered, commented: commented).background(rightColor)
+                        }
+                        .overlay(alignment: .leading) { Rectangle().fill(DiffColors.separator).frame(width: 1) }
+                        .overlay(alignment: .trailing) { Rectangle().fill(DiffColors.separator).frame(width: 1) }
+                        code(row.right, text: text).background(rightColor)
+                            .overlay(alignment: .leading) { if isKey(row.right) { keyBar } }
                     }
-                    .overlay(alignment: .leading) { Rectangle().fill(DiffColors.separator).frame(width: 1) }
-                    .overlay(alignment: .trailing) { Rectangle().fill(DiffColors.separator).frame(width: 1) }
-                    code(row.right, syntax: syntax).background(rightColor)
-                        .overlay(alignment: .leading) { if isKey(row.right) { keyBar } }
                 }
-                .onHover { track(right ?? left, $0) }
             }
         }
     }
 
-    private func unifiedRow(_ line: DiffLine, change: DiffChange?, syntax: [DiffLine: [SyntaxToken]]) -> some View {
+    private func unifiedRow(_ line: DiffLine, change: DiffChange?, text: [DiffLine: AttributedString],
+                            commented: Set<ReviewDeskCore.Anchor>) -> some View {
         let anchor = line.anchor(path: file.filename)
         let color = DiffColors.block(change, side: line.kind == .removed ? .left : .right)
         return Group {
             if line.kind == .hunk {
                 hunk(line.text)
             } else {
-                HStack(spacing: 0) {
-                    number(line.oldLine)
-                    number(line.newLine)
-                    marker(anchor)
-                    code(line, syntax: syntax)
-                        .overlay(alignment: .leading) { if isKey(line) { keyBar } }
+                HoverRow { hovered in
+                    HStack(spacing: 0) {
+                        number(line.oldLine)
+                        number(line.newLine)
+                        marker(anchor, hovered: hovered, commented: commented)
+                        code(line, text: text)
+                            .overlay(alignment: .leading) { if isKey(line) { keyBar } }
+                    }
+                    .background(color)
                 }
-                .background(color)
-                .onHover { track(anchor, $0) }
             }
         }
     }
@@ -510,16 +515,16 @@ struct FileDiffView: View {
     }
 
     /// Comment bubble when the line has comments, "+" on hover to add one.
-    private func marker(_ anchor: ReviewDeskCore.Anchor?) -> some View {
+    private func marker(_ anchor: ReviewDeskCore.Anchor?, hovered: Bool, commented: Set<ReviewDeskCore.Anchor>) -> some View {
         ZStack {
-            if let anchor, hasComments(anchor) {
+            if let anchor, commented.contains(anchor) {
                 let folded = collapsed.contains(anchor)
                 Button { collapsed.formSymmetricDifference([anchor]) } label: {
                     Image(systemName: folded ? "text.bubble" : "text.bubble.fill").foregroundStyle(DiffColors.lineNumber)
                 }
                 .buttonStyle(.plain)
                 .help(folded ? "Show comments" : "Hide comments")
-            } else if let anchor, hovered == anchor {
+            } else if let anchor, hovered {
                 Button {
                     draftText = ""
                     composing = anchor
@@ -535,10 +540,10 @@ struct FileDiffView: View {
     }
 
     @ViewBuilder
-    private func code(_ line: DiffLine?, syntax: [DiffLine: [SyntaxToken]]) -> some View {
+    private func code(_ line: DiffLine?, text: [DiffLine: AttributedString]) -> some View {
         Group {
             if let line {
-                Text(Self.highlighted(line.text, tokens: syntax[line] ?? []))
+                Text(text[line] ?? AttributedString(line.text))
                     .lineLimit(wrap ? nil : 1)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
@@ -578,22 +583,13 @@ struct FileDiffView: View {
         .background(DiffColors.fold)
     }
 
-    private func track(_ anchor: ReviewDeskCore.Anchor?, _ inside: Bool) {
-        if inside { hovered = anchor } else if hovered == anchor { hovered = nil }
-    }
-
     // MARK: Inline comments
-
-    private func hasComments(_ anchor: ReviewDeskCore.Anchor) -> Bool {
-        threads.contains { $0.line == anchor.line && $0.side == anchor.side }
-            || model.drafts(for: pr.id).contains { $0.anchor == anchor }
-    }
 
     /// Comments sit under the pane of the side they're anchored to, like PyCharm.
     @ViewBuilder
-    private func splitAnnotations(_ row: DiffRow) -> some View {
+    private func splitAnnotations(_ row: DiffRow, commented: Set<ReviewDeskCore.Anchor>) -> some View {
         let left = side(row.left, left: true), right = side(row.right, left: false)
-        let shown = { (anchor: ReviewDeskCore.Anchor?) in anchor.map { hasComments($0) || composing == $0 } ?? false }
+        let shown = { (anchor: ReviewDeskCore.Anchor?) in anchor.map { commented.contains($0) || composing == $0 } ?? false }
         if shown(left) || shown(right) {
             HStack(alignment: .top, spacing: 0) {
                 annotationColumn(left)
@@ -631,6 +627,61 @@ struct FileDiffView: View {
             .modifier(ThreadBox(accent: .accentColor))
         }
     }
+}
+
+/// A file's patch parsed, paired for side by side and syntax-highlighted once. Rebuilding this on every
+/// redraw (each hover used to cause one) made large files stutter while scrolling.
+struct RenderedDiff {
+    struct Key: Equatable {
+        var patch: String
+        var mode: DiffMode
+    }
+
+    var patch: String
+    var mode: DiffMode
+    var lines: [DiffLine]
+    /// Index-aligned with `lines`.
+    var changes: [DiffChange?]
+    /// Empty in unified mode.
+    var rows: [DiffRow]
+    var text: [DiffLine: AttributedString]
+
+    init(_ key: Key, path: String) {
+        let lines = Diff.parse(key.patch)
+        let syntax = Syntax.language(for: path).map { Syntax.tokens(diff: lines, language: $0) } ?? [:]
+        var text: [DiffLine: AttributedString] = [:]
+        for line in lines where line.kind != .hunk {
+            text[line] = FileDiffView.highlighted(line.text, tokens: syntax[line] ?? [])
+        }
+        (patch, mode, self.lines, self.text) = (key.patch, key.mode, lines, text)
+        changes = Diff.changes(lines)
+        rows = key.mode == .split ? Diff.sideBySide(lines) : []
+    }
+
+    /// Offset of the first diff row at or after a new-side line, matching the ForEach ids.
+    func row(for line: Int) -> Int? {
+        switch mode {
+        case .unified: lines.firstIndex { $0.kind != .removed && ($0.newLine ?? 0) >= line }
+        case .split: rows.firstIndex { ($0.right?.newLine ?? 0) >= line }
+        }
+    }
+}
+
+/// Keeps the pointer's hover state inside one row, so moving over the diff redraws that row only.
+private struct HoverRow<Content: View>: View {
+    @ViewState private var hovered = false
+    @ViewBuilder let content: (Bool) -> Content
+
+    var body: some View {
+        content(hovered).onHover { hovered = $0 }
+    }
+}
+
+/// Two values as one `task(id:)`.
+private struct Pair<A: Equatable, B: Equatable>: Equatable {
+    var a: A
+    var b: B
+    init(_ a: A, _ b: B) { (self.a, self.b) = (a, b) }
 }
 
 /// PyCharm New UI diff palette, adapting to light and dark appearance.
