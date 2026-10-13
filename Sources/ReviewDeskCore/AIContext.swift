@@ -511,7 +511,9 @@ public enum AIContext {
 
     static func fenced(_ code: String, info: String) -> String {
         let code = code.hasSuffix("\n") ? String(code.dropLast()) : code
-        let fence = String(repeating: "`", count: max(3, (code.components(separatedBy: "\n").map { $0.prefix { $0 == "`" }.count }.max() ?? 0) + 1))
+        // A fence can be closed by an indented line, so count the longest run of backticks anywhere, not just at line starts.
+        let longest = code.split(whereSeparator: { $0 != "`" }).map(\.count).max() ?? 0
+        let fence = String(repeating: "`", count: max(3, longest + 1))
         return "\(fence)\(info)\n\(code)\n\(fence)"
     }
 
