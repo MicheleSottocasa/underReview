@@ -25,6 +25,8 @@ import Testing
     #expect(byName["docs/logo.png"]?.excludedReason == "Binary file")
     #expect(byName["docs/big.txt"]?.excludedReason == "Larger than 100 KB" && byName["docs/big.txt"]?.included == false)
     #expect(byName["docs/.env"] == nil) // hidden files are never read
+    // Full names, as chosen, even under /var (really /private/var) where the temporary folder lives.
+    #expect(files.map(\.path).contains(root.path + "/sub/notes.txt") && files.allSatisfy { $0.path.hasPrefix(root.path + "/") })
     #expect(!files.contains { $0.content?.contains("password") == true || $0.content?.contains("TOKEN") == true })
 
     #expect(ProjectContext.readLocal(root.appendingPathComponent("api.md").path).map(\.content) == ["# API"])
