@@ -150,14 +150,22 @@ import Testing
 }
 
 @Test func decodesEveryoneElsesLatestReview() async throws {
-    let reviews = #""latestReviews":{"nodes":[{"state":"APPROVED","viewerDidAuthor":false,"author":{"login":"bob"}},{"state":"CHANGES_REQUESTED","viewerDidAuthor":false,"author":{"login":"carol"}},{"state":"COMMENTED","viewerDidAuthor":true,"author":{"login":"me"}}]},"#
+    func review(_ state: String, _ login: String, mine: Bool = false) -> String {
+        #"{"state":"\#(state)","viewerDidAuthor":\#(mine),"author":{"login":"\#(login)"}}"#
+    }
+    // dave approved, then replied in a thread: his latest review is COMMENTED, his latest opinionated one APPROVED.
+    let latest = [review("APPROVED", "bob"), review("CHANGES_REQUESTED", "carol"), review("COMMENTED", "me", mine: true),
+                  review("COMMENTED", "dave"), review("COMMENTED", "erin")]
+    let opinionated = [review("APPROVED", "bob"), review("CHANGES_REQUESTED", "carol"), review("APPROVED", "dave")]
+    let reviews = #""latestReviews":{"nodes":[\#(latest.joined(separator: ","))]},"latestOpinionatedReviews":{"nodes":[\#(opinionated.joined(separator: ","))]},"#
     let node = prNode(author: true).replacingOccurrences(of: #""stack":"#, with: reviews + #""stack":"#)
     let runner = FakeRunner { _ in data(#"{"nodes":[\#(node),\#(prNode(id: "NONE"))]}"#) }
     let prs = try await GitHub(runner: runner).pullRequests(ids: ["x"])
 
-    #expect(prs[0].reviewsByOthers == ["bob": "APPROVED", "carol": "CHANGES_REQUESTED"]) // my own review is left out
+    // My own review is left out; dave's approval survives his later comment; erin only commented.
+    #expect(prs[0].reviewsByOthers == ["bob": "APPROVED", "carol": "CHANGES_REQUESTED", "dave": "APPROVED", "erin": "COMMENTED"])
     #expect(prs[1].reviewsByOthers.isEmpty)
-    #expect(runner.calls.first?.query.contains("latestReviews") == true)
+    #expect(runner.calls.first?.query.contains("latestOpinionatedReviews") == true)
 }
 
 @Test func readsViewedFilesAcrossPages() async throws {

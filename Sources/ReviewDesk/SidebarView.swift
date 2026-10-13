@@ -14,10 +14,11 @@ struct SidebarView: View {
         @Bindable var model = model
         let index = model.itemIndex()
         let unfiled = index[nil] ?? []
+        let mine = Stacks.viewersItemKeys(Array(model.prs.values))
         List(selection: $model.selection) {
-            unfiledGroup("To Review", systemImage: "tray", key: AppModel.toReviewKey, items: unfiled.filter { !$0.isViewers })
+            unfiledGroup("To Review", systemImage: "tray", key: AppModel.toReviewKey, items: unfiled.filter { !mine.contains($0.key) })
                 .help("Pull requests by others: asked to review, assigned to you or added by link")
-            unfiledGroup("My PRs", systemImage: "person", key: AppModel.myPRsKey, items: unfiled.filter(\.isViewers))
+            unfiledGroup("My PRs", systemImage: "person", key: AppModel.myPRsKey, items: unfiled.filter { mine.contains($0.key) })
                 .help("Pull requests you opened, with the reviews others left on them")
 
             Section("Projects") {
@@ -488,7 +489,7 @@ struct ReviewIndicator: View {
     }
 }
 
-/// On the viewer's own PR: how many others approved, asked for changes or only commented (latest review each).
+/// On the viewer's own PR: how many others approved, asked for changes or only commented (once each).
 struct ReceivedReviews: View {
     let pr: PullRequest
 

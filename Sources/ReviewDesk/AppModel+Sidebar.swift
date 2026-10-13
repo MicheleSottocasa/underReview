@@ -47,7 +47,7 @@ extension AppModel {
             if !isExpanded("folder:\(id)") { toggleExpansion("folder:\(id)") }
             folder = org.folders.first { $0.id == id }?.parentID
         }
-        let section = prs.values.contains { $0.itemKey == pr.itemKey && $0.viewerIsAuthor } ? Self.myPRsKey : Self.toReviewKey
+        let section = Stacks.viewersItemKeys(Array(prs.values)).contains(pr.itemKey) ? Self.myPRsKey : Self.toReviewKey
         if org.placements[pr.itemKey] == nil, !isExpanded(section) { toggleExpansion(section) }
         let scope = org.placements[pr.itemKey].map { "folder:\($0)" } ?? section
         if !isExpanded("repo:\(scope):\(pr.repo)") { toggleExpansion("repo:\(scope):\(pr.repo)") }
