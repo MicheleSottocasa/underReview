@@ -108,6 +108,14 @@ private func expectRefusal(_ failure: LocalClone.Failure, _ top: URL, _ runner: 
     }
 }
 
+@Test func checkoutRefusesBetweenTheCommitsOfACherryPick() async throws {
+    let top = try tempClone()
+    defer { try? FileManager.default.removeItem(at: top) }
+    // `git cherry-pick a..b` after a resolved conflict: only the sequencer folder is left, and the status is clean.
+    try FileManager.default.createDirectory(at: top.appendingPathComponent(".git/sequencer"), withIntermediateDirectories: true)
+    await expectRefusal(.operationInProgress(folder: top.path, marker: "sequencer"), top, fake(top))
+}
+
 @Test func checkoutRefusesADetachedHeadNoBranchContains() async throws {
     let top = try tempClone()
     defer { try? FileManager.default.removeItem(at: top) }
