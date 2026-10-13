@@ -64,6 +64,7 @@ struct ReviewBar: View {
     let pr: PullRequest
     @Binding var mode: DiffMode
     @AppStorage("wrapLines") private var wrap = false
+    @AppStorage("involvedFilter") private var involvedOnly = false
     @ViewState private var finishing = false
     @ViewState private var saving = false
 
@@ -83,6 +84,9 @@ struct ReviewBar: View {
             Toggle(isOn: $wrap) { Image(systemName: "arrow.turn.down.left") }
                 .toggleStyle(.button)
                 .help("Soft-wrap long lines")
+            Toggle(isOn: $involvedOnly) { Label("Involving Me", systemImage: "person.crop.circle") }
+                .toggleStyle(.button)
+                .help("Show only the review threads you started, replied in or are @mentioned in, and only the files that have one")
             Spacer()
             if stale > 0 {
                 Label("\(stale) outdated", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.callout)
@@ -214,9 +218,11 @@ struct FileTree: View {
     let openArea: (String, Int?) -> Void
     @ViewState private var collapsed: Set<String> = []
     @AppStorage("focusFilter") private var focusOnly = false
+    @AppStorage("involvedFilter") private var involvedOnly = false
 
     var body: some View {
         let focus = model.focus(for: pr)
+        let involved = involvedThreads
         VStack(spacing: 0) {
             Picker("", selection: $focusOnly) {
                 Text("All").tag(false)
@@ -230,9 +236,12 @@ struct FileTree: View {
                 if focusOnly {
                     focusRows(focus)
                 } else {
-                    ForEach(rows(FileNode.tree(files), depth: 0), id: \.node.id) { row in
+                    if involvedOnly && involved.isEmpty {
+                        Text("No review threads involving you.").font(.caption).foregroundStyle(.secondary)
+                    }
+                    ForEach(rows(FileNode.tree(involvedOnly ? files.filter { involved[$0.filename] != nil } : files), depth: 0), id: \.node.id) { row in
                         if let file = row.node.file {
-                            fileRow(file, name: row.node.name)
+                            fileRow(file, name: row.node.name, involved: involved[file.filename])
                                 .padding(.leading, CGFloat(row.depth) * 14 + 16)
                                 .tag(file.filename)
                         } else {
@@ -306,7 +315,14 @@ struct FileTree: View {
         .help(node.name)
     }
 
-    private func fileRow(_ file: FileChange, name: String) -> some View {
+    /// Threads involving the viewer, per file.
+    private var involvedThreads: [String: Int] {
+        let threads = model.details[pr.id]?.threads.filter { $0.involves(model.viewer) } ?? []
+        return Dictionary(grouping: threads, by: \.path).mapValues(\.count)
+    }
+
+    /// `involved`: shown instead of the comment count while the Involving Me filter is on.
+    private func fileRow(_ file: FileChange, name: String, involved: Int? = nil) -> some View {
         let viewed = model.viewedFiles[pr.id]?.contains(file.filename) ?? false
         return HStack(spacing: 6) {
             Toggle("Viewed", isOn: Binding(get: { viewed }, set: { _ in Task { await model.toggleViewed(file.filename, pr: pr) } }))
@@ -317,7 +333,10 @@ struct FileTree: View {
             Text(name).lineLimit(1).truncationMode(.middle).foregroundStyle(viewed ? .secondary : .primary)
             Spacer()
             let comments = commentCount(file.filename)
-            if comments > 0 {
+            if involvedOnly, let involved {
+                Label("\(involved)", systemImage: "person.crop.circle").font(.caption).foregroundStyle(.secondary).labelStyle(.titleAndIcon)
+                    .help("\(involved) thread\(involved == 1 ? "" : "s") involving you")
+            } else if comments > 0 {
                 Label("\(comments)", systemImage: "text.bubble").font(.caption).foregroundStyle(.secondary).labelStyle(.titleAndIcon)
             }
         }
@@ -359,6 +378,7 @@ struct FileDiffView: View {
     /// Sections the AI asked the reviewer to read, marked in the gutter.
     var keyAreas: [KeyArea] = []
     @AppStorage("wrapLines") private var wrap = false
+    @AppStorage("involvedFilter") private var involvedOnly = false
     @ViewState private var composing: ReviewDeskCore.Anchor?
     @ViewState private var draftText = ""
     /// Lines whose comments the user folded away with the gutter bubble.
@@ -433,13 +453,16 @@ struct FileDiffView: View {
         return keyAreas.contains { $0.contains(line: number) }
     }
 
-    private var threads: [ReviewThread] { model.details[pr.id]?.threads.filter { $0.path == file.filename } ?? [] }
+    private var allThreads: [ReviewThread] { model.details[pr.id]?.threads.filter { $0.path == file.filename } ?? [] }
+
+    /// The threads shown: with Involving Me on, only those involving the viewer (the gutter still marks the others).
+    private var threads: [ReviewThread] { allThreads.filter { !involvedOnly || $0.involves(model.viewer) } }
 
     private var hiddenIDs: Set<String> { Set(model.drafts(for: pr.id).compactMap(\.remoteID)) }
 
     /// Lines with threads or drafts, worked out once per redraw instead of once per row.
     private var commentedAnchors: Set<ReviewDeskCore.Anchor> {
-        Set(threads.compactMap { thread in thread.line.map { ReviewDeskCore.Anchor(path: file.filename, line: $0, side: thread.side) } })
+        Set(allThreads.compactMap { thread in thread.line.map { ReviewDeskCore.Anchor(path: file.filename, line: $0, side: thread.side) } })
             .union(model.drafts(for: pr.id).map(\.anchor))
     }
 

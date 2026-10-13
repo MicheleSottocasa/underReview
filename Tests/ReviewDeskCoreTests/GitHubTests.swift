@@ -279,5 +279,8 @@ import Testing
     #expect(thread([("bob", "cc @Me, thoughts?")]).involves("me"))
     #expect(!thread([("bob", "ask @me-too or mail x@me")]).involves("me"))
     #expect(!thread([("bob", "why?")]).involves("me"))
+    var pendingReply = thread([("bob", "why?")])
+    pendingReply.comments.append(Comment(id: "C", author: "me", body: "draft", createdAt: .now, isPending: true))
+    #expect(pendingReply.involves("me"))
     #expect(!started.involves("") && !started.isStarted(by: ""))
 }
