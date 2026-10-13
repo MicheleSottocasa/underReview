@@ -29,6 +29,11 @@ public struct Draft: Codable, Hashable, Identifiable, Sendable {
 
 public enum ReviewEvent: String, CaseIterable, Sendable {
     case comment = "COMMENT", approve = "APPROVE", requestChanges = "REQUEST_CHANGES"
+
+    /// What the viewer may submit: GitHub refuses an approval or a change request on your own pull request.
+    public static func allowed(for pr: PullRequest) -> [ReviewEvent] {
+        pr.viewerIsAuthor ? [.comment] : allCases
+    }
 }
 
 public enum ReviewSyncError: Error, LocalizedError, Equatable {

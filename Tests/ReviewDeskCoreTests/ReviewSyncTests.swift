@@ -160,3 +160,10 @@ private final class Box<T>: @unchecked Sendable {
     let range = sync.variables(draft, review: "R")
     #expect(range["startLine"] as? Int == 9 && range["startSide"] as? String == "RIGHT" && range["line"] as? Int == 12)
 }
+
+@Test func ownPullRequestsOnlyAllowCommentReviews() {
+    var mine = pr
+    mine.viewerIsAuthor = true
+    #expect(ReviewEvent.allowed(for: mine) == [.comment])
+    #expect(ReviewEvent.allowed(for: pr) == [.comment, .approve, .requestChanges])
+}
