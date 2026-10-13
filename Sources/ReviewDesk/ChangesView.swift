@@ -633,6 +633,7 @@ struct FileDiffView: View {
     /// The row the last jump landed on: comment steps go on from there.
     @ViewState private var cursor: Int?
     @ViewState private var jump: Jump?
+    @ViewState private var jumpedTarget: UUID?
     /// Scroll id of the top of the file, above comments on lines no longer in the diff.
     private static let top = -1
     private static let numberWidth: CGFloat = 42
@@ -721,7 +722,10 @@ struct FileDiffView: View {
                     cursor = nil // rows differ between the two layouts
                 }
                 .task(id: Pair(target?.id, diff != nil)) {
-                    guard let target, let diff, let row = target.line > 0 ? diff.row(for: target) : Self.top else { return }
+                    // Each target jumps once: switching layout re-renders the diff but mustn't pull you back to it.
+                    guard let target, target.id != jumpedTarget, let diff,
+                          let row = target.line > 0 ? diff.row(for: target) : Self.top else { return }
+                    jumpedTarget = target.id
                     jump = Jump(row: row)
                 }
                 .task(id: jump?.id) {
