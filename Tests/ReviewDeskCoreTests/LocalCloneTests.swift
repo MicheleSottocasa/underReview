@@ -23,8 +23,9 @@ private func tempClone() throws -> URL {
 /// is a local `h7` branch whose tip adds those files. `gh` succeeds unless told not to.
 private func fake(_ top: URL, remotes: String = forkRemotes, status: String = "", onBranch: Bool = true,
                   containing: String = "refs/heads/main", added: String = "", localBranchAdds: String? = nil,
-                  ghFails: Bool = false) -> FakeRunner {
+                  ghFails: Bool = false, sshHosts: [String: String] = [:]) -> FakeRunner {
     FakeRunner { call in
+        if call.tool == "ssh" { return ok("user git\nhostname \(sshHosts[call.args.last ?? ""] ?? call.args.last ?? "")\nport 22\n") }
         if call.tool == "gh" {
             return ghFails ? CommandResult(status: 1, stdout: Data(), stderr: "not possible to fast-forward") : ok("")
         }
@@ -72,6 +73,40 @@ private func cQuoted(_ path: Substring) -> String {
     await #expect(throws: LocalClone.Failure.otherRepo(folder: top.path, repo: "o/r")) {
         try await LocalClone(runner: fake(top, remotes: remotes)).verify(top, repo: "o/r")
     }
+}
+
+@Test func verifyAcceptsSSHRemotesWithASlashOrAHostAlias() async throws {
+    let top = try tempClone()
+    defer { try? FileManager.default.removeItem(at: top) }
+    // `git@github.com:/o/r.git` is a valid scp-like URL with a leading slash in the path.
+    let slashed = "origin\tgit@github.com:/o/r.git (fetch)\norigin\tgit@github.com:/o/r.git (push)\n"
+    #expect(try await LocalClone(runner: fake(top, remotes: slashed)).verify(top, repo: "o/r").path == top.path)
+
+    // Host aliases count only when `ssh -G` says their HostName is github.com.
+    let aliased = """
+    evil\tgit@gitlab-alias:o/r.git (fetch)
+    work\tgit@github-work:/o/r.git (fetch)
+    other\tssh://git@github-work/o/other.git (fetch)
+
+    """
+    let runner = fake(top, remotes: aliased, sshHosts: ["gitlab-alias": "gitlab.com", "github-work": "github.com"])
+    #expect(try await LocalClone(runner: runner).clone(top, repo: "o/r").remote == "work")
+    #expect(try await LocalClone(runner: runner).clone(top, repo: "o/other").remote == "other")
+    await #expect(throws: LocalClone.Failure.otherRepo(folder: top.path, repo: "o/gl")) {
+        try await LocalClone(runner: runner).verify(top, repo: "o/gl")
+    }
+    // Each alias is looked up once, as a single argument after `--`.
+    let lookups = runner.calls.filter { $0.tool == "ssh" }.map(\.args)
+    #expect(lookups.allSatisfy { $0.count == 3 && $0[0] == "-G" && $0[1] == "--" })
+}
+
+@Test func sshAliasParsesSCPAndSSHURLsButNotLocalPathsOrOptions() {
+    #expect(LocalClone.sshAlias("git@github-work:o/r.git")! == ("github-work", "o/r.git"))
+    #expect(LocalClone.sshAlias("ssh://git@github-work:2222/o/r")! == ("github-work", "o/r"))
+    #expect(LocalClone.sshAlias("host:/o/r")! == ("host", "/o/r"))
+    #expect(LocalClone.sshAlias("/Users/me/r") == nil)
+    #expect(LocalClone.sshAlias("https://github.com/o/r") == nil)
+    #expect(LocalClone.sshAlias("-oProxyCommand=x:o/r") == nil)
 }
 
 @Test func verifyRejectsAFolderThatIsNotAClone() async {

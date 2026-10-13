@@ -15,7 +15,7 @@ public struct LocalClone: Sendable {
             switch self {
             case .notAClone(let folder): "\(folder) isn't a git clone."
             case .otherRepo(let folder, let repo):
-                "\(folder) has no remote on github.com/\(repo). Remote URLs must point at github.com (SSH host aliases aren't recognized)."
+                "\(folder) has no remote on github.com/\(repo). Remote URLs must point at github.com, directly or through an SSH host alias whose HostName is github.com."
             case .uncommittedChanges(let folder): "\(folder) has uncommitted changes. Commit or stash them, then check out again."
             case .operationInProgress(let folder, let marker):
                 "\(folder) is in the middle of a git operation (\(marker)). Finish or abort it, then check out again."
@@ -51,12 +51,40 @@ public struct LocalClone: Sendable {
         let remotes = try await runner.run("git", ["-C", folder.path, "remote", "-v"])
         guard top.status == 0, remotes.status == 0 else { throw Failure.notAClone(folder: folder.path) }
         // Each line is "<name>\t<url> (fetch|push)". Only the fetch URL counts: that's where the PR is fetched from.
-        let remote = remotes.text.split(separator: "\n").first { line in
-            line.hasSuffix("(fetch)") && line.split(whereSeparator: \.isWhitespace).dropFirst().first
-                .flatMap { ClaudeAgents.repo(fromRemote: String($0)) }?.caseInsensitiveCompare(repo) == .orderedSame
-        }?.split(whereSeparator: \.isWhitespace).first
+        let fetches: [(name: String, url: String)] = remotes.text.split(separator: "\n").compactMap { line in
+            let fields = line.split(whereSeparator: \.isWhitespace)
+            guard line.hasSuffix("(fetch)"), fields.count >= 2 else { return nil }
+            return (String(fields[0]), String(fields[1]))
+        }
+        let isRepo = { (url: String) in ClaudeAgents.repo(fromRemote: url)?.caseInsensitiveCompare(repo) == .orderedSame }
+        var remote = fetches.first { isRepo($0.url) }?.name
+        // An SSH host alias (`git@github-work:o/r`) counts when the SSH config points it at github.com.
+        var hosts: [String: String] = [:]
+        for fetch in fetches where remote == nil {
+            guard let (alias, path) = Self.sshAlias(fetch.url) else { continue }
+            if hosts[alias] == nil { hosts[alias] = await sshHostName(alias) ?? "" }
+            if ["github.com", "ssh.github.com"].contains(hosts[alias]), isRepo("git@github.com:\(path)") { remote = fetch.name }
+        }
         guard let remote else { throw Failure.otherRepo(folder: folder.path, repo: repo) }
-        return (URL(fileURLWithPath: top.text.trimmingCharacters(in: .whitespacesAndNewlines)), String(remote))
+        return (URL(fileURLWithPath: top.text.trimmingCharacters(in: .whitespacesAndNewlines)), remote)
+    }
+
+    /// The host and path of an SSH remote, `[user@]host:path` or `ssh://[user@]host[:port]/path`, when the host
+    /// isn't a plain name git would treat as a local path.
+    static func sshAlias(_ url: String) -> (host: String, path: String)? {
+        let pattern = #"^(?:ssh://(?:[^@/]+@)?([A-Za-z0-9._-]+)(?::\d+)?/|(?:[^@/:]+@)?([A-Za-z0-9._-]+):(?!//))(.+)$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: url, range: NSRange(url.startIndex..., in: url)) else { return nil }
+        let host = [1, 2].compactMap { Range(match.range(at: $0), in: url).map { String(url[$0]) } }.first
+        guard let host, !host.hasPrefix("-"), let path = Range(match.range(at: 3), in: url) else { return nil }
+        return (host, String(url[path]))
+    }
+
+    /// The real host name an SSH alias stands for, from `ssh -G` (reads the SSH config, never connects).
+    func sshHostName(_ alias: String) async -> String? {
+        guard let result = try? await runner.run("ssh", ["-G", "--", alias]), result.status == 0 else { return nil }
+        return result.text.split(separator: "\n").first { $0.hasPrefix("hostname ") }
+            .map { $0.dropFirst("hostname ".count).trimmingCharacters(in: .whitespaces).lowercased() }
     }
 
     /// Checks out the pull request's head branch with `gh pr checkout`, after making sure nothing in the clone can
