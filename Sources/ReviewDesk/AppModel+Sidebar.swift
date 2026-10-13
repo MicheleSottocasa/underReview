@@ -3,7 +3,10 @@ import ReviewDeskCore
 import SwiftUI
 
 extension AppModel {
-    /// Items per folder (nil = Inbox), filtered by state and the sidebar search. Build once per render.
+    /// Expansion keys of the two unfiled sections. To Review keeps the old Inbox key, so its state carries over.
+    static let toReviewKey = "inbox", myPRsKey = "mine"
+
+    /// Items per folder (nil = unfiled: To Review and My PRs), filtered by state and the sidebar search. Build once per render.
     /// Stacks keep only the PRs that pass, and disappear when none do.
     func itemIndex() -> [UUID?: [Item]] {
         let query = filter.trimmingCharacters(in: .whitespaces).lowercased()
@@ -44,8 +47,9 @@ extension AppModel {
             if !isExpanded("folder:\(id)") { toggleExpansion("folder:\(id)") }
             folder = org.folders.first { $0.id == id }?.parentID
         }
-        if org.placements[pr.itemKey] == nil, !isExpanded("inbox") { toggleExpansion("inbox") }
-        let scope = org.placements[pr.itemKey].map { "folder:\($0)" } ?? "inbox"
+        let section = prs.values.contains { $0.itemKey == pr.itemKey && $0.viewerIsAuthor } ? Self.myPRsKey : Self.toReviewKey
+        if org.placements[pr.itemKey] == nil, !isExpanded(section) { toggleExpansion(section) }
+        let scope = org.placements[pr.itemKey].map { "folder:\($0)" } ?? section
         if !isExpanded("repo:\(scope):\(pr.repo)") { toggleExpansion("repo:\(scope):\(pr.repo)") }
         if pr.stack != nil, !isExpanded(pr.itemKey) { toggleExpansion(pr.itemKey) }
     }
