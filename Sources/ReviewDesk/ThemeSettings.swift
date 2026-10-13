@@ -21,6 +21,11 @@ final class ThemeStore {
     /// Colors to draw with; the draft accent is missing while it follows the system accent.
     private(set) var palette: [ThemeKey: Color] = [:]
 
+    /// The colors highlighted diff text is drawn with (text and syntax, light and dark).
+    var ink: [HexColor?] {
+        ([ThemeKey.text, .keyword, .string, .comment, .number, .call]).flatMap { [current.color($0, dark: false), current.color($0, dark: true)] }
+    }
+
     private init() {
         // A screenshot run shows the Default theme and never reads or writes the user's themes.
         selectedID = Screenshots.isRequested ? "" : UserDefaults.standard.string(forKey: "theme") ?? ""
@@ -32,6 +37,7 @@ final class ThemeStore {
                 }
             }
         }
+        if saved[selectedID] == nil { selectedID = "" } // its file is gone or no longer reads
         apply()
     }
 
@@ -59,8 +65,9 @@ final class ThemeStore {
     func importTheme(from url: URL) throws {
         let access = url.startAccessingSecurityScopedResource()
         defer { if access { url.stopAccessingSecurityScopedResource() } }
-        var theme = try Theme.decode(Data(contentsOf: url))
-        theme.name = uniqueName(theme.name)
+        var theme = try Theme.decode(Theme.fileData(url))
+        let name = theme.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        theme.name = uniqueName(name.isEmpty ? url.deletingPathExtension().lastPathComponent : name)
         add(theme)
     }
 
@@ -151,7 +158,8 @@ enum DiffColors {
 struct AppearanceSettings: View {
     @ViewState private var importing = false
     @ViewState private var exporting = false
-    @ViewState private var error: String?
+    @ViewState private var failure: (title: String, message: String)?
+    @ViewState private var confirmingDelete = false
     private var store: ThemeStore { .shared }
 
     var body: some View {
@@ -169,7 +177,7 @@ struct AppearanceSettings: View {
                     Button("Import…") { importing = true }
                     Button("Export…") { exporting = true }
                     Spacer()
-                    Button("Delete", role: .destructive) { store.delete(store.selectedID) }
+                    Button("Delete…", role: .destructive) { confirmingDelete = true }
                         .disabled(store.saved[store.selectedID] == nil)
                     Button("Reset") { store.selectedID = "" }
                         .disabled(store.selectedID.isEmpty)
@@ -192,16 +200,21 @@ struct AppearanceSettings: View {
         .formStyle(.grouped)
         .frame(minHeight: 560)
         .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
-            do { try store.importTheme(from: result.get()) } catch { self.error = error.localizedDescription }
+            do { try store.importTheme(from: result.get()) } catch { failure = ("Couldn't import the theme", error.localizedDescription) }
         }
         .fileExporter(isPresented: $exporting, document: ThemeDocument(theme: store.current.resolved()),
                       contentType: .json, defaultFilename: store.current.name) { result in
-            if case .failure(let error) = result { self.error = error.localizedDescription }
+            if case .failure(let error) = result { failure = ("Couldn't export the theme", error.localizedDescription) }
         }
-        .alert("Couldn't import the theme", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
-            Button("OK") { error = nil }
+        .alert(failure?.title ?? "", isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
+            Button("OK") { failure = nil }
         } message: {
-            Text(error ?? "")
+            Text(failure?.message ?? "")
+        }
+        .confirmationDialog("Delete the theme “\(store.current.name)”?", isPresented: $confirmingDelete) {
+            Button("Delete", role: .destructive) { store.delete(store.selectedID) }
+        } message: {
+            Text("Its file is removed from ReviewDesk. Export it first to keep a copy.")
         }
     }
 
