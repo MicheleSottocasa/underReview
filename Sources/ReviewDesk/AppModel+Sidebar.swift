@@ -5,6 +5,13 @@ import SwiftUI
 extension AppModel {
     /// Expansion keys of the two unfiled sections. To Review keeps the old Inbox key, so its state carries over.
     static let toReviewKey = "inbox", myPRsKey = "mine"
+    /// To Review's group of items with nothing waiting for the viewer: collapsed until they open it.
+    static let reviewedKey = "reviewed"
+
+    /// To Review items with nothing waiting for the viewer, across every PR so filters never move a stack.
+    func reviewedItemKeys() -> Set<String> {
+        Stacks.reviewedItemKeys(Array(prs.values)) { self.viewer(for: $0) }
+    }
 
     /// Items per folder (nil = unfiled: To Review and My PRs), filtered by state and the sidebar search. Build once per render.
     /// Stacks keep only the PRs that pass, and disappear when none do.
@@ -28,7 +35,7 @@ extension AppModel {
 
     func isExpanded(_ key: String) -> Bool {
         if !filter.isEmpty { return true }
-        let openByDefault = !key.hasPrefix("stack:")
+        let openByDefault = !key.hasPrefix("stack:") && key != Self.reviewedKey
         return openByDefault != toggledExpansion.contains(key)
     }
 
@@ -48,8 +55,11 @@ extension AppModel {
             folder = org.folders.first { $0.id == id }?.parentID
         }
         let section = Stacks.viewersItemKeys(Array(prs.values)).contains(pr.itemKey) ? Self.myPRsKey : Self.toReviewKey
-        if org.placements[pr.itemKey] == nil, !isExpanded(section) { toggleExpansion(section) }
-        let scope = org.placements[pr.itemKey].map { "folder:\($0)" } ?? section
+        let group = section == Self.toReviewKey && reviewedItemKeys().contains(pr.itemKey) ? Self.reviewedKey : section
+        if org.placements[pr.itemKey] == nil {
+            for key in Set([section, group]) where !isExpanded(key) { toggleExpansion(key) }
+        }
+        let scope = org.placements[pr.itemKey].map { "folder:\($0)" } ?? group
         if !isExpanded("repo:\(scope):\(pr.repo)") { toggleExpansion("repo:\(scope):\(pr.repo)") }
         if pr.stack != nil, !isExpanded(pr.itemKey) { toggleExpansion(pr.itemKey) }
     }

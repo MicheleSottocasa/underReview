@@ -1,7 +1,7 @@
 import ReviewDeskCore
 import SwiftUI
 
-/// One outline: unfiled PRs split into To Review (others') and My PRs, then Projects, with PRs and stacks inside.
+/// One outline: unfiled PRs split into To Review (others', with a Reviewed group for those waiting for nothing) and My PRs, then Projects, with PRs and stacks inside.
 /// Cmd/Shift-click selects several; right-click acts on the whole selection.
 struct SidebarView: View {
     @Environment(AppModel.self) private var model
@@ -16,9 +16,12 @@ struct SidebarView: View {
         let index = model.itemIndex()
         let unfiled = index[nil] ?? []
         let mine = Stacks.viewersItemKeys(Array(model.prs.values))
+        let reviewed = model.reviewedItemKeys()
+        let others = unfiled.filter { !mine.contains($0.key) }
         List(selection: $model.selection) {
-            unfiledGroup("To Review", systemImage: "tray", key: AppModel.toReviewKey, items: unfiled.filter { !mine.contains($0.key) })
-                .help("Pull requests by others: asked to review, assigned to you or added by link")
+            unfiledGroup("To Review", systemImage: "tray", key: AppModel.toReviewKey, items: others.filter { !reviewed.contains($0.key) },
+                         reviewed: others.filter { reviewed.contains($0.key) })
+                .help("Pull requests by others waiting for you: your review is requested, they changed since your review, or you haven't reviewed them yet")
             unfiledGroup("My PRs", systemImage: "person", key: AppModel.myPRsKey, items: unfiled.filter { mine.contains($0.key) })
                 .help("Pull requests you opened, with the reviews others left on them")
 
@@ -135,9 +138,20 @@ struct SidebarView: View {
         }
     }
 
-    private func unfiledGroup(_ title: String, systemImage: String, key: String, items: [Item]) -> some View {
+    /// `reviewed` items, with nothing waiting for the viewer, go last in their own group.
+    private func unfiledGroup(_ title: String, systemImage: String, key: String, items: [Item], reviewed: [Item] = []) -> some View {
         DisclosureGroup(isExpanded: model.expansion(key)) {
             RepoGroups(items: items, scope: key, folder: nil)
+            if !reviewed.isEmpty {
+                DisclosureGroup(isExpanded: model.expansion(AppModel.reviewedKey)) {
+                    RepoGroups(items: reviewed, scope: AppModel.reviewedKey, folder: nil)
+                } label: {
+                    Label("Reviewed", systemImage: "checkmark.circle")
+                        .foregroundStyle(.secondary)
+                        .badge(openCount(reviewed))
+                        .help("Nothing waiting for you: you reviewed them and nothing changed since, or they're merged or closed")
+                }
+            }
         } label: {
             Label(title, systemImage: systemImage)
                 .badge(openCount(items))
