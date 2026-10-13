@@ -134,6 +134,10 @@ struct ThreadView: View {
     let thread: ReviewThread
     /// Comments already shown as local drafts.
     let hidden: Set<String>
+    /// Folds outdated threads like resolved ones (the Conversation tab; Changes lists them apart).
+    var foldsOutdated = false
+    /// Diff lines above the thread, for views that don't show the diff.
+    var context: [DiffLine] = []
     @ViewState private var expanded = false
     @ViewState private var replying = false
     @ViewState private var reply = ""
@@ -144,12 +148,13 @@ struct ThreadView: View {
         let comments = thread.comments.filter { !hidden.contains($0.id) }
         if !comments.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
-                if thread.isResolved && !expanded {
+                if isFolded {
                     HStack {
-                        Image(systemName: "checkmark.circle").foregroundStyle(.green)
+                        Image(systemName: thread.isResolved ? "checkmark.circle" : "clock.arrow.circlepath")
+                            .foregroundStyle(thread.isResolved ? .green : .orange)
                         VStack(alignment: .leading, spacing: 2) {
                             let resolver = thread.resolvedBy.map { " by \($0 == model.viewer ? "you" : $0)" } ?? ""
-                            Text("Resolved\(resolver) · \(thread.participantList(viewer: model.viewer)) · \(comments.count) comment\(comments.count == 1 ? "" : "s")")
+                            Text("\(thread.isResolved ? "Resolved\(resolver)" : "Outdated") · \(thread.participantList(viewer: model.viewer)) · \(comments.count) comment\(comments.count == 1 ? "" : "s")")
                                 .font(.callout)
                             Text(inlineMarkdown(thread.topic))
                                 .font(.caption)
@@ -163,6 +168,10 @@ struct ThreadView: View {
                     }
                     .padding(10)
                 } else {
+                    if !context.isEmpty {
+                        DiffContext(lines: context)
+                        Divider()
+                    }
                     ForEach(comments) { comment in
                         let mine = comment.author == model.viewer
                         GitHubCommentView(pr: pr, comment: comment, thread: thread) {
@@ -203,10 +212,13 @@ struct ThreadView: View {
         }
     }
 
+    /// Resolved (or outdated, with `foldsOutdated`) and not opened: one summary row.
+    private var isFolded: Bool { (thread.isResolved || foldsOutdated && thread.isOutdated) && !expanded }
+
     /// Started by me: my color. Started by someone else: theirs, tinted when I replied. Dimmed while folded.
     private var ownership: ThreadBox {
         let mine = thread.isStarted(by: model.viewer)
-        let color = (mine ? DiffColors.mine : DiffColors.others).opacity(thread.isResolved && !expanded ? 0.45 : 1)
+        let color = (mine ? DiffColors.mine : DiffColors.others).opacity(isFolded ? 0.45 : 1)
         return ThreadBox(accent: color, bar: color, tint: !mine && thread.hasComment(from: model.viewer) ? color.opacity(0.06) : nil)
     }
 
@@ -283,6 +295,32 @@ struct DraftView: View {
         } else {
             Badge(text: "Pending")
         }
+    }
+}
+
+/// A few diff lines, unified, as on GitHub above a comment.
+struct DiffContext: View {
+    let lines: [DiffLine]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(lines.indices, id: \.self) { index in
+                let line = lines[index]
+                let (sign, color): (String, Color) = switch line.kind {
+                case .added: ("+", .green)
+                case .removed: ("-", .red)
+                default: (" ", .clear)
+                }
+                Text(verbatim: sign + " " + line.text)
+                    .font(.caption.monospaced())
+                    .lineLimit(1)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(color.opacity(0.12))
+            }
+        }
+        .padding(4)
     }
 }
 
