@@ -368,11 +368,12 @@ final class AppModel {
         return await work()
     }
 
-    /// GitHub's diff of the commits pushed since the viewer's review.
+    /// GitHub's comparison of the reviewed commit with the head. A compare page, not the PR's own range view,
+    /// which 404s once a force-push dropped the reviewed commit from the PR.
     /// ponytail: opens GitHub; show it in Changes once it can pick a commit range (#35).
     func openChangesSinceReview(_ pr: PullRequest) {
         guard !blockDemo(pr), let old = pr.viewerReviewedOid,
-              let url = URL(string: "\(pr.url)/files/\(old)..\(pr.headRefOid)") else { return }
+              let url = URL(string: "https://github.com/\(pr.repo)/compare/\(old)..\(pr.headRefOid)") else { return }
         NSWorkspace.shared.open(url)
     }
 
