@@ -146,6 +146,23 @@ public enum Markdown {
         return result
     }
 
+    /// What the links in `text` point to, one line each, for a hover: a followed pull request's number, title and
+    /// state, or the headline of one of `commits` (the PR's, in `repo`). Only what the app already has: nil
+    /// when no link is known.
+    public static func linkSummary(of text: AttributedString, prs: some Sequence<PullRequest>, repo: String?,
+                                   commits: [PRCommit]) -> String? {
+        var seen = Set<URL>(), lines: [String] = []
+        for case let url? in text.runs.map(\.link) where seen.insert(url).inserted {
+            if let pr = PullRequest.linked(by: url, in: prs) {
+                let number = pr.repo.lowercased() == repo?.lowercased() ? "#\(pr.number)" : "\(pr.repo)#\(pr.number)"
+                lines.append("\(number) \(pr.title) (\(pr.isDraft ? "draft" : pr.state.lowercased()))")
+            } else if let repo, let commit = PRCommit.linked(by: url, repo: repo, in: commits) {
+                lines.append("\(commit.abbreviatedOid) \(commit.headline)")
+            }
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+
     /// Whether a link from Markdown (untrusted: anyone can comment) may be handed to the system: web and mail
     /// links only, never `file://` or another app's URL scheme.
     public static func opensOutside(_ url: URL) -> Bool {
