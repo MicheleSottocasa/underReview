@@ -341,6 +341,16 @@ public struct GitHub: Sendable {
         return result
     }
 
+    /// Every PR in `stamps`: the cached copy when GitHub hasn't updated it since, fetched otherwise.
+    /// Cached PRs missing from `stamps` are dropped. Returns the ids that were fetched.
+    public func pullRequests(updatedAt stamps: [String: Date], cached: [String: PullRequest]) async throws
+        -> (prs: [String: PullRequest], fetched: [String]) {
+        var prs = cached.filter { stamps[$0.key] != nil }
+        let fetched = Updates.changed(stamps, cached: prs)
+        for pr in try await pullRequests(ids: fetched) { prs[pr.id] = pr }
+        return (prs, fetched)
+    }
+
     public func detail(id: String) async throws -> PRDetail {
         let query = """
         query($id: ID!) { node(id: $id) { ... on PullRequest {

@@ -290,3 +290,23 @@ import Testing
     #expect(pendingReply.involves("me"))
     #expect(!started.involves("") && !started.isStarted(by: ""))
 }
+
+@Test func refetchesOnlyPullRequestsUpdatedSinceTheCache() async throws {
+    let runner = FakeRunner { _ in data(#"{"nodes":[\#(prNode(id: "PR_2", number: 2))]}"#) }
+    let github = GitHub(runner: runner)
+    var cached = try #require(try await github.pullRequests(ids: ["PR_2"]).first)
+    cached.id = "PR_1"
+    let moved = cached.updatedAt.addingTimeInterval(60)
+
+    let (prs, fetched) = try await github.pullRequests(
+        updatedAt: ["PR_1": cached.updatedAt, "PR_2": moved], cached: ["PR_1": cached, "PR_gone": cached])
+
+    #expect(fetched == ["PR_2"])
+    #expect(runner.calls.last?.variables["ids"] as? [String] == ["PR_2"])
+    #expect(prs.keys.sorted() == ["PR_1", "PR_2"]) // PR_gone left the inbox: dropped, not kept from the cache
+    #expect(prs["PR_1"] == cached)
+
+    let calls = runner.calls.count
+    _ = try await github.pullRequests(updatedAt: ["PR_1": cached.updatedAt], cached: ["PR_1": cached])
+    #expect(runner.calls.count == calls) // nothing changed: no request at all
+}

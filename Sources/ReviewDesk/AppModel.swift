@@ -143,6 +143,7 @@ final class AppModel {
     private let agentLinksFile = JSONFile<[String: AgentLink]>.appSupport("agent-links.json")
     private let riskChecksFile = JSONFile<[String: [String: String]]>.appSupport("risk-checks.json")
     private let followUpsFile = JSONFile<[FollowUpRun]>.appSupport("follow-ups.json")
+    private let prsFile = JSONFile<PRCache>.appSupport("prs.json")
     private var pollTask: Task<Void, Never>?
     private var lastFullRefresh = Date.distantPast
 
@@ -154,7 +155,14 @@ final class AppModel {
         let runner = ProcessRunner(paths: ProcessRunner.discover(Self.tools, overrides: overrides).merging(system) { a, _ in a })
         toolPaths = runner.paths
         github = GitHub(runner: runner)
-        org = orgFile.load(default: Organization())
+        let org = orgFile.load(default: Organization())
+        self.org = org
+        // The last list shows right away, marked by its age in the footer, until the first refresh replaces it.
+        // A screenshot run must never show the user's own pull requests.
+        let cache = Screenshots.isRequested ? PRCache() : prsFile.load(default: PRCache())
+        prs = cache.prs.filter { !org.unfollowed.contains($0.key) }
+        lastRefresh = cache.refreshed
+        lastFullRefresh = cache.fullRefresh
         checkpoints = checkpointFile.load(default: [:])
         reviewDrafts = draftsFile.load(default: ReviewDrafts())
         aiRuns = aiRunsFile.load(default: [])
@@ -237,12 +245,12 @@ final class AppModel {
         inboxIDs = Set(inbox.keys)
         let stamps = inbox.merging(try await github.updatedAt(ids: org.followed.keys.filter { inbox[$0] == nil })) { a, _ in a }
             .filter { !org.unfollowed.contains($0.key) }
-        // ponytail: resolving a thread may not bump updatedAt, so a full pass every 10 min catches it.
+        // ponytail: resolving a thread may not bump updatedAt, so a full pass every 10 min catches it. Its time is
+        // cached with the list, so a relaunch reuses the cache; after switching `gh` account, unchanged PRs keep the
+        // previous account's review state until the next full pass.
         let full = Date.now.timeIntervalSince(lastFullRefresh) > 600
         if full { lastFullRefresh = .now }
-        var fresh = full ? [:] : prs.filter { stamps[$0.key] != nil }
-        var fetched = Updates.changed(stamps, cached: fresh)
-        for pr in try await github.pullRequests(ids: fetched) { fresh[pr.id] = pr }
+        var (fresh, fetched) = try await github.pullRequests(updatedAt: stamps, cached: full ? [:] : prs)
         let members = Stacks.missingMembers(of: Array(fresh.values)).filter { !org.unfollowed.contains($0) }
         fetched += members
         for pr in try await github.pullRequests(ids: members) { fresh[pr.id] = pr }
@@ -261,6 +269,7 @@ final class AppModel {
         refreshError = nil
         await didRefresh(Array(prs.values.filter { !$0.isDemo }))
         save(checkpointFile, checkpoints.filter { !Demo.owns($0.key) })
+        save(prsFile, PRCache(prs: prs.filter { !$0.value.isDemo }, refreshed: lastRefresh, fullRefresh: lastFullRefresh))
         // The open PR's conversation is reloaded only when GitHub says it changed.
         if let id = selectedPRID, prs[id] != nil, details[id] == nil || fetched.contains(id) { await loadDetail(id) }
     }

@@ -34,6 +34,21 @@ extension JSONDecoder {
     }
 }
 
+/// The PR list as of the last successful refresh, so the sidebar fills at launch before GitHub answers.
+/// PR details (conversation, threads, files) aren't cached: they load on demand.
+public struct PRCache: Codable, Sendable {
+    public var prs: [String: PullRequest]
+    /// When the list was fetched, and when every PR was last refetched regardless of its update time.
+    public var refreshed: Date?
+    public var fullRefresh: Date
+
+    public init(prs: [String: PullRequest] = [:], refreshed: Date? = nil, fullRefresh: Date = .distantPast) {
+        self.prs = prs
+        self.refreshed = refreshed
+        self.fullRefresh = fullRefresh
+    }
+}
+
 /// A folder without a parent is a project.
 public struct Folder: Codable, Hashable, Identifiable, Sendable {
     public var id = UUID()
