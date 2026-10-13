@@ -455,12 +455,17 @@ struct FixPreview: View {
                         TextField("Comment posted with it", text: $comment, axis: .vertical).textFieldStyle(.roundedBorder)
                         Text(note(proposal, files: model.files[pr.id] ?? [])).font(.caption).foregroundStyle(.secondary)
                     }
+                    let current = fix.isCurrent(for: model.prs[pr.id] ?? pr)
+                    if !current {
+                        Label(Fix.outdatedMessage, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
+                    }
                     HStack {
                         if proposal.suggestion != nil {
                             Button("Add to Pending Review") {
                                 model.acceptFix(key, suggestion: code, comment: comment, pr: pr)
                                 accepted()
                             }
+                            .disabled(!current)
                             .help("Adds it to your pending review on GitHub as a suggested change: only you see it until you submit the review")
                         }
                         Button("Discard") { model.fixes[key] = nil }.buttonStyle(.link)

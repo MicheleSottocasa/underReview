@@ -321,7 +321,7 @@ extension AppModel {
     func suggestFix(key: String, problem: String, path: String, pr: PullRequest) {
         guard !blockDemo(pr) else { return }
         let engine = preferredEngine(for: pr)
-        fixes[key] = Fix(engine: engine, path: path)
+        fixes[key] = Fix(engine: engine, path: path, head: pr.headRefOid)
         Task {
             do {
                 if files[pr.id] == nil { files[pr.id] = try await github.files(pr.ref) }
@@ -344,6 +344,11 @@ extension AppModel {
     /// Posts the reviewer's (possibly edited) fix to the pending review as a suggested change on its lines.
     func acceptFix(_ key: String, suggestion: String, comment: String, pr: PullRequest) {
         guard !blockDemo(pr), let fix = fixes[key], var proposal = fix.proposal else { return }
+        // Its line numbers belong to the head it was asked on: after a push they may point at other code.
+        guard fix.isCurrent(for: prs[pr.id] ?? pr) else {
+            lastError = Fix.outdatedMessage
+            return
+        }
         (proposal.suggestion, proposal.comment) = (suggestion, comment)
         fixes[key] = nil
         Task { await post(proposal.finding(path: fix.path), pr: pr) }
@@ -466,10 +471,16 @@ struct Explanation {
 struct Fix {
     var engine: AIEngine
     var path: String
+    /// The PR's head when the fix was asked: a push since makes its line numbers unreliable.
+    var head: String
     /// The file's diff the fix was asked on, to show the lines it replaces.
     var patch: String?
     /// Nil while the AI is working.
     var proposal: FixProposal?
+
+    static let outdatedMessage = "The author pushed since this fix was proposed: ask again"
+
+    func isCurrent(for pr: PullRequest) -> Bool { pr.headRefOid == head }
 }
 
 /// The AI prompts, as customized in Settings. An empty override means the built-in default.
