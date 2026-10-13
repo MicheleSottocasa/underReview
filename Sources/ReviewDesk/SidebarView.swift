@@ -259,7 +259,55 @@ struct StateIcon: View {
         case "CLOSED": ("xmark.circle", .red)
         default: ("arrow.triangle.pull", pr.isDraft ? .secondary : pr.needsReReview ? .orange : .green)
         }
-        Image(systemName: symbol).foregroundStyle(color).frame(width: 16)
+        Image(systemName: symbol).foregroundStyle(color).frame(width: 16).help(Legend.state(pr))
+    }
+}
+
+/// What every sidebar icon means, in plain words, for tooltips. Each icon explains itself, and the row's tooltip
+/// repeats all of its icons, since hovering a list row can show the row's tooltip instead of the icon's.
+enum Legend {
+    static func state(_ pr: PullRequest) -> String {
+        switch pr.state {
+        case "MERGED": "Merged (purple): finished. These changes are now part of the main code."
+        case "CLOSED": "Closed (red): stopped without being merged. Nothing more to do."
+        default:
+            pr.isDraft ? "Draft (grey): the author is still working on it, so it isn't ready to review yet."
+            : pr.needsReReview ? "Changed since your review (orange): the author changed the code after you looked at it. Take another look."
+            : "Open (green): waiting for reviews before it can be merged."
+        }
+    }
+
+    static func review(_ status: ReviewStatus) -> [String] {
+        var lines: [String] = []
+        if status.hasPendingReview {
+            lines.append(status.toSend == 0
+                ? "✈ Paper plane: you started a review on GitHub but haven't sent it yet. Only you can see it."
+                : "✈ Paper plane \(status.toSend): you wrote \(status.toSend == 1 ? "a comment" : "\(status.toSend) comments") but haven't sent \(status.toSend == 1 ? "it" : "them") yet. Only you can see \(status.toSend == 1 ? "it" : "them") until you finish your review.")
+        } else if status.changedSinceReview {
+            lines.append("↻ Circle of arrows: the author changed the code after your review. Check whether they fixed what you asked (Follow-up tab).")
+        } else if let submitted = status.submitted {
+            switch submitted {
+            case "APPROVED": lines.append("✓ Green check: you approved it, you said it looks good. All your comments are sent.")
+            case "CHANGES_REQUESTED": lines.append("! Red mark: you asked for changes, something must be fixed before it's merged. All your comments are sent.")
+            case "COMMENTED": lines.append("💬 Blue bubble: you left comments without approving or asking for changes. All of them are sent.")
+            default: break
+            }
+        }
+        if status.awaitingReply > 0 {
+            let n = status.awaitingReply
+            lines.append("↩ Purple arrow \(n): someone answered you in \(n == 1 ? "a conversation" : "\(n) conversations"), and it's your turn to reply.")
+        }
+        return lines
+    }
+
+    static func flags(muted: Bool, requested: Bool) -> [String] {
+        (requested ? ["👁 Eye: someone asked you to review this."] : [])
+            + (muted ? ["🔕 Crossed-out bell: you turned notifications off for this one."] : [])
+    }
+
+    static func row(_ title: String, pr: PullRequest?, review: ReviewStatus, muted: Bool = false, requested: Bool = false) -> String {
+        ([title] + (pr.map { [Legend.state($0)] } ?? []) + Legend.review(review) + flags(muted: muted, requested: requested))
+            .joined(separator: "\n")
     }
 }
 
@@ -284,7 +332,7 @@ struct PRRow: View {
             ReviewIndicator(status: review)
             Indicators(muted: muted, requested: requested)
         }
-        .help(Text(verbatim: "\(pr.repo)#\(pr.number) · \(pr.headRefName) → \(pr.baseRefName)"))
+        .help(Legend.row("\(pr.repo)#\(pr.number) · \(pr.headRefName) → \(pr.baseRefName)", pr: pr, review: review, muted: muted, requested: requested))
     }
 }
 
@@ -297,6 +345,7 @@ struct StackHeader: View {
         let open = item.pullRequests.filter { $0.state == "OPEN" }.count
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: "square.stack.3d.up").foregroundStyle(.blue).frame(width: 16)
+                .help("Stack: pull requests built on top of each other, like a pile. Review them from the bottom (1) up.")
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.pullRequests.first?.title ?? "Stack").lineLimit(1)
                 Text(verbatim: "\(item.pullRequests.count) PRs · \(open) open")
@@ -307,6 +356,8 @@ struct StackHeader: View {
             ReviewIndicator(status: review)
             Indicators(muted: muted, requested: false)
         }
+        .help(Legend.row("Stack: pull requests built on top of each other, like a pile. Review them from the bottom (1) up.\nThe icons add up every pull request in it.",
+                         pr: nil, review: review, muted: muted))
     }
 }
 
@@ -323,7 +374,7 @@ struct StackChildRow: View {
             Spacer(minLength: 0)
             ReviewIndicator(status: review)
         }
-        .help(Text(verbatim: "\(pr.repo)#\(pr.number) by \(pr.author)"))
+        .help(Legend.row("\(pr.repo)#\(pr.number) by \(pr.author) · number \(pr.stackPosition ?? 0) from the bottom of the stack", pr: pr, review: review))
     }
 }
 
@@ -336,28 +387,28 @@ struct ReviewIndicator: View {
             if status.hasPendingReview {
                 Label(status.toSend > 0 ? "\(status.toSend)" : "", systemImage: "paperplane.fill")
                     .foregroundStyle(.orange)
-                    .help(status.toSend == 1 ? "1 review comment not sent yet" : "\(status.toSend) review comments not sent yet")
+                    .help(Legend.review(ReviewStatus(toSend: status.toSend, hasPendingReview: true)).joined())
             } else if status.changedSinceReview {
                 Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(.orange)
-                    .help("New commits since your review: review the changes")
-            } else if let submitted = status.submitted, let (symbol, color, text) = Self.submitted(submitted) {
-                Image(systemName: symbol).foregroundStyle(color).help(text)
+                    .help(Legend.review(ReviewStatus(changedSinceReview: true)).joined())
+            } else if let submitted = status.submitted, let (symbol, color) = Self.submitted(submitted) {
+                Image(systemName: symbol).foregroundStyle(color).help(Legend.review(ReviewStatus(submitted: submitted)).joined())
             }
             if status.awaitingReply > 0 {
                 Label("\(status.awaitingReply)", systemImage: "arrowshape.turn.up.left.fill")
                     .foregroundStyle(.purple)
-                    .help(status.awaitingReply == 1 ? "1 conversation waiting for your reply" : "\(status.awaitingReply) conversations waiting for your reply")
+                    .help(Legend.review(ReviewStatus(awaitingReply: status.awaitingReply)).joined())
             }
         }
         .labelStyle(CompactLabel())
         .font(.caption)
     }
 
-    static func submitted(_ state: String) -> (String, Color, String)? {
+    static func submitted(_ state: String) -> (String, Color)? {
         switch state {
-        case "APPROVED": ("checkmark.circle.fill", .green, "You approved; all your comments are sent")
-        case "CHANGES_REQUESTED": ("exclamationmark.circle.fill", .red, "You requested changes; all your comments are sent")
-        case "COMMENTED": ("text.bubble.fill", .blue, "You reviewed; all your comments are sent")
+        case "APPROVED": ("checkmark.circle.fill", .green)
+        case "CHANGES_REQUESTED": ("exclamationmark.circle.fill", .red)
+        case "COMMENTED": ("text.bubble.fill", .blue)
         default: nil
         }
     }
@@ -379,8 +430,8 @@ struct Indicators: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            if requested { Image(systemName: "eye").help("Your review is requested") }
-            if muted { Image(systemName: "bell.slash").help("Notifications muted") }
+            if requested { Image(systemName: "eye").help(Legend.flags(muted: false, requested: true).joined()) }
+            if muted { Image(systemName: "bell.slash").help(Legend.flags(muted: true, requested: false).joined()) }
         }
         .font(.caption)
         .foregroundStyle(.secondary)

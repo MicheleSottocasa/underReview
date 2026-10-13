@@ -5,6 +5,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+- Every icon in the sidebar explains itself in plain words on hover (open, draft, changed since your review, merged, closed, comments not sent yet, your review, replies waiting for you, review requested, notifications off), and hovering a row explains all of its icons at once.
 ## 0.7.2
 
 - Switching pull request or tab while something loads no longer shows "The operation couldn't be completed (Swift.CancellationError error 1)": cancelled work isn't reported as an error anymore.
