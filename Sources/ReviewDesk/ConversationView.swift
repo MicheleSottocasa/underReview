@@ -179,7 +179,7 @@ struct InlineThread: View {
             HStack(spacing: 6) {
                 Image(systemName: "doc.text").foregroundStyle(.secondary)
                 Text(verbatim: thread.path + (thread.line.map { ":\($0)" } ?? "")).font(.caption.monospaced()).foregroundStyle(.secondary)
-                Button("Show in Changes") { model.openInChanges(thread.path, line: thread.line, pr: pr) }
+                Button("Show in Changes") { model.openInChanges(thread.path, line: thread.line, side: thread.side, pr: pr) }
                     .buttonStyle(.link).font(.caption)
                 if let collapsed {
                     Button { collapsed.wrappedValue.toggle() } label: {

@@ -54,6 +54,8 @@ struct ChangesView: View {
 struct LineTarget: Equatable {
     var path: String
     var line: Int
+    /// Left: `line` is in the old file, as for comments on removed lines.
+    var side = DiffSide.right
     var id = UUID()
 }
 
@@ -439,7 +441,7 @@ struct FileDiffView: View {
                     rendered = RenderedDiff(key, path: file.filename)
                 }
                 .task(id: Pair(target?.id, diff != nil)) {
-                    guard let line = target?.line, let diff, let row = diff.row(for: line) else { return }
+                    guard let target, let diff, let row = diff.row(for: target.line, side: target.side) else { return }
                     await Task.yield() // let the lazy stack lay out before jumping
                     withAnimation { proxy.scrollTo(row, anchor: .top) }
                 }
@@ -686,11 +688,13 @@ struct RenderedDiff {
         rows = key.mode == .split ? Diff.sideBySide(lines) : []
     }
 
-    /// Offset of the first diff row at or after a new-side line, matching the ForEach ids.
-    func row(for line: Int) -> Int? {
-        switch mode {
-        case .unified: lines.firstIndex { $0.kind != .removed && ($0.newLine ?? 0) >= line }
-        case .split: rows.firstIndex { ($0.right?.newLine ?? 0) >= line }
+    /// Offset of the first diff row at or after a line of `side`, matching the ForEach ids.
+    func row(for line: Int, side: DiffSide) -> Int? {
+        switch (mode, side) {
+        case (.unified, .right): lines.firstIndex { $0.kind != .removed && ($0.newLine ?? 0) >= line }
+        case (.unified, .left): lines.firstIndex { $0.kind != .added && ($0.oldLine ?? 0) >= line }
+        case (.split, .right): rows.firstIndex { ($0.right?.newLine ?? 0) >= line }
+        case (.split, .left): rows.firstIndex { ($0.left?.oldLine ?? 0) >= line }
         }
     }
 }
