@@ -17,6 +17,11 @@ struct ChangesView: View {
         VStack(spacing: 0) {
             ReviewBar(pr: pr, mode: $mode)
             Divider()
+            let analysis = model.keyAreasRun(for: pr)
+            if let analysis, analysis.isOutdated(for: pr) {
+                OutdatedAnalysisBanner(pr: pr, run: analysis).padding(8)
+                Divider()
+            }
             if let files = model.files[pr.id] {
                 HSplitView {
                     FileTree(pr: pr, files: files, selection: $selectedPath) { path, line in
@@ -28,7 +33,8 @@ struct ChangesView: View {
                         if let file = files.first(where: { $0.filename == selectedPath }) ?? files.first {
                             // An added or deleted file has one empty side: show it full width.
                             FileDiffView(pr: pr, file: file, mode: ["added", "removed"].contains(file.status) ? .unified : mode, target: target?.path == file.filename ? target : nil,
-                                         keyAreas: model.keyAreasRun(for: pr)?.result.keyAreas.filter { $0.path == file.filename } ?? [])
+                                         keyAreas: analysis?.result.keyAreas.filter { $0.path == file.filename } ?? [],
+                                         keyAreasOutdated: analysis?.isOutdated(for: pr) == true)
                                 .id(file.filename)
                         } else {
                             ContentUnavailableView("No changed files", systemImage: "doc")
@@ -264,9 +270,6 @@ struct FileTree: View {
         if focus.isEmpty {
             Text("Run an AI review to list the key files to read. Files with comments you haven't submitted show here too.")
                 .font(.caption).foregroundStyle(.secondary)
-        } else if let run = model.keyAreasRun(for: pr), run.headRefOid != pr.headRefOid {
-            Label("Key areas are from an older commit; lines may have moved.", systemImage: "exclamationmark.triangle")
-                .font(.caption).foregroundStyle(.orange)
         }
         ForEach(focus, id: \.path) { item in
             if let file = files.first(where: { $0.filename == item.path }) {
@@ -384,6 +387,8 @@ struct FileDiffView: View {
     var target: LineTarget?
     /// Sections the AI asked the reviewer to read, marked in the gutter.
     var keyAreas: [KeyArea] = []
+    /// The key areas come from an older head: their lines may have moved, so they're marked dimmed.
+    var keyAreasOutdated = false
     @AppStorage("wrapLines") private var wrap = false
     @AppStorage("involvedFilter") private var involvedOnly = false
     @ViewState private var composing: ReviewDeskCore.Anchor?
@@ -536,7 +541,9 @@ struct FileDiffView: View {
 
     /// Marks lines inside the AI's key areas.
     private var keyBar: some View {
-        Rectangle().fill(DiffColors.keyArea).frame(width: 3).help("Key area: read this before submitting")
+        Rectangle().fill(DiffColors.keyArea.opacity(keyAreasOutdated ? 0.35 : 1)).frame(width: 3)
+            .help(keyAreasOutdated ? "Key area from an analysis of an older commit: the lines may have moved since"
+                                   : "Key area: read this before submitting")
     }
 
     private func number(_ value: Int?) -> some View {

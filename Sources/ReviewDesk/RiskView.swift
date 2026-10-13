@@ -54,7 +54,6 @@ struct RiskView: View {
                 Group {
                     if let run {
                         Text("Analysis by \(run.engine.name), \(run.date.formatted(.relative(presentation: .named)))")
-                            + Text(run.headRefOid == pr.headRefOid ? "" : " · from an older commit, lines may have moved").foregroundColor(.orange)
                     } else {
                         Text("Let the AI answer each question and point at the code to read, then check them off yourself.")
                     }
@@ -73,6 +72,7 @@ struct RiskView: View {
                   : "\(engine.name) needs its context approved in the AI tab first")
         }
         AIProgress(pr: pr)
+        if let run { OutdatedAnalysisBanner(pr: pr, run: run) }
         if let run, let top = run.result.risks.max(by: { $0.rank < $1.rank }), top.rank > 0, let question = top.riskQuestion {
             Label("Highest risk: \(question.label) (\(top.level))", systemImage: "flame")
                 .font(.callout.bold()).foregroundStyle(RiskBadge.color(top.level))

@@ -120,6 +120,10 @@ final class AppModel {
     /// Comment id → AI explanation. In memory only: a fresh one is a click away.
     var explanations: [String: Explanation] = [:]
     var aiTasks: [String: Task<Void, Never>] = [:]
+    /// "oldHead...newHead" → commits pushed in between, for the stale-analysis banner. In memory only.
+    var commitsSince: [String: Int] = [:]
+    /// A PR whose AI tab should prepare the context as soon as it shows (Re-run with Codex or Ollama).
+    var contextRequest: String?
     /// PR id → the Claude Code session linked to it in AI Review.
     var agentLinks: [String: AgentLink] { didSet { save(agentLinksFile, agentLinks.filter { !Demo.owns($0.key) }) } }
     var runningAgents: [RunningAgent] = []

@@ -28,7 +28,10 @@ import Testing
 @Test func demoAnalysisPointsAtRealLinesAndHasAnOutdatedRun() throws {
     let main = try #require(Demo.pullRequests.first { $0.id == Demo.mainID })
     let files = try #require(Demo.files[Demo.mainID])
-    let runs = Demo.runs
+    let runs = Demo.runs.filter { $0.prID == Demo.mainID }
+    let base = try #require(Demo.pullRequests.first { $0.id == Demo.baseID })
+    let baseRuns = Demo.runs.filter { $0.prID == Demo.baseID }
+    #expect(!baseRuns.isEmpty && baseRuns.allSatisfy { $0.isOutdated(for: base) }) // the stale banner shows on the base PR
     #expect(runs.filter { $0.headRefOid == main.headRefOid }.count == 1)
     #expect(runs.contains { $0.headRefOid != main.headRefOid }) // the outdated state shows too
     let current = try #require(runs.first { $0.headRefOid == main.headRefOid })

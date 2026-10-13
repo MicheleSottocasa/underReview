@@ -30,6 +30,7 @@ struct AIView: View {
                         start()
                     }
                     AIProgress(pr: pr)
+                    if let latest = runs.first { OutdatedAnalysisBanner(pr: pr, run: latest) }
                     if let context {
                         ContextPanel(context: Binding(get: { context }, set: { self.context = $0 }), engine: engine) {
                             model.startReview(pr, engine: engine, context: context)
@@ -54,6 +55,12 @@ struct AIView: View {
             }
         }
         .onChange(of: budget) { _, value in context?.budget = value }
+        .onChange(of: model.contextRequest, initial: true) { _, request in
+            // Re-run from a stale-analysis banner, with Codex or Ollama: show what will be sent.
+            guard request == pr.id else { return }
+            model.contextRequest = nil
+            prepare()
+        }
         .task { await model.refreshAgents() }
     }
 
@@ -329,6 +336,38 @@ struct FindingCard: View {
         case "critical", "high": .red
         case "medium": .orange
         default: .secondary
+        }
+    }
+}
+
+/// Shared by AI Review, Risk and Changes: the analysis they show is from an older head than the PR's.
+struct OutdatedAnalysisBanner: View {
+    @Environment(AppModel.self) private var model
+    let pr: PullRequest
+    let run: AIRun
+
+    var body: some View {
+        if run.isOutdated(for: pr) {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(run.outdatedMessage(for: pr, commits: model.commitsSince["\(run.headRefOid)...\(pr.headRefOid)"]))
+                        .font(.callout.bold())
+                    Text("Findings, risk answers and key areas may point at code that has changed.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Show Changes Since") { model.openChangesSince(run, pr: pr) }
+                    .help("Opens GitHub's comparison of the analysed commit with the current head")
+                Button("Re-run") { model.rerun(run, pr: pr) }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.isAIBusy(pr))
+                    .help("Runs the analysis again with \(run.engine.name)\(run.options.map { ", \($0.model.isEmpty ? "default model" : $0.model.capitalized), \($0.effort) effort" } ?? "")")
+            }
+            .padding(10)
+            .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.orange.opacity(0.4)))
+            .task(id: pr.headRefOid) { await model.loadCommitsSince(run, pr: pr) }
         }
     }
 }
