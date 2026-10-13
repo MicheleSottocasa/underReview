@@ -106,6 +106,31 @@ public enum AIContext {
         return text
     }
 
+    /// Asks for a plain-language explanation of one comment, with the code and conversation around it.
+    public static func explainPrompt(title: String, body: String, path: String?, line: Int?, patch: String?,
+                                     conversation: [Comment], comment: Comment) -> String {
+        var text = """
+        You are helping someone review a GitHub pull request. Explain the comment marked **[EXPLAIN THIS]** below
+        in plain language: what the commenter means, why it matters, and what change (if any) they are asking for.
+        If the comment looks wrong or unclear, say so. Use only the material below; do not run tools or commands.
+        Reply briefly, in Markdown.
+
+        # \(title)
+
+        \(body)
+
+        """
+        if let path {
+            text += "\n## Code: \(path)\(line.map { ", line \($0)" } ?? "")\n"
+            text += patch.map { "```diff\n\($0)\n```\n" } ?? "(diff not available)\n"
+        }
+        text += "\n## Conversation\n"
+        for entry in conversation {
+            text += "\n**\(entry.author)**\(entry.id == comment.id ? " **[EXPLAIN THIS]**" : ""):\n\(entry.body)\n"
+        }
+        return text
+    }
+
     /// Splits findings into ones GitHub will accept inline and general suggestions.
     public static func validate(_ result: ReviewResult, files: [FileChange]) -> (inline: [Finding], general: [Finding]) {
         let anchors = files.reduce(into: Set<Anchor>()) { set, file in

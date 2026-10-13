@@ -46,3 +46,14 @@ private func finding(_ path: String?, _ line: Int?) -> Finding {
     let schema = try JSONSerialization.jsonObject(with: Data(AIContext.schema.utf8)) as? [String: Any]
     #expect(schema?["required"] as? [String] == ["summary", "findings"])
 }
+
+@Test func explainPromptMarksTheCommentAndIncludesTheDiff() {
+    let first = Comment(id: "C1", author: "bob", body: "Why not a set?", createdAt: .now)
+    let reply = Comment(id: "C2", author: "alice", body: "Order matters", createdAt: .now)
+    let prompt = AIContext.explainPrompt(title: "T", body: "B", path: "a.swift", line: 4, patch: "@@ -1 +1 @@\n-x\n+y",
+                                         conversation: [first, reply], comment: first)
+    #expect(prompt.contains("## Code: a.swift, line 4"))
+    #expect(prompt.contains("+y"))
+    #expect(prompt.contains("**bob** **[EXPLAIN THIS]**"))
+    #expect(!prompt.contains("**alice** **[EXPLAIN THIS]**"))
+}

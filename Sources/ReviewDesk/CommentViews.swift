@@ -152,7 +152,7 @@ struct ThreadView: View {
                     .padding(10)
                 } else {
                     ForEach(comments) { comment in
-                        GitHubCommentView(pr: pr, comment: comment) {
+                        GitHubCommentView(pr: pr, comment: comment, thread: thread) {
                             if comment.isPending { Badge(text: "Pending") }
                             if thread.isOutdated && comment.id == comments.first?.id { Badge(text: "Outdated", color: .orange) }
                         }
@@ -351,6 +351,7 @@ struct ReactionBar: View {
 struct GitHubCommentView<Badges: View>: View {
     let pr: PullRequest
     let comment: Comment
+    let thread: ReviewThread
     @ViewBuilder var badges: Badges
     @ViewState private var editing = false
 
@@ -363,12 +364,63 @@ struct GitHubCommentView<Badges: View>: View {
                     Text(commentDateFormatter.string(from: comment.createdAt)).font(.caption).foregroundStyle(.secondary)
                     badges
                     Spacer()
+                    ExplainButton(pr: pr, comment: comment, thread: thread)
                     CommentMenu(pr: pr, comment: comment, editing: $editing)
                 }
                 EditableCommentBody(pr: pr, comment: comment, editing: $editing).font(.callout)
                 ReactionBar(pr: pr, comment: comment).padding(.top, 2)
+                ExplanationView(comment: comment).padding(.top, 4)
             }
         }
         .padding(10)
+    }
+}
+
+// MARK: - AI explanation
+
+/// Asks the AI tab's engine what a comment means.
+struct ExplainButton: View {
+    @Environment(AppModel.self) private var model
+    let pr: PullRequest
+    let comment: Comment
+    var thread: ReviewThread?
+
+    var body: some View {
+        let engine = model.preferredEngine(for: pr)
+        Button { model.explain(comment, thread: thread, pr: pr) } label: { Image(systemName: "sparkles") }
+            .buttonStyle(.borderless)
+            .disabled(model.explanations[comment.id] != nil && model.explanations[comment.id]?.text == nil)
+            .help(engine.isLocal
+                  ? "Explain this comment with \(engine.name)"
+                  : "Explain this comment with \(engine.name). Sends the comment, its conversation and the file's diff to \(engine.name)'s provider.")
+    }
+}
+
+/// The AI's answer under the comment, or a spinner while it's thinking.
+struct ExplanationView: View {
+    @Environment(AppModel.self) private var model
+    let comment: Comment
+
+    var body: some View {
+        if let explanation = model.explanations[comment.id] {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles").foregroundStyle(.purple)
+                    Text(explanation.text == nil ? "Asking \(explanation.engine)…" : "Explanation · \(explanation.engine)")
+                        .font(.caption.bold()).foregroundStyle(.secondary)
+                    if explanation.text == nil { ProgressView().controlSize(.small) }
+                    Spacer()
+                    if explanation.text != nil {
+                        Button { model.explanations[comment.id] = nil } label: { Image(systemName: "xmark") }
+                            .buttonStyle(.borderless)
+                            .help("Hide explanation")
+                    }
+                }
+                if let text = explanation.text { MarkdownText(text).font(.callout) }
+            }
+            .padding(10)
+            .background(Color.purple.opacity(0.07), in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.purple.opacity(0.3)))
+        }
     }
 }

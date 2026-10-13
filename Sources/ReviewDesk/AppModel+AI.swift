@@ -87,4 +87,47 @@ extension AppModel {
     func deleteRun(_ runID: UUID) {
         aiRuns.removeAll { $0.id == runID }
     }
+
+    func engine(named name: String, ollamaModel: String, for pr: PullRequest) -> AIEngine {
+        switch name {
+        case "linked" where agentLinks[pr.id] != nil: agentLinks[pr.id]!.engine
+        case "codex": .codex
+        case "ollama": .ollama(model: ollamaModel)
+        default: .claudeCode
+        }
+    }
+
+    /// The engine picked in the AI tab, so every AI action uses the same one.
+    func preferredEngine(for pr: PullRequest) -> AIEngine {
+        let defaults = UserDefaults.standard
+        return engine(named: defaults.string(forKey: "aiEngine") ?? "claude",
+                      ollamaModel: defaults.string(forKey: "ollamaModel") ?? "qwen2.5-coder", for: pr)
+    }
+
+    /// Asks the AI what a comment means. Sends the PR description, the conversation and, for inline
+    /// comments, that file's diff to the engine's provider (nothing leaves the Mac with Ollama).
+    func explain(_ comment: Comment, thread: ReviewThread?, pr: PullRequest) {
+        let engine = preferredEngine(for: pr)
+        explanations[comment.id] = Explanation(engine: engine.name)
+        Task {
+            do {
+                if thread != nil, files[pr.id] == nil { files[pr.id] = try await github.files(pr.ref) }
+                let conversation = thread?.comments ?? Array((details[pr.id]?.comments ?? []).prefix { $0.id != comment.id }.suffix(10) + [comment])
+                let prompt = AIContext.explainPrompt(
+                    title: pr.title, body: details[pr.id]?.body ?? "", path: thread?.path, line: thread?.line,
+                    patch: thread.flatMap { thread in files[pr.id]?.first { $0.filename == thread.path }?.patch },
+                    conversation: conversation, comment: comment)
+                explanations[comment.id]?.text = try await reviewer.ask(engine, prompt: prompt)
+            } catch {
+                explanations[comment.id] = nil
+                lastError = "\(engine.name): \(error.localizedDescription)"
+            }
+        }
+    }
+}
+
+struct Explanation {
+    var engine: String
+    /// Nil while the engine is still answering.
+    var text: String?
 }

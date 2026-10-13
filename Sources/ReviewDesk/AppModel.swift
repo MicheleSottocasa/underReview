@@ -78,6 +78,8 @@ final class AppModel {
     var aiRuns: [AIRun] { didSet { save(aiRunsFile, aiRuns) } }
     /// PR id → what the AI is doing right now.
     var aiStatus: [String: String] = [:]
+    /// Comment id → AI explanation. In memory only: a fresh one is a click away.
+    var explanations: [String: Explanation] = [:]
     var aiTasks: [String: Task<Void, Never>] = [:]
     /// PR id → the Claude Code session linked to it in AI Review.
     var agentLinks: [String: AgentLink] { didSet { save(agentLinksFile, agentLinks) } }

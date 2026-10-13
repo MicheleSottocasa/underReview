@@ -93,7 +93,10 @@ struct TimelineCard: View {
                     Text(action).foregroundStyle(accent ?? .secondary)
                     if let date { Text(date.formatted(.relative(presentation: .named))).foregroundStyle(.secondary) }
                     Spacer()
-                    if let comment, let pr { CommentMenu(pr: pr, comment: comment, editing: $editing) }
+                    if let comment, let pr {
+                        ExplainButton(pr: pr, comment: comment)
+                        CommentMenu(pr: pr, comment: comment, editing: $editing)
+                    }
                 }
                 .font(.callout)
                 .padding(.horizontal, 12)
@@ -104,6 +107,7 @@ struct TimelineCard: View {
                     VStack(alignment: .leading, spacing: 8) {
                         EditableCommentBody(pr: pr, comment: comment, editing: $editing)
                         ReactionBar(pr: pr, comment: comment)
+                        ExplanationView(comment: comment)
                     }
                     .padding(12)
                 } else {

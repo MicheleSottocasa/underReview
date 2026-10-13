@@ -94,3 +94,19 @@ private let subscribed = ok(#"{"loggedIn":true,"authMethod":"claude.ai"}"#)
     #expect(call.cwd?.path == "/Users/me/lexroom/lexroom-backend")
     #expect(engine.name == "Claude Code · fix-matters" && !engine.isLocal)
 }
+
+@Test func askReturnsPlainTextWithoutASchema() async throws {
+    let runner = FakeRunner { call in
+        call.args.first == "auth" ? subscribed : ok(#"{"type":"result","is_error":false,"result":"  It means X.\n"}"#)
+    }
+    #expect(try await AIReviewer(runner: runner).ask(.claudeCode, prompt: "p") == "It means X.")
+    let args = try #require(runner.calls.last?.args)
+    #expect(!args.contains("--json-schema"))
+    #expect(args[args.firstIndex(of: "--tools")! + 1] == "")
+}
+
+@Test func askWithOllamaSkipsJSONFormat() async throws {
+    let runner = FakeRunner { call in call.args.first == "list" ? ok("") : ok("Plain answer") }
+    #expect(try await AIReviewer(runner: runner).ask(.ollama(model: "m"), prompt: "p") == "Plain answer")
+    #expect(runner.calls.last?.args == ["run", "m", "--hidethinking"])
+}

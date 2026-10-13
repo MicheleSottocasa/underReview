@@ -88,6 +88,19 @@ public struct AIReviewer: Sendable {
     }
 
     public func review(_ engine: AIEngine, prompt: String, timeout: Duration = .seconds(600)) async throws -> ReviewResult {
+        try Self.decode(try await run(engine, prompt: prompt, schema: AIContext.schema, timeout: timeout))
+    }
+
+    /// A free-text answer in Markdown, under the same restrictions as a review.
+    public func ask(_ engine: AIEngine, prompt: String, timeout: Duration = .seconds(300)) async throws -> String {
+        let answer = String(decoding: try await run(engine, prompt: prompt, schema: nil, timeout: timeout), as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !answer.isEmpty else { throw AIError.invalidOutput("empty answer") }
+        return answer
+    }
+
+    /// Runs the CLI and returns its answer: JSON matching `schema` when one is given, otherwise text.
+    private func run(_ engine: AIEngine, prompt: String, schema: String?, timeout: Duration) async throws -> Data {
         try await checkAuth(engine)
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("reviewdesk-ai-\(UUID().uuidString)")
         let workdir = dir.appendingPathComponent("empty")
@@ -98,10 +111,10 @@ public struct AIReviewer: Sendable {
         switch engine {
         case .claudeCode:
             let result = try await runner.run("claude", [
-                "-p", "--output-format", "json", "--json-schema", AIContext.schema,
+                "-p", "--output-format", "json",
                 "--tools", "", "--strict-mcp-config", "--setting-sources", "",
                 "--disable-slash-commands", "--no-session-persistence",
-            ], stdin: input, cwd: workdir, timeout: timeout)
+            ] + Self.claudeSchema(schema), stdin: input, cwd: workdir, timeout: timeout)
             return try Self.parseClaude(result)
 
         case .claudeSession(let id, _, let cwd):
@@ -109,31 +122,38 @@ public struct AIReviewer: Sendable {
             // session, and running in its folder is how Claude Code finds the session. Tools stay off,
             // so the user's checkout is only ever read through the context we send.
             let result = try await runner.run("claude", [
-                "-p", "--resume", id, "--fork-session", "--no-session-persistence",
-                "--output-format", "json", "--json-schema", AIContext.schema,
+                "-p", "--resume", id, "--fork-session", "--no-session-persistence", "--output-format", "json",
                 "--tools", "", "--strict-mcp-config", "--setting-sources", "", "--disable-slash-commands",
-            ], stdin: input, cwd: URL(fileURLWithPath: cwd), timeout: timeout)
+            ] + Self.claudeSchema(schema), stdin: input, cwd: URL(fileURLWithPath: cwd), timeout: timeout)
             return try Self.parseClaude(result)
 
         case .codex:
-            let schema = dir.appendingPathComponent("schema.json"), output = dir.appendingPathComponent("last.json")
-            try Data(AIContext.schema.utf8).write(to: schema)
+            let output = dir.appendingPathComponent("last.json")
+            var schemaArgs: [String] = []
+            if let schema {
+                let file = dir.appendingPathComponent("schema.json")
+                try Data(schema.utf8).write(to: file)
+                schemaArgs = ["--output-schema", file.path]
+            }
             let result = try await runner.run("codex", [
                 "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral",
                 "--ignore-user-config", "--ignore-rules", "--disable", "hooks", "--disable", "plugins",
-                "--output-schema", schema.path, "-o", output.path, "-C", workdir.path, "-",
-            ], stdin: input, cwd: workdir, timeout: timeout)
+            ] + schemaArgs + ["-o", output.path, "-C", workdir.path, "-"], stdin: input, cwd: workdir, timeout: timeout)
             guard result.status == 0 else { throw AIError.failed(Self.tail(result.stderr)) }
-            return try Self.decode((try? Data(contentsOf: output)) ?? Data())
+            return (try? Data(contentsOf: output)) ?? Data()
 
         case .ollama(let model):
-            let result = try await runner.run("ollama", ["run", model, "--format", "json", "--hidethinking"], stdin: input, cwd: workdir, timeout: timeout)
+            let format = schema == nil ? [] : ["--format", "json"]
+            let result = try await runner.run("ollama", ["run", model] + format + ["--hidethinking"], stdin: input, cwd: workdir, timeout: timeout)
             guard result.status == 0 else { throw AIError.failed(Self.tail(result.stderr)) }
-            return try Self.decode(result.stdout)
+            return result.stdout
         }
     }
 
-    static func parseClaude(_ result: CommandResult) throws -> ReviewResult {
+    static func claudeSchema(_ schema: String?) -> [String] { schema.map { ["--json-schema", $0] } ?? [] }
+
+    /// The structured output as JSON when a schema was used, otherwise the answer text.
+    static func parseClaude(_ result: CommandResult) throws -> Data {
         guard let json = (try? JSONSerialization.jsonObject(with: result.stdout)) as? [String: Any] else {
             throw AIError.failed(tail(result.stderr.isEmpty ? result.text : result.stderr))
         }
@@ -142,9 +162,9 @@ public struct AIReviewer: Sendable {
             throw AIError.failed(json["result"] as? String ?? tail(result.stderr))
         }
         if let structured = json["structured_output"] {
-            return try decode(JSONSerialization.data(withJSONObject: structured))
+            return try JSONSerialization.data(withJSONObject: structured)
         }
-        return try decode(Data((json["result"] as? String ?? "").utf8))
+        return Data((json["result"] as? String ?? "").utf8)
     }
 
     static func decode(_ data: Data) throws -> ReviewResult {

@@ -10,14 +10,7 @@ struct AIView: View {
     @ViewState private var context: ReviewContext?
     @ViewState private var preparing = false
 
-    private var engine: AIEngine {
-        switch engineName {
-        case "linked" where model.agentLinks[pr.id] != nil: model.agentLinks[pr.id]!.engine
-        case "codex": .codex
-        case "ollama": .ollama(model: ollamaModel)
-        default: .claudeCode
-        }
-    }
+    private var engine: AIEngine { model.engine(named: engineName, ollamaModel: ollamaModel, for: pr) }
 
     var body: some View {
         let status = model.aiStatus[pr.id]
