@@ -9,7 +9,9 @@ struct RiskView: View {
 
     var body: some View {
         let run = model.keyAreasRun(for: pr)
-        let areas = run?.result.keyAreas ?? []
+        // The same reading list Changes › Focus walks, grouped here by question.
+        let reading = Focus.readingList(model.focus(for: pr))
+        let areas = reading.enumerated().map { ListedArea(number: $0.offset + 1, of: reading.count, index: $0.element.index, area: $0.element.area) }
         let notes = model.details[pr.id].flatMap { Risk.notes(in: $0.body) }
         let changed = model.files[pr.id]?.map(\.filename) ?? []
         ScrollView {
@@ -19,15 +21,15 @@ struct RiskView: View {
                 ForEach(Array(RiskQuestion.allCases.enumerated()), id: \.element) { index, question in
                     QuestionCard(pr: pr, number: index + 1, question: question, assessment: run?.result.risk(question),
                                  notes: notes?.byQuestion[question] ?? [],
-                                 areas: areas.filter { $0.question == question },
-                                 unflaggedDataFiles: question == .data && run != nil && !areas.contains { $0.question == .data }
+                                 areas: areas.filter { $0.area.question == question },
+                                 unflaggedDataFiles: question == .data && run != nil && !areas.contains { $0.area.question == .data }
                                      ? Risk.dataFiles(changed) : [])
                 }
-                let others = areas.filter { $0.question == nil }
+                let others = areas.filter { $0.area.question == nil }
                 if !others.isEmpty {
                     card {
                         Text("Other key areas").font(.headline)
-                        ForEach(Array(others.enumerated()), id: \.offset) { _, area in AreaRow(pr: pr, area: area) }
+                        ForEach(others, id: \.number) { AreaRow(pr: pr, listed: $0) }
                     }
                 }
                 Text("Formatting, naming and \"I'd have done it differently\" are left to linters and taste.")
@@ -120,7 +122,7 @@ private struct QuestionCard: View {
     let question: RiskQuestion
     let assessment: RiskAssessment?
     let notes: [String]
-    let areas: [KeyArea]
+    let areas: [ListedArea]
     let unflaggedDataFiles: [String]
 
     var body: some View {
@@ -158,7 +160,7 @@ private struct QuestionCard: View {
                     }
                 }
             }
-            ForEach(Array(areas.enumerated()), id: \.offset) { _, area in AreaRow(pr: pr, area: area) }
+            ForEach(areas, id: \.number) { AreaRow(pr: pr, listed: $0) }
             if areas.isEmpty && model.keyAreasRun(for: pr) != nil && unflaggedDataFiles.isEmpty {
                 Text("No key areas for this question.").font(.caption).foregroundStyle(.tertiary)
             }
@@ -190,25 +192,45 @@ struct RiskBadge: View {
     }
 }
 
-/// A key area: where it is and why, opening Changes at its lines.
+/// A key area and its place in the reading list (`index` is its position in its file's areas).
+private struct ListedArea {
+    let number: Int
+    let of: Int
+    let index: Int
+    let area: KeyArea
+}
+
+/// A key area: where it is and why, with its read mark (shared with Changes), opening it in Changes › Focus.
 private struct AreaRow: View {
     @Environment(AppModel.self) private var model
     let pr: PullRequest
-    let area: KeyArea
+    let listed: ListedArea
 
     var body: some View {
-        Button { model.openInChanges(area.path, line: area.startLine, pr: pr) } label: {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: "\(area.path) · \(FileTree.lines(area))").font(.caption.monospaced()).foregroundStyle(Color.accentColor)
-                Text(inlineMarkdown(area.reason)).font(.callout).multilineTextAlignment(.leading)
+        let area = listed.area
+        let read = model.isRead(area, pr: pr)
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Button { model.openInChanges(area, index: listed.index, pr: pr) } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        if read { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
+                        Text(verbatim: "\(listed.number) of \(listed.of) · \(area.path) · \(FileTree.lines(area))")
+                            .foregroundStyle(Color.accentColor)
+                    }
+                    .font(.caption.monospaced())
+                    Text(inlineMarkdown(area.reason)).font(.callout).multilineTextAlignment(.leading)
+                        .foregroundStyle(read ? .secondary : .primary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(8)
-            .background(Color.yellow.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .help("Open in Changes › Focus (number \(listed.number) in its reading order)")
+            Button(read ? "Mark as Unread" : "Mark as Read") { model.setRead(area, read: !read, pr: pr) }
+                .controlSize(.small)
         }
-        .buttonStyle(.plain)
-        .help("Open in Changes")
+        .padding(8)
+        .background(Color.yellow.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
     }
 }
 

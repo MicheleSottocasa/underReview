@@ -46,6 +46,17 @@ import Testing
     #expect(step("elsewhere", forward: false) == "c#2")
 }
 
+@Test func readingListFollowsTheFocusListAndIndexesAreasWithinTheirFile() {
+    let a1 = KeyArea(path: "a", startLine: 1, reason: "", risk: "scale"), a2 = KeyArea(path: "a", startLine: 9, reason: "", risk: "data")
+    let b1 = KeyArea(path: "b", reason: "whole file", risk: "data")
+    let files = [FocusFile(path: "a", areas: [a1, a2], pendingComments: 0), FocusFile(path: "c", areas: [], pendingComments: 2),
+                 FocusFile(path: "b", areas: [b1], pendingComments: 0)]
+    let list = Focus.readingList(files)
+    #expect(list.map { "\($0.path)#\($0.index)" } == ["a#0", "a#1", "b#0"])
+    // Risk groups the same list by question, so its areas keep their reading positions.
+    #expect(list.indices.filter { list[$0].area.question == .data } == [1, 2])
+}
+
 @Test func readKeysNameTheFileLinesAndRisk() {
     #expect(KeyArea(path: "a.swift", startLine: 3, endLine: 9, reason: "x").readKey == "a.swift:3-9:")
     #expect(KeyArea(path: "a.swift", startLine: 3, endLine: 9, reason: "reworded").readKey == "a.swift:3-9:")
