@@ -451,7 +451,7 @@ struct FileDiffView: View {
                 .background(DiffColors.editor)
                 .onHover { hScroll.hovering = $0 }
                 .onGeometryChange(for: CGFloat.self, of: \.size.width) { hScroll.paneWidth = $0 }
-                .onChange(of: Pair(wrap ? 0 : CGFloat(diff?.longest ?? 0) * HorizontalScroll.charWidth + 32, mode), initial: true) { _, new in
+                .onChange(of: Pair(wrap ? 0 : (diff?.widest ?? 0) + 32, mode), initial: true) { _, new in
                     hScroll.codeWidth = new.a
                     hScroll.columns = new.b == .split ? 2 : 1
                 }
@@ -702,8 +702,8 @@ struct RenderedDiff {
     /// Empty in unified mode.
     var rows: [DiffRow]
     var text: [DiffLine: AttributedString]
-    /// Characters in the longest line, a tab counted as 4.
-    var longest: Int
+    /// The widest line in points, with the diff's font.
+    var widest: CGFloat
 
     @MainActor init(_ key: Key, path: String) {
         let lines = Diff.parse(key.patch)
@@ -714,8 +714,19 @@ struct RenderedDiff {
         }
         (self.key, self.lines, self.text) = (key, lines, text)
         changes = Diff.changes(lines)
-        longest = lines.map { $0.text.count + $0.text.count { $0 == "\t" } * 3 }.max() ?? 0
+        widest = Self.widest(lines.map(\.text))
         rows = key.mode == .split ? Diff.sideBySide(lines) : []
+    }
+
+    /// A character is one to 2.5 columns wide (CJK about 1.6, emoji 2.3, a tab up to 4), so only the lines that
+    /// could be the widest are measured, not every line of a big file.
+    static func widest(_ texts: [String]) -> CGFloat {
+        let font = NSFont.monospacedSystemFont(ofSize: 12.5, weight: .regular)
+        let column = ("M" as NSString).size(withAttributes: [.font: font]).width
+        let tabs = texts.map { text in text.count { $0 == "\t" } }
+        let atLeast = zip(texts, tabs).map { CGFloat($0.count - $1) * column }.max() ?? 0
+        return zip(texts, tabs).filter { CGFloat($0.count + $1 * 3) * 2.5 * column >= atLeast }
+            .map { NSAttributedString(string: $0.0, attributes: [.font: font]).size().width }.max() ?? 0
     }
 
     /// Offset of the first diff row at or after a line of `side`, matching the ForEach ids.
