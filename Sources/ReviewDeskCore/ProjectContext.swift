@@ -42,34 +42,44 @@ public enum ProjectContext {
     /// `.env`…) are skipped, and binaries and files over `maxFileBytes` are listed as left out with the reason.
     public static func readLocal(_ location: String) -> [ContextFile] {
         let fileManager = FileManager.default
-        let root = URL(fileURLWithPath: (location as NSString).expandingTildeInPath).standardizedFileURL.resolvingSymlinksInPath()
-        let shown = (root.path as NSString).abbreviatingWithTildeInPath
+        let expanded = (location as NSString).expandingTildeInPath
+        // Names use the path as chosen; containment uses real paths on both sides (`/tmp` is `/private/tmp`).
+        let shown = ((expanded as NSString).standardizingPath as NSString).abbreviatingWithTildeInPath
         var isFolder: ObjCBool = false
-        guard fileManager.fileExists(atPath: root.path, isDirectory: &isFolder) else {
+        guard let root = realPath(expanded), fileManager.fileExists(atPath: root, isDirectory: &isFolder) else {
             return [ContextFile(path: shown, content: nil, included: false, excludedReason: "Not found")]
         }
-        guard isFolder.boolValue else { return [entry(root, shown: shown)] }
-        let urls = (fileManager.enumerator(at: root, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles, .skipsPackageDescendants])?
-            .compactMap { $0 as? URL } ?? [])
-            .sorted { $0.path < $1.path }
+        guard isFolder.boolValue else { return [entry(URL(fileURLWithPath: root), shown: shown)] }
+        let enumerator = fileManager.enumerator(atPath: root)
         var files: [ContextFile] = []
         var skipped = 0
-        for url in urls {
-            let target = url.resolvingSymlinksInPath()
-            let name = shown + "/" + url.path.dropFirst(root.path.count + 1)
-            guard target.path.hasPrefix(root.path + "/") else {
+        while let relative = enumerator?.nextObject() as? String {
+            if relative.split(separator: "/").contains(where: { $0.hasPrefix(".") }) {
+                if enumerator?.fileAttributes?[.type] as? FileAttributeType == .typeDirectory { enumerator?.skipDescendants() }
+                continue // hidden files and folders are never read
+            }
+            let name = shown + "/" + relative
+            guard let target = realPath(root + "/" + relative), target.hasPrefix(root + "/") else {
                 files.append(ContextFile(path: name, content: nil, included: false, excludedReason: "Links outside the folder"))
                 continue
             }
-            guard (try? fileManager.attributesOfItem(atPath: target.path)[.type] as? FileAttributeType) == .typeRegular else { continue }
+            guard (try? fileManager.attributesOfItem(atPath: target)[.type] as? FileAttributeType) == .typeRegular else { continue }
             guard files.count < maxFiles else { skipped += 1; continue }
-            files.append(entry(target, shown: name))
+            files.append(entry(URL(fileURLWithPath: target), shown: name))
         }
+        files.sort { $0.path < $1.path }
         if skipped > 0 {
             files.append(ContextFile(path: shown + "/…", content: nil, included: false,
                                      excludedReason: "\(skipped) more file\(skipped == 1 ? "" : "s") not read (limit \(maxFiles))"))
         }
         return files
+    }
+
+    /// The canonical path, with every symbolic link resolved (`/tmp/x` is `/private/tmp/x`); nil when it doesn't exist.
+    static func realPath(_ path: String) -> String? {
+        guard let resolved = realpath(path, nil) else { return nil }
+        defer { free(resolved) }
+        return String(cString: resolved)
     }
 
     /// One regular file: its text, or why it's left out. Reads at most `maxFileBytes + 1` bytes, whatever its size claims.
@@ -142,12 +152,13 @@ public enum ProjectContext {
     /// disk, the home folder or a folder above it, and never a path whose characters would change the meaning of the
     /// permission rules that hide its hidden files (`*`, `?`, `[`, `]`, `!`, `#`, `\`, `,`, parentheses).
     public static func folders(_ sources: [ContextSource], home: String = NSHomeDirectory()) -> [String] {
-        let home = URL(fileURLWithPath: home).standardizedFileURL.resolvingSymlinksInPath().path
+        let home = realPath(home) ?? home
         let special = CharacterSet(charactersIn: "*?[]!#\\,()")
         return sources.filter { $0.kind == .local }.compactMap { source in
-            let path = URL(fileURLWithPath: (source.location as NSString).expandingTildeInPath).standardizedFileURL.resolvingSymlinksInPath().path
+            // The real path, as Claude Code matches its permission rules against it (`/private/tmp`, not `/tmp`).
             var isFolder: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: path, isDirectory: &isFolder), isFolder.boolValue,
+            guard let path = realPath((source.location as NSString).expandingTildeInPath),
+                  FileManager.default.fileExists(atPath: path, isDirectory: &isFolder), isFolder.boolValue,
                   path != "/", path != home, !home.hasPrefix(path + "/"), path.rangeOfCharacter(from: special) == nil else { return nil }
             return path
         }
