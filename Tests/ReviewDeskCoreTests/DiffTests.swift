@@ -90,3 +90,15 @@ private let patch = """
     #expect(Diff.index(ofNewLines: 30...41, in: rows).flatMap { rows[$0].right?.text } == "new")
     #expect(Diff.index(ofNewLines: 20...30, in: rows) == nil)
 }
+
+@Test func commentAnchorsMapToTheirDiffRows() {
+    let lines = Diff.parse(patch)
+    let rows = Diff.sideBySide(lines)
+    let removed = Anchor(path: "a.swift", line: 11, side: .left), added = Anchor(path: "a.swift", line: 11)
+    #expect(Diff.index(of: removed, in: lines) == 2)
+    #expect(Diff.index(of: added, in: lines) == 3)
+    // Side by side, the removed and the added line 11 share a row.
+    #expect(Diff.index(of: removed, in: rows) == Diff.index(of: added, in: rows))
+    #expect(Diff.index(of: Anchor(path: "a.swift", line: 13), in: rows).flatMap { rows[$0].right?.text } == "return a")
+    #expect(Diff.index(of: Anchor(path: "a.swift", line: 30), in: lines) == nil) // outdated: no longer in the diff
+}
