@@ -104,6 +104,7 @@ struct SymbolText: View {
 /// Where a ⌘-clicked name is defined: kind, file and line, whether this PR changes it, the declaration and its docs.
 struct DefinitionPopover: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openURL) private var openURL
     let pr: PullRequest
     let name: String
     /// The file the name was clicked in.
@@ -218,11 +219,11 @@ struct DefinitionPopover: View {
         let definition = match.definition
         if match.inDiff {
             close()
-            model.changesTarget = LineTarget(path: definition.path, line: definition.line)
+            model.openInChanges(definition.path, line: definition.line, pr: pr)
         } else if let url = URL(string: "https://github.com/\(pr.repo)/blob/\(pr.headRefOid)/"
                                 + (definition.path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? definition.path)
                                 + "#L\(definition.line)") {
-            NSWorkspace.shared.open(url)
+            openURL(url)
         }
     }
 }
