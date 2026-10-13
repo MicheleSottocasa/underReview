@@ -164,10 +164,13 @@ struct ThreadView: View {
                     .padding(10)
                 } else {
                     ForEach(comments) { comment in
+                        let mine = comment.author == model.viewer
                         GitHubCommentView(pr: pr, comment: comment, thread: thread) {
+                            if mine { Badge(text: "You", color: DiffColors.mine) }
                             if comment.isPending { Badge(text: "Pending") }
                             if thread.isOutdated && comment.id == comments.first?.id { Badge(text: "Outdated", color: .orange) }
                         }
+                        .background(mine ? DiffColors.mine.opacity(0.07) : .clear)
                         Divider().padding(.leading, 42)
                     }
                     Group {
@@ -196,8 +199,15 @@ struct ThreadView: View {
                     .padding(10)
                 }
             }
-            .modifier(ThreadBox())
+            .modifier(ownership)
         }
+    }
+
+    /// Started by me: my color. Started by someone else: theirs, tinted when I replied. Dimmed while folded.
+    private var ownership: ThreadBox {
+        let mine = thread.isStarted(by: model.viewer)
+        let color = (mine ? DiffColors.mine : DiffColors.others).opacity(thread.isResolved && !expanded ? 0.45 : 1)
+        return ThreadBox(accent: color, bar: color, tint: !mine && thread.hasComment(from: model.viewer) ? color.opacity(0.06) : nil)
     }
 
     /// GitHub's Resolve / Unresolve conversation, when the viewer is allowed.
@@ -278,9 +288,17 @@ struct DraftView: View {
 
 struct ThreadBox: ViewModifier {
     var accent: Color?
+    /// A bar on the leading edge, and a background tint.
+    var bar: Color?
+    var tint: Color?
 
     func body(content: Content) -> some View {
         content
+            .padding(.leading, bar == nil ? 0 : 3)
+            .background(tint ?? .clear, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(alignment: .leading) {
+                if let bar { UnevenRoundedRectangle(topLeadingRadius: 8, bottomLeadingRadius: 8).fill(bar).frame(width: 4) }
+            }
             .background(.background, in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(accent?.opacity(0.6) ?? Color.secondary.opacity(0.3)))
             .padding(.vertical, 6)

@@ -171,6 +171,20 @@ public struct ReviewThread: Hashable, Identifiable, Sendable {
         return names.count > limit ? "\(shown) +\(names.count - limit)" : shown
     }
 
+    /// The viewer wrote the first comment.
+    public func isStarted(by viewer: String) -> Bool { !viewer.isEmpty && comments.first?.author == viewer }
+
+    /// The viewer wrote any comment, pending ones (a reply not submitted yet) included.
+    public func hasComment(from viewer: String) -> Bool { !viewer.isEmpty && comments.contains { $0.author == viewer } }
+
+    /// The viewer started it, replied in it (also with a pending reply) or is `@mentioned` in it.
+    public func involves(_ viewer: String) -> Bool {
+        guard !viewer.isEmpty else { return false }
+        let mention = "(?<![\\w-])@\(NSRegularExpression.escapedPattern(for: viewer))(?![\\w-])"
+        return hasComment(from: viewer)
+            || comments.contains { $0.body.range(of: mention, options: [.regularExpression, .caseInsensitive]) != nil }
+    }
+
     /// The first non-blank line of the first comment, code fences skipped: what the thread is about, at a glance.
     public var topic: String {
         let lines = (comments.first?.body ?? "").split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }

@@ -701,6 +701,9 @@ enum DiffColors {
     static let modified = dynamic(dark: 0x283A4A, light: 0xDBE8FB)
     static let added = dynamic(dark: 0x294436, light: 0xDCF0DC)
     static let removed = dynamic(dark: 0x3C3F44, light: 0xE6E7EA)
+    /// Review threads and comments by me, and threads started by others: neither the draft accent nor the stale orange.
+    static let mine = dynamic(dark: 0x4DB6AC, light: 0x00897B)
+    static let others = dynamic(dark: 0xB388EB, light: 0x8E44AD)
 
     enum Side { case left, right }
 
