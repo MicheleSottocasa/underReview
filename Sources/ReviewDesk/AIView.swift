@@ -12,6 +12,8 @@ struct AIView: View {
     @AppStorage("reviewEffort") private var effort = "high"
     @ViewState private var context: ReviewContext?
     @ViewState private var preparing = false
+    /// The engine a Re-run asked for, when it differs from the toolbar's; nil runs with the toolbar's engine.
+    @ViewState private var contextEngine: AIEngine?
 
     private var engine: AIEngine { model.engine(named: engineName, ollamaModel: ollamaModel, for: pr) }
     private var usesCodeReview: Bool { engine.tool == "claude" }
@@ -32,9 +34,11 @@ struct AIView: View {
                     AIProgress(pr: pr)
                     if let latest = runs.first { OutdatedAnalysisBanner(pr: pr, run: latest) }
                     if let context {
-                        ContextPanel(context: Binding(get: { context }, set: { self.context = $0 }), engine: engine) {
-                            model.startReview(pr, engine: engine, context: context)
+                        let runEngine = contextEngine ?? engine
+                        ContextPanel(context: Binding(get: { context }, set: { self.context = $0 }), engine: runEngine) {
+                            model.startReview(pr, engine: runEngine, context: context)
                             self.context = nil
+                            contextEngine = nil
                         }
                     }
                     ForEach(runs) { RunView(pr: pr, run: $0) }
@@ -56,11 +60,12 @@ struct AIView: View {
         }
         .onChange(of: budget) { _, value in context?.budget = value }
         .onChange(of: model.contextRequest, initial: true) { _, request in
-            // Re-run from a stale-analysis banner, with Codex or Ollama: show what will be sent.
-            guard request == pr.id else { return }
+            // Re-run from a stale-analysis banner, with Codex or Ollama: show what will be sent, for the run's engine.
+            guard let request, request.prID == pr.id else { return }
             model.contextRequest = nil
-            prepare()
+            prepare(for: request.engine)
         }
+        .onChange(of: engineName) { contextEngine = nil }
         .task { await model.refreshAgents() }
     }
 
@@ -130,7 +135,9 @@ struct AIView: View {
         }
     }
 
-    private func prepare() {
+    /// `override` is a Re-run's engine; nil means the toolbar's.
+    private func prepare(for override: AIEngine? = nil) {
+        contextEngine = override == engine ? nil : override
         preparing = true
         Task {
             do { context = try await model.prepareContext(pr, budget: budget) } catch { model.report(error) }

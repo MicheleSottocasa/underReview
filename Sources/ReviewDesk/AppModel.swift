@@ -3,6 +3,12 @@ import Observation
 import ReviewDeskCore
 import SwiftUI
 
+/// Re-run from a stale-analysis banner with Codex or Ollama: the AI tab prepares the context for this engine.
+struct ContextRequest: Equatable {
+    let prID: String
+    let engine: AIEngine
+}
+
 struct RecentEvent: Identifiable {
     let id = UUID()
     let pr: PullRequest
@@ -69,7 +75,10 @@ final class AppModel {
             Task { await loadDetail(id) }
         }
     }
-    var selectedPRID: String?
+    var selectedPRID: String? {
+        // A Re-run request belongs to the PR it was made on; another PR's AI tab must not pick it up.
+        didSet { if contextRequest?.prID != selectedPRID { contextRequest = nil } }
+    }
     var filter = ""
     /// States shown in the sidebar. Persisted; all by default.
     var stateFilter: Set<PRStateFilter> = AppModel.savedStateFilter() {
@@ -123,7 +132,7 @@ final class AppModel {
     /// "oldHead...newHead" → commits pushed in between, for the stale-analysis banner. In memory only.
     var commitsSince: [String: Int] = [:]
     /// A PR whose AI tab should prepare the context as soon as it shows (Re-run with Codex or Ollama).
-    var contextRequest: String?
+    var contextRequest: ContextRequest?
     /// PR id → the Claude Code session linked to it in AI Review.
     var agentLinks: [String: AgentLink] { didSet { save(agentLinksFile, agentLinks.filter { !Demo.owns($0.key) }) } }
     var runningAgents: [RunningAgent] = []
