@@ -46,7 +46,8 @@ extension AppModel {
         runningAgents.first { $0.sessionID == link.sessionID }
     }
 
-    func logs(_ agent: RunningAgent) async -> String {
+    /// Nil while the agent has another action in flight.
+    func logs(_ agent: RunningAgent) async -> String? {
         await whilePending(agent.sessionID) {
             do { return try await agents.logs(agent) } catch { return error.localizedDescription }
         }

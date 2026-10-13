@@ -194,10 +194,10 @@ struct ThreadView: View {
                                     sending = false
                                 }
                             }
-                            .disabled(sending)
+                            .disabled(sending || model.pending.contains(thread.id))
                         } else {
                             HStack {
-                                Button("Reply") { replying = true }.buttonStyle(.link)
+                                Button("Reply") { replying = true }.buttonStyle(.link).disabled(model.pending.contains(thread.id))
                                 Spacer()
                                 resolveButton
                             }

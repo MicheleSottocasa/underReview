@@ -328,8 +328,10 @@ final class AppModel {
     }
 
     /// Marks `id` pending while `work` runs, so views can disable and dim the item and show a spinner.
-    func whilePending<T>(_ id: String, _ work: () async -> T) async -> T {
-        pending.insert(id)
+    /// Returns nil without running `work` when `id` is already pending, so two actions can't clear each other's state.
+    @discardableResult
+    func whilePending<T>(_ id: String, _ work: () async -> T) async -> T? {
+        guard pending.insert(id).inserted else { return nil }
         defer { pending.remove(id) }
         return await work()
     }

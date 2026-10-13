@@ -86,9 +86,9 @@ extension AppModel {
     /// Flips the file's Viewed checkbox here and on GitHub, rolling back if GitHub refuses.
     func toggleViewed(_ path: String, pr: PullRequest) async {
         guard !blockDemo(pr) else { return }
-        let viewed = !(viewedFiles[pr.id]?.contains(path) ?? false)
-        viewedFiles[pr.id, default: []].formSymmetricDifference([path])
         await whilePending(pr.id + path) {
+            let viewed = !(viewedFiles[pr.id]?.contains(path) ?? false)
+            viewedFiles[pr.id, default: []].formSymmetricDifference([path])
             do {
                 try await github.setViewed(prID: pr.id, path: path, viewed: viewed)
             } catch {
@@ -212,7 +212,7 @@ extension AppModel {
             }
             await afterOwnWrite(pr)
             return succeeded
-        }
+        } ?? false
     }
 
     /// Our own writes shouldn't come back as notifications: re-read the PR and move its checkpoint.
