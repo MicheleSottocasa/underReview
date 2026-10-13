@@ -269,17 +269,17 @@ struct DraftView: View {
                 }
             }
         }
-        .modifier(ThreadBox(accent: draft.isStale ? .orange : .accentColor))
+        .modifier(ThreadBox(accent: draft.isStale ? DiffColors.outdated : DiffColors.draft))
     }
 
     @ViewBuilder
     private var status: some View {
         if draft.isStale {
-            Badge(text: "Outdated by push", color: .orange)
+            Badge(text: "Outdated by push", color: DiffColors.outdated)
         } else if draft.remoteID == nil {
-            Badge(text: "Draft", color: .accentColor)
+            Badge(text: "Draft", color: DiffColors.draft)
         } else if draft.needsSync {
-            Badge(text: "Edited", color: .accentColor)
+            Badge(text: "Edited", color: DiffColors.draft)
         } else {
             Badge(text: "Pending")
         }

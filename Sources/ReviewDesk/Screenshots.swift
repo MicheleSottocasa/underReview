@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import ReviewDeskCore
 
 /// `ReviewDesk --screenshots <folder>`: shows the demo pull request in each tab and saves a PNG of the window,
@@ -49,6 +50,23 @@ enum Screenshots {
                     save(card, to: folder.appendingPathComponent("tour-\(step.rawValue + 1)-card\(index).png"))
                 }
             }
+        }
+        // `--appearance` also saves Settings › Appearance, then the Changes tab after a theme edit (kept in memory only).
+        if CommandLine.arguments.contains("--appearance") {
+            let settings = NSWindow(contentViewController: NSHostingController(rootView: AppearanceSettings().frame(width: 640, height: 1100)))
+            settings.makeKeyAndOrderFront(nil)
+            try? await Task.sleep(for: .seconds(1.5))
+            save(settings, to: folder.appendingPathComponent("appearance.png"))
+            settings.close()
+            ThemeStore.shared.edit {
+                $0[.keyword, dark: false] = HexColor(0xD00000)
+                $0[.keyword, dark: true] = HexColor(0xFF6060)
+                $0[.added, dark: false] = HexColor(0xFFF3B0)
+                $0[.added, dark: true] = HexColor(0x4A4220)
+            }
+            model.detailTab = .changes
+            try? await Task.sleep(for: .seconds(1.5))
+            save(window, to: folder.appendingPathComponent("changes-themed.png"))
         }
         NSApp.terminate(nil)
     }

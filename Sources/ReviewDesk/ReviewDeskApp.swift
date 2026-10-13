@@ -239,6 +239,7 @@ struct SettingsView: View {
     var body: some View {
         TabView {
             GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
+            AppearanceSettings().tabItem { Label("Appearance", systemImage: "paintpalette") }
             AISettings().tabItem { Label("AI", systemImage: "sparkles") }
             PromptSettings().tabItem { Label("Prompts", systemImage: "text.bubble") }
             ToolSettings().tabItem { Label("Tools", systemImage: "terminal") }
