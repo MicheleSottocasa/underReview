@@ -78,6 +78,8 @@ public struct LocalClone: Sendable {
         if !onBranch, try await text("git", ["-C", dir, "for-each-ref", "--contains", "HEAD", "--count=1"]).isEmpty {
             throw Failure.unreachableHead(folder: dir)
         }
+        // ponytail: this fetch and gh's own are separate, so a push between them can add a file nobody checked.
+        // Closing that means checking out FETCH_HEAD ourselves instead of running `gh pr checkout`.
         _ = try await runner.output("git", ["-C", dir, "fetch", remote, "refs/pull/\(pr.number)/head"], timeout: .seconds(180))
         var added = try await paths(dir, addedBy: "FETCH_HEAD")
         // With a same-named local branch, gh first checks out its old tip and then fast-forwards: an ignored file
