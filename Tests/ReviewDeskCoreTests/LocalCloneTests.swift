@@ -34,11 +34,21 @@ private func fake(_ top: URL, remotes: String = forkRemotes, status: String = ""
         case ["for-each-ref", "--contains", "HEAD", "--count=1"]: return ok(containing)
         case ["branch", "--show-current"]: return ok(ghFails ? "h7-old\n" : "h7\n")
         case let args where args.first == "status": return ok(status)
-        // Like git, a rename onto a new path isn't an addition unless renames are off.
-        case let args where args.first == "diff": return ok(args.contains("--no-renames") ? added : "")
+        // Like git, a rename onto a new path isn't an addition unless renames are off, and without `-z`
+        // non-ASCII paths come back C-quoted.
+        case let args where args.first == "diff":
+            guard args.contains("--no-renames") else { return ok("") }
+            let paths = added.split(separator: "\n")
+            return ok(args.contains("-z") ? paths.map { "\($0)\0" }.joined() : paths.map(cQuoted).joined(separator: "\n"))
         default: return ok("")
         }
     }
+}
+
+/// `café.txt` → `"caf\303\251.txt"`, as git prints a non-ASCII path without `-z`.
+private func cQuoted(_ path: Substring) -> String {
+    guard !path.utf8.allSatisfy({ $0 < 128 }) else { return String(path) }
+    return "\"" + path.utf8.map { $0 < 128 ? String(UnicodeScalar($0)) : String(format: "\\%03o", $0) }.joined() + "\""
 }
 
 @Test func verifyAcceptsAnyRemoteOnTheRepoAndReturnsTheTopLevel() async throws {
@@ -118,6 +128,13 @@ private func expectRefusal(_ failure: LocalClone.Failure, _ top: URL, _ runner: 
     // `git mv config.example .env` in the PR, with an ignored `.env` in the clone.
     FileManager.default.createFile(atPath: top.appendingPathComponent(".env").path, contents: Data("SECRET=1".utf8))
     await expectRefusal(.untrackedFilesInTheWay(folder: top.path, paths: [".env"]), top, fake(top, added: ".env\n"))
+}
+
+@Test func checkoutFindsNonASCIIPathsThePRAddsOnDisk() async throws {
+    let top = try tempClone()
+    defer { try? FileManager.default.removeItem(at: top) }
+    FileManager.default.createFile(atPath: top.appendingPathComponent("café.txt").path, contents: Data())
+    await expectRefusal(.untrackedFilesInTheWay(folder: top.path, paths: ["café.txt"]), top, fake(top, added: "café.txt\n"))
 }
 
 @Test func failedCheckoutSaysWhereTheCloneIsNow() async throws {
