@@ -446,7 +446,7 @@ struct IDEImportSheet: View {
 
     private func review(_ themes: [IDETheme]) -> some View {
         let result = Theme.imported(themes, into: ThemeStore.shared.current)
-        let keys = ThemeKey.allCases.filter { ![.keyArea, .draft, .outdated].contains($0) } // IDEs have no such accents
+        let keys = ThemeKey.allCases.filter { ![.keyArea, .draft, .outdated, .mine, .others].contains($0) } // IDEs have no such accents
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
                 ThemePreview(theme: result).environment(\.colorScheme, .light)

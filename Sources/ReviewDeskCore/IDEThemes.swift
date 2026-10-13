@@ -405,7 +405,7 @@ public enum JetBrainsScheme {
         func builtIn(dark: Bool) -> [ThemeKey: HexColor] {
             Dictionary(uniqueKeysWithValues: ThemeKey.allCases.compactMap { key in
                 Theme.builtIn[key]?[dark: dark].map { (key, $0) }
-            }.filter { ![.keyArea, .draft, .outdated].contains($0.0) })
+            }.filter { ![.keyArea, .draft, .outdated, .mine, .others].contains($0.0) })
         }
         func scheme(_ name: String, dark: Bool, _ values: [ThemeKey: UInt32]) -> IDETheme {
             IDETheme(name: name, dark: dark, colors: values.mapValues { HexColor($0) })
