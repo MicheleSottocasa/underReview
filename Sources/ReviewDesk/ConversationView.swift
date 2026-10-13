@@ -61,7 +61,7 @@ struct ConversationView: View {
                         }
                     }
                     if items.isEmpty && filter != .all {
-                        Text(filter == .unresolved ? "No unresolved conversations." : "Nothing started by you yet.")
+                        Text(Self.emptyText(filter))
                             .font(.callout).foregroundStyle(.secondary).padding(.leading, 44)
                     }
                 }
@@ -70,6 +70,15 @@ struct ConversationView: View {
             }
         } else {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private static func emptyText(_ filter: Conversation.Filter) -> String {
+        switch filter {
+        case .all: ""
+        case .startedByMe: "Nothing started by you yet."
+        case .unresolved: "No unresolved conversations."
+        case .involvingMe: "Nothing involves you yet."
         }
     }
 

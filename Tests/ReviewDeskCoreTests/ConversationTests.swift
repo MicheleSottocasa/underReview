@@ -49,6 +49,31 @@ private func ids(_ items: [Conversation.Item]) -> [String] {
     #expect(ids(Conversation.timeline(detail, viewer: "me", filter: .unresolved)) == ["R_me[T_me]", "R_bob[T_bob]", "T_pending"])
 }
 
+@Test func conversationFiltersWhatInvolvesTheViewer() {
+    // Bob's thread because I replied in it, under bob's review; not the empty review GitHub made for my reply.
+    #expect(ids(Conversation.timeline(detail, viewer: "me", filter: .involvingMe))
+            == ["R_me[T_me,T_me_done]", "R_bob[T_bob]", "IC_me", "T_pending"])
+    // My thread bob replied in, under my review, which is shown for it.
+    #expect(ids(Conversation.timeline(detail, viewer: "bob", filter: .involvingMe)) == ["IC_bob", "R_me[T_me]", "R_bob[T_bob]"])
+}
+
+@Test func conversationInvolvingMeIncludesMentions() {
+    func said(_ id: String, _ body: String, _ minute: Double, review: String? = nil) -> ReviewDeskCore.Comment {
+        var said = comment(id, "ann", minute, review: review)
+        said.body = body
+        return said
+    }
+    let mentions = PRDetail(
+        body: "",
+        comments: [said("IC_cc", "cc @Me", 1), said("IC_other", "mail me@x.io", 2)],
+        reviews: [Review(id: "R_cc", author: "ann", state: "COMMENTED", body: "@me ptal", submittedAt: at(3)),
+                  Review(id: "R_ann", author: "ann", state: "APPROVED", body: "ok", submittedAt: at(5))],
+        threads: [thread("T_cc", [said("C1", "what does @me think?", 4, review: "R_ann")]),
+                  thread("T_other", [said("C2", "ask @me-too", 4.5, review: "R_ann")])],
+        pendingReview: nil)
+    #expect(ids(Conversation.timeline(mentions, viewer: "me", filter: .involvingMe)) == ["IC_cc", "R_cc[]", "R_ann[T_cc]"])
+}
+
 @Test func conversationContextIsTheEndOfTheHunk() {
     var hunked = thread("T", [])
     hunked.diffHunk = "@@ -1,3 +1,5 @@\n a\n+b\n+c\n-d\n e\n+f"

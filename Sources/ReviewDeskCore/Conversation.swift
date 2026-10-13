@@ -8,12 +8,16 @@ public enum Conversation {
         /// Threads the viewer started, plus their own PR-level comments and reviews.
         case startedByMe
         case unresolved
+        /// Threads the viewer started, replied in or is `@mentioned` in, plus their own and mentioning PR-level
+        /// comments and reviews.
+        case involvingMe
 
         public var title: String {
             switch self {
             case .all: "All"
             case .startedByMe: "Started by Me"
             case .unresolved: "Unresolved"
+            case .involvingMe: "Involving Me"
             }
         }
     }
@@ -47,17 +51,20 @@ public enum Conversation {
             case .all: true
             case .startedByMe: thread.comments.first?.author == viewer
             case .unresolved: !thread.isResolved
+            case .involvingMe: thread.involves(viewer)
             }
         }.sorted { date($0) < date($1) }
         let reviewIDs = Set(detail.reviews.map(\.id))
         let byReview = Dictionary(grouping: threads.filter { reviewIDs.contains(reviewID($0)) }, by: reviewID)
         let reviews = detail.reviews.filter { review in
-            switch filter {
-            case .all: true
             // Each reply is its own empty COMMENTED review: not something the viewer started.
-            case .startedByMe: review.author == viewer
+            let started = review.author == viewer
                 && !(review.state == "COMMENTED" && review.body.isEmpty && byReview[review.id] == nil)
-            case .unresolved: byReview[review.id] != nil
+            switch filter {
+            case .all: return true
+            case .startedByMe: return started
+            case .unresolved: return byReview[review.id] != nil
+            case .involvingMe: return started || byReview[review.id] != nil || ReviewThread.mentions(viewer, in: review.body)
             }
         }
         let comments = detail.comments.filter { comment in
@@ -65,6 +72,7 @@ public enum Conversation {
             case .all: true
             case .startedByMe: comment.author == viewer
             case .unresolved: false
+            case .involvingMe: comment.author == viewer || ReviewThread.mentions(viewer, in: comment.body)
             }
         }
         let items = comments.map(Item.comment)

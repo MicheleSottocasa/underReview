@@ -192,10 +192,14 @@ public struct ReviewThread: Hashable, Identifiable, Sendable {
 
     /// The viewer started it, replied in it (also with a pending reply) or is `@mentioned` in it.
     public func involves(_ viewer: String) -> Bool {
+        hasComment(from: viewer) || comments.contains { ReviewThread.mentions(viewer, in: $0.body) }
+    }
+
+    /// `text` `@mentions` the viewer (case-insensitively, not as part of a longer login or an email address).
+    static func mentions(_ viewer: String, in text: String) -> Bool {
         guard !viewer.isEmpty else { return false }
         let mention = "(?<![\\w-])@\(NSRegularExpression.escapedPattern(for: viewer))(?![\\w-])"
-        return hasComment(from: viewer)
-            || comments.contains { $0.body.range(of: mention, options: [.regularExpression, .caseInsensitive]) != nil }
+        return text.range(of: mention, options: [.regularExpression, .caseInsensitive]) != nil
     }
 
     /// The first non-blank line of the first comment, code fences skipped: what the thread is about, at a glance.
