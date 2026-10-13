@@ -54,8 +54,9 @@ final class AppModel {
     var prs: [String: PullRequest] = [:]
     var inboxIDs: Set<String> = []
     var details: [String: PRDetail] = [:]
-    /// Changed files per PR, fetched on demand and kept in memory only.
+    /// Changed files per PR, fetched on demand and kept in memory only, and the head each list is from.
     var files: [String: [FileChange]] = [:]
+    var filesHead: [String: String] = [:]
     /// Paths marked as viewed on GitHub, per PR. GitHub is the source of truth; nothing is stored locally.
     var viewedFiles: [String: Set<String>] = [:]
     /// The PR detail tab, here so other tabs can send the user to Changes.

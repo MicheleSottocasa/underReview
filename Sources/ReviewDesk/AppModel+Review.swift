@@ -77,11 +77,18 @@ extension AppModel {
         guard !pr.isDemo else { return } // canned in the demo
         do {
             async let viewed = github.viewedFiles(prID: pr.id)
-            files[pr.id] = try await github.files(pr.ref)
+            try await fetchFiles(pr)
             viewedFiles[pr.id] = try await viewed
         } catch {
             report(error)
         }
+    }
+
+    /// Fetches the changed files and notes the head they're from: commit views follow the head and must not map
+    /// their lines onto an older list.
+    func fetchFiles(_ pr: PullRequest) async throws {
+        files[pr.id] = try await github.files(pr.ref)
+        filesHead[pr.id] = pr.headRefOid
     }
 
     /// Flips the file's Viewed checkbox here and on GitHub, rolling back if GitHub refuses.

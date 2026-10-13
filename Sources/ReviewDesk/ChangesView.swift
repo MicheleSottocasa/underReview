@@ -46,8 +46,10 @@ struct ChangesView: View {
                         if let file = files.first(where: { $0.filename == selectedPath }) ?? files.first {
                             let commitView = shown == nil ? nil : CommitView(
                                 endsAtHead: bounds?.head == pr.headRefOid,
-                                prAnchors: model.files[pr.id]?.first { $0.filename == file.filename }?.patch
-                                    .map { Diff.anchors(path: file.filename, patch: $0) } ?? [])
+                                // Only from the PR diff at this head: an older list's lines may have moved.
+                                prAnchors: model.filesHead[pr.id] != pr.headRefOid ? []
+                                    : model.files[pr.id]?.first { $0.filename == file.filename }?.patch
+                                        .map { Diff.anchors(path: file.filename, patch: $0) } ?? [])
                             // An added or deleted file has one empty side: show it full width.
                             FileDiffView(pr: pr, file: file, mode: ["added", "removed"].contains(file.status) ? .unified : mode, target: target?.path == file.filename ? target : nil,
                                          keyAreas: commitView?.endsAtHead == false ? []
@@ -67,6 +69,10 @@ struct ChangesView: View {
         }
         .task { if model.files[pr.id] == nil { await model.loadFiles(pr) } }
         .task(id: key) { if let bounds { await model.loadComparison(pr, base: bounds.base, head: bounds.head) } }
+        .task(id: shown.map { _ in pr.headRefOid }) {
+            // A commit view after a push: refresh the PR diff its comments are anchored to.
+            if shown != nil, model.filesHead[pr.id] != pr.headRefOid { await model.loadFiles(pr) }
+        }
         .onChange(of: model.changesTarget?.id, initial: true) {
             // Sent here from another tab (e.g. Risk): open the file and, when there's a line, scroll to it.
             guard let next = model.changesTarget else { return }

@@ -49,7 +49,7 @@ extension AppModel {
     /// `projectContext` is false for stack reviews: they run without showing the context first, so nothing extra may go.
     func prepareContext(_ pr: PullRequest, budget: Int, projectContext: Bool = true) async throws -> ReviewContext {
         if pr.isDemo { throw DemoError.readOnly }
-        if files[pr.id] == nil { files[pr.id] = try await github.files(pr.ref) }
+        if files[pr.id] == nil { try await fetchFiles(pr) }
         if details[pr.id] == nil { await loadDetail(pr.id) }
         let changed = files[pr.id] ?? []
         let paths = changed.filter { $0.status != "removed" && $0.patch != nil }.map(\.filename)
@@ -228,7 +228,7 @@ extension AppModel {
         let on = label.map { " on \($0)" } ?? ""
         aiStatus[key] = "Running /code-review (\(options.effort))\(on) with \(engine.name)…"
         do {
-            if files[pr.id] == nil { files[pr.id] = try await github.files(pr.ref) }
+            if files[pr.id] == nil { try await fetchFiles(pr) }
             if details[pr.id] == nil { await loadDetail(pr.id) }
             // Diffs only: they let the second pass pick key areas; /code-review fetches the PR itself.
             let changed = files[pr.id] ?? []
@@ -400,7 +400,7 @@ extension AppModel {
     /// The material both chats start from: PR description, the comment's conversation and its file's diff, plus the
     /// project's extra context while it fits the token budget (the chat names what it sent and what it left out).
     private func chatContext(_ comment: Comment, thread: ReviewThread?, pr: PullRequest, projectContext: Bool) async throws -> String {
-        if thread != nil, files[pr.id] == nil { files[pr.id] = try await github.files(pr.ref) }
+        if thread != nil, files[pr.id] == nil { try await fetchFiles(pr) }
         let conversation = thread?.comments ?? Array((details[pr.id]?.comments ?? []).prefix { $0.id != comment.id }.suffix(10) + [comment])
         let prompt = { (extra: [ContextFile]) in
             AIContext.explainPrompt(
