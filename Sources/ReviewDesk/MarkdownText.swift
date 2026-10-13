@@ -28,9 +28,9 @@ struct MarkdownText: View {
     private func content(_ block: MarkdownBlock) -> some View {
         switch block.kind {
         case .paragraph:
-            Text(block.text).fixedSize(horizontal: false, vertical: true)
+            Text(Self.styled(block.text)).fixedSize(horizontal: false, vertical: true)
         case .heading(let level):
-            Text(block.text)
+            Text(Self.styled(block.text))
                 .font(level == 1 ? .title2.bold() : level == 2 ? .title3.bold() : .headline)
                 .padding(.top, 4)
         case .code:
@@ -41,7 +41,7 @@ struct MarkdownText: View {
         case .listItem(let marker, let depth):
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(marker).frame(minWidth: 16, alignment: .trailing).foregroundStyle(.secondary)
-                Text(block.text).fixedSize(horizontal: false, vertical: true)
+                Text(Self.styled(block.text)).fixedSize(horizontal: false, vertical: true)
             }
             .padding(.leading, CGFloat(depth - 1) * 20)
         case .table(let rows):
@@ -49,7 +49,7 @@ struct MarkdownText: View {
                 ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                     GridRow {
                         ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
-                            Text(cell)
+                            Text(Self.styled(cell))
                                 .fontWeight(index == 0 ? .semibold : .regular)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 5)
@@ -62,5 +62,15 @@ struct MarkdownText: View {
         case .rule:
             Divider()
         }
+    }
+
+    /// `inline code` as a GitHub-style chip: monospaced on a tinted background.
+    static func styled(_ text: AttributedString) -> AttributedString {
+        var text = text
+        for run in text.runs where run.inlinePresentationIntent?.contains(.code) == true {
+            text[run.range].font = .system(.callout, design: .monospaced)
+            text[run.range].backgroundColor = Color.secondary.opacity(0.18)
+        }
+        return text
     }
 }
