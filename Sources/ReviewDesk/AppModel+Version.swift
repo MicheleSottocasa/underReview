@@ -83,18 +83,27 @@ extension AppModel {
         return AppVersion.notes(in: changelog, after: previous, through: currentVersion)
     }
 
+    /// This version's own section (or the newest before it, when it has none).
+    private var currentNotes: [VersionNotes] { Array(bundledNotes(after: "0").prefix(1)) }
+
     /// At launch: once after an update, what changed since the version that ran before. Then remembers this one.
     func showWhatsNewAfterUpdate() {
         let defaults = UserDefaults.standard
-        let previous = AppVersion.updated(from: defaults.string(forKey: "lastLaunchedVersion"), to: currentVersion)
+        let launch = AppVersion.launchNotes(lastLaunched: defaults.string(forKey: "lastLaunchedVersion"), current: currentVersion,
+                                            existingUser: defaults.bool(forKey: "tourSeen"))
         if currentVersion != "dev" { defaults.set(currentVersion, forKey: "lastLaunchedVersion") }
-        if let previous { whatsNew = .installed(bundledNotes(after: previous)) }
+        let notes = switch launch {
+        case .since(let previous)?: bundledNotes(after: previous)
+        case .thisVersion?: currentNotes
+        case nil: [VersionNotes]()
+        }
+        if !notes.isEmpty { whatsNew = .installed(notes) }
     }
 
     /// Help › What's New: this version's notes.
     func showCurrentNotes() {
         openMainWindow?()
-        whatsNew = .installed(Array(bundledNotes(after: "0").prefix(1)))
+        whatsNew = .installed(currentNotes)
     }
 
     func openRelease(_ release: AppRelease) {

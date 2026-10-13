@@ -59,11 +59,16 @@ Intro text.
 }
 
 @Test func showsChangesOnlyAfterAnUpdate() {
-    #expect(AppVersion.updated(from: "0.7.1", to: "0.8.1") == "0.7.1")
-    #expect(AppVersion.updated(from: nil, to: "0.8.1") == nil)       // fresh install: the tour covers it
-    #expect(AppVersion.updated(from: "0.8.1", to: "0.8.1") == nil)
-    #expect(AppVersion.updated(from: "0.9.0", to: "0.8.1") == nil)   // downgrade
-    #expect(AppVersion.updated(from: "0.7.1", to: "dev") == nil)
+    func notes(_ last: String?, _ current: String, existingUser: Bool = true) -> AppVersion.LaunchNotes? {
+        AppVersion.launchNotes(lastLaunched: last, current: current, existingUser: existingUser)
+    }
+    #expect(notes("0.7.1", "0.8.1") == .since("0.7.1"))
+    #expect(notes(nil, "0.8.1", existingUser: false) == nil)   // fresh install: the tour covers it
+    #expect(notes(nil, "0.8.1") == .thisVersion)               // updated from a version that didn't record itself
+    #expect(notes("0.8.1", "0.8.1") == nil)
+    #expect(notes("0.9.0", "0.8.1") == nil)                    // downgrade
+    #expect(notes("0.7.1", "dev") == nil)
+    #expect(notes(nil, "dev") == nil)
 }
 
 @Test func readsReleaseNotesFromTheChangelogAtTheLatestTag() async throws {
