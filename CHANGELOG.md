@@ -22,6 +22,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 - **Inline threads in Conversation:** the Conversation tab shows every inline review thread under the review that started it, with its file, the diff lines above it, a *Show in Changes* link and the usual reply, resolve and Explain actions. Resolved and outdated threads start folded, and *Collapse All* folds threads too. A filter on top shows *All*, *Started by Me* (threads, comments and reviews you started) or *Unresolved*, and is remembered.
 - **What's New before you update:** *What's New* on the update banner, in *Check for Updates…* and in Settings › Updates lists the changes of every version since yours, newest first with their release dates, with the install button and *Later*.
 - **What's New after an update:** the first launch of a new version lists what changed since the version you had, from the notes bundled in the app (so it works offline). A fresh install doesn't show it; *Help › What's New* reopens this version's notes.
+- **Involving Me in Conversation:** the Conversation tab's filter has an *Involving Me* option, like the one in Changes: only the threads you started, replied in or were @mentioned in, under their reviews, plus your own comments and reviews and those that mention you.
 
 ## 0.8.1
 
