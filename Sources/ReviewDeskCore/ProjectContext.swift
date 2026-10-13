@@ -110,6 +110,8 @@ public enum ProjectContext {
 
     /// Text files of a repository source at its ref, read through `gh`. Big and binary files, and failures, are
     /// listed as left out instead of failing the review.
+    // ponytail: no cache, so every Prepare Context and Ask re-fetches the tree and the files through gh; cache them
+    // by repository, ref and path (with the ref's commit as the key) if that gets slow or hits rate limits.
     public static func readRepository(_ source: ContextSource, github: GitHub) async -> [ContextFile] {
         let ref = source.ref.isEmpty ? "HEAD" : source.ref
         let prefix = source.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
