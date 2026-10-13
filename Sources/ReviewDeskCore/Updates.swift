@@ -66,6 +66,11 @@ public enum Updates {
         return events
     }
 
+    /// PR ids whose cached data is missing or older than GitHub's last update: only these get the full (costly) fetch.
+    public static func changed(_ stamps: [String: Date], cached: [String: PullRequest]) -> [String] {
+        stamps.filter { cached[$0.key]?.updatedAt != $0.value }.map(\.key).sorted()
+    }
+
     /// Poll interval: 60 s in foreground, 120 s in background, doubling per consecutive failure up to 15 min.
     public static func interval(foreground: Bool, failures: Int) -> Duration {
         let base = foreground ? 60 : 120

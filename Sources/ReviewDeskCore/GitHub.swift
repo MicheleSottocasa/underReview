@@ -210,21 +210,31 @@ public struct GitHub: Sendable {
         return (data["viewer"] as? [String: Any])?["login"] as? String ?? ""
     }
 
-    /// PRs authored by, assigned to, or awaiting review from the viewer.
-    public func inbox() async throws -> [PullRequest] {
-        let query = """
+    /// PRs authored by, assigned to, or awaiting review from the viewer, as id → last update.
+    /// Only ids and dates: GitHub prices a search at its worst case, so the full PR fragment here cost
+    /// 306 of the 5,000 hourly points per poll. This costs 1.
+    public func inbox() async throws -> [String: Date] {
+        let fields = "nodes { ... on PullRequest { id updatedAt } }"
+        let data = try await graphql("""
         query {
-          authored: search(query: "is:pr is:open archived:false author:@me", type: ISSUE, first: 50) { nodes { ...PR } }
-          assigned: search(query: "is:pr is:open archived:false assignee:@me", type: ISSUE, first: 50) { nodes { ...PR } }
-          requested: search(query: "is:pr is:open archived:false review-requested:@me", type: ISSUE, first: 50) { nodes { ...PR } }
+          authored: search(query: "is:pr is:open archived:false author:@me", type: ISSUE, first: 50) { \(fields) }
+          assigned: search(query: "is:pr is:open archived:false assignee:@me", type: ISSUE, first: 50) { \(fields) }
+          requested: search(query: "is:pr is:open archived:false review-requested:@me", type: ISSUE, first: 50) { \(fields) }
         }
-        """ + Self.prFragment
-        let data = try await graphql(query)
-        var seen = Set<String>()
-        return ["authored", "assigned", "requested"]
-            .flatMap { ((data[$0] as? [String: Any])?["nodes"] as? [[String: Any]]) ?? [] }
-            .compactMap(Self.decodePR)
-            .filter { seen.insert($0.id).inserted }
+        """)
+        return Self.stamps(["authored", "assigned", "requested"].flatMap { Self.nodes(data[$0]) })
+    }
+
+    /// Last update per PR id, 100 ids per point. Deleted or inaccessible PRs are left out.
+    public func updatedAt(ids: [String]) async throws -> [String: Date] {
+        var result: [String: Date] = [:]
+        for start in stride(from: 0, to: ids.count, by: 100) {
+            let chunk = Array(ids[start..<min(start + 100, ids.count)])
+            let data = try await graphql("query($ids: [ID!]!) { nodes(ids: $ids) { ... on PullRequest { id updatedAt } } }",
+                                         ["ids": chunk], tolerating: ["NOT_FOUND"])
+            result.merge(Self.stamps((data["nodes"] as? [Any] ?? []).compactMap { $0 as? [String: Any] })) { a, _ in a }
+        }
+        return result
     }
 
     public func pullRequest(_ ref: PRRef) async throws -> PullRequest {
@@ -260,8 +270,7 @@ public struct GitHub: Sendable {
           reviews(last: 50) { nodes { id author { login } state body submittedAt } }
           reviewThreads(first: 100) { nodes { id path line diffSide isResolved isOutdated
             comments(first: 100) { nodes { ...CommentFields state } } } }
-          pending: reviews(states: PENDING, first: 1) { nodes { id commit { oid }
-            comments(first: 100) { nodes { id path line body } } } }
+          \(Self.pendingField)
         } } }
         fragment CommentFields on Comment {
           __typename id author { login } body createdAt
@@ -272,15 +281,7 @@ public struct GitHub: Sendable {
         """
         let data = try await graphql(query, ["id": id])
         guard let pr = data["node"] as? [String: Any] else { throw GitHubError.notFound("Pull request") }
-        let pending = Self.nodes(pr["pending"]).first.map { review in
-            PendingReview(
-                id: review["id"] as? String ?? "",
-                commitOID: (review["commit"] as? [String: Any])?["oid"] as? String,
-                comments: Self.nodes(review["comments"]).map {
-                    PendingComment(id: $0["id"] as? String ?? "", path: $0["path"] as? String ?? "", line: $0["line"] as? Int, body: $0["body"] as? String ?? "")
-                }
-            )
-        }
+        let pending = Self.decodePending(pr["pending"])
         return PRDetail(
             body: pr["body"] as? String ?? "",
             comments: Self.nodes(pr["comments"]).map(Self.decodeComment),
@@ -296,6 +297,28 @@ public struct GitHub: Sendable {
             },
             pendingReview: pending
         )
+    }
+
+    /// Only the viewer's pending review: what review writes need, without the whole conversation.
+    public func pendingReview(prID: String) async throws -> PendingReview? {
+        let data = try await graphql("query($id: ID!) { node(id: $id) { ... on PullRequest { \(Self.pendingField) } } }", ["id": prID])
+        return Self.decodePending((data["node"] as? [String: Any])?["pending"])
+    }
+
+    static let pendingField = """
+    pending: reviews(states: PENDING, first: 1) { nodes { id commit { oid } comments(first: 100) { nodes { id path line body } } } }
+    """
+
+    static func decodePending(_ connection: Any?) -> PendingReview? {
+        nodes(connection).first.map { review in
+            PendingReview(
+                id: review["id"] as? String ?? "",
+                commitOID: (review["commit"] as? [String: Any])?["oid"] as? String,
+                comments: nodes(review["comments"]).map {
+                    PendingComment(id: $0["id"] as? String ?? "", path: $0["path"] as? String ?? "", line: $0["line"] as? Int, body: $0["body"] as? String ?? "")
+                }
+            )
+        }
     }
 
     public func files(_ ref: PRRef) async throws -> [FileChange] {
@@ -351,10 +374,29 @@ public struct GitHub: Sendable {
         """, ["id": subjectID, "content": content.rawValue])
     }
 
-    public func fileContent(repo: String, path: String, ref: String) async throws -> String {
-        let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path
-        let data = try await runner.output("gh", ["api", "repos/\(repo)/contents/\(encoded)?ref=\(ref)", "-H", "Accept: application/vnd.github.raw"])
-        return String(decoding: data, as: UTF8.self)
+    /// File texts at a commit, 50 per GraphQL query (1 point each), instead of one REST call per file all at once,
+    /// which could trip GitHub's concurrency limit on big PRs. Binary, truncated or missing files are left out.
+    public func fileContents(repo: String, paths: [String], ref: String) async throws -> [String: String] {
+        let name = PRRef(nameWithOwner: repo, number: 0)
+        var result: [String: String] = [:]
+        for start in stride(from: 0, to: paths.count, by: 50) {
+            let chunk = Array(paths[start..<min(start + 50, paths.count)])
+            let fields = chunk.indices.map { "f\($0): object(expression: $e\($0)) { ... on Blob { text isBinary isTruncated } }" }
+            let query = """
+            query($owner: String!, $name: String!, \(chunk.indices.map { "$e\($0): String!" }.joined(separator: ", "))) {
+              repository(owner: $owner, name: $name) { \(fields.joined(separator: " ")) }
+            }
+            """
+            var variables: [String: any Sendable] = ["owner": name.owner, "name": name.repo]
+            for (index, path) in chunk.enumerated() { variables["e\(index)"] = "\(ref):\(path)" }
+            let repository = try await graphql(query, variables)["repository"] as? [String: Any] ?? [:]
+            for (index, path) in chunk.enumerated() {
+                guard let blob = repository["f\(index)"] as? [String: Any], blob["isBinary"] as? Bool != true,
+                      blob["isTruncated"] as? Bool != true, let text = blob["text"] as? String else { continue }
+                result[path] = text
+            }
+        }
+        return result
     }
 
     /// Paths that differ between two commits (used to tell whether a draft went stale).
@@ -439,6 +481,10 @@ public struct GitHub: Sendable {
                     guard count > 0, let content = ReactionContent(rawValue: group["content"] as? String ?? "") else { return nil }
                     return Reaction(content: content, count: count, viewerHasReacted: group["viewerHasReacted"] as? Bool ?? false)
                 })
+    }
+
+    static func stamps(_ nodes: [[String: Any]]) -> [String: Date] {
+        Dictionary(nodes.compactMap { node in (node["id"] as? String).map { ($0, date(node["updatedAt"]) ?? .distantPast) } }) { a, _ in a }
     }
 
     static func nodes(_ connection: Any?) -> [[String: Any]] {

@@ -11,15 +11,8 @@ extension AppModel {
         if files[pr.id] == nil { files[pr.id] = try await github.files(pr.ref) }
         if details[pr.id] == nil { await loadDetail(pr.id) }
         let changed = files[pr.id] ?? []
-        let github = github
-        let contents = await withTaskGroup(of: (String, String?).self) { group in
-            for file in changed where file.status != "removed" && file.patch != nil {
-                group.addTask { (file.filename, try? await github.fileContent(repo: pr.repo, path: file.filename, ref: pr.headRefOid)) }
-            }
-            var result: [String: String] = [:]
-            for await (path, content) in group { result[path] = content }
-            return result
-        }
+        let paths = changed.filter { $0.status != "removed" && $0.patch != nil }.map(\.filename)
+        let contents = try await github.fileContents(repo: pr.repo, paths: paths, ref: pr.headRefOid)
         return AIContext.build(pr: pr, body: details[pr.id]?.body ?? "", files: changed, contents: contents, budget: budget)
     }
 

@@ -47,7 +47,7 @@ public struct ReviewSync: Sendable {
     public init(github: GitHub) { self.github = github }
 
     public func pendingReview(prID: String) async throws -> PendingReview? {
-        try await github.detail(id: prID).pendingReview
+        try await github.pendingReview(prID: prID)
     }
 
     /// Marks drafts stale when their file changed since they were written; otherwise moves them to the new head.

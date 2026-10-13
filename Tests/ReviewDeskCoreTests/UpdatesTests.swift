@@ -45,3 +45,10 @@ private func pr(head: String = "a", state: String = "OPEN", comments: Int = 0, r
     #expect(Updates.interval(foreground: true, failures: 2) == .seconds(240))
     #expect(Updates.interval(foreground: true, failures: 50) == .seconds(900))
 }
+
+@Test func onlyNewOrUpdatedPRsNeedAFullFetch() {
+    let cached = pr()
+    let later = cached.updatedAt.addingTimeInterval(60)
+    #expect(Updates.changed(["PR_1": cached.updatedAt], cached: ["PR_1": cached]).isEmpty)
+    #expect(Updates.changed(["PR_1": later, "PR_2": later], cached: ["PR_1": cached]) == ["PR_1", "PR_2"])
+}

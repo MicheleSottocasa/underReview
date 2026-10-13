@@ -33,10 +33,25 @@ import Testing
 }
 
 @Test func inboxMergesSearchesWithoutDuplicates() async throws {
+    let stamp = #"{"id":"A","updatedAt":"2026-10-12T14:27:55Z"}"#
     let runner = FakeRunner { _ in
-        data(#"{"authored":{"nodes":[\#(prNode(id: "A"))]},"assigned":{"nodes":[\#(prNode(id: "A"))]},"requested":{"nodes":[\#(prNode(id: "B", number: 2))]}}"#)
+        data(#"{"authored":{"nodes":[\#(stamp)]},"assigned":{"nodes":[\#(stamp)]},"requested":{"nodes":[{"id":"B","updatedAt":"2026-10-12T14:27:55Z"}]}}"#)
     }
-    #expect(try await GitHub(runner: runner).inbox().map(\.id) == ["A", "B"])
+    let inbox = try await GitHub(runner: runner).inbox()
+    #expect(inbox.keys.sorted() == ["A", "B"])
+    #expect(inbox["A"] == (try Date("2026-10-12T14:27:55Z", strategy: .iso8601)))
+    // Regression: the full PR fragment in the searches cost 306 points per poll and exhausted the hourly limit.
+    #expect(!(runner.calls.first?.query.contains("reviewThreads") ?? true))
+}
+
+@Test func readsUpdateTimesInChunksOfAHundred() async throws {
+    let runner = FakeRunner { call in
+        let ids = call.variables["ids"] as? [String] ?? []
+        return data(#"{"nodes":[{"id":"\#(ids[0])","updatedAt":"2026-10-12T14:27:55Z"},null]}"#)
+    }
+    let stamps = try await GitHub(runner: runner).updatedAt(ids: (0..<150).map { "PR_\($0)" })
+    #expect(stamps.keys.sorted() == ["PR_0", "PR_100"])
+    #expect(runner.calls.map { ($0.variables["ids"] as? [String])?.count } == [100, 50])
 }
 
 @Test func surfacesGraphQLErrors() async {
@@ -176,4 +191,26 @@ import Testing
     #expect(mutations == ["updateIssueComment", "updatePullRequestReviewComment", "deleteIssueComment",
                           "deletePullRequestReviewComment", "addReaction", "removeReaction"])
     #expect(runner.calls.last?.variables["content"] as? String == "ROCKET")
+}
+
+@Test func readsFileContentsInBatchesSkippingBinaryAndTruncated() async throws {
+    let runner = FakeRunner { call in
+        let count = call.variables.keys.filter { $0.hasPrefix("e") }.count
+        if count == 50 {
+            return data(#"{"repository":{"f0":{"text":"a","isBinary":false,"isTruncated":false},"f1":{"text":null,"isBinary":true,"isTruncated":false},"f2":{"text":"x","isBinary":false,"isTruncated":true},"f3":null}}"#)
+        }
+        return data(#"{"repository":{"f0":{"text":"last","isBinary":false,"isTruncated":false}}}"#)
+    }
+    let paths = (0..<51).map { "p\($0)" }
+    let contents = try await GitHub(runner: runner).fileContents(repo: "o/r", paths: paths, ref: "abc")
+    #expect(contents == ["p0": "a", "p50": "last"])
+    #expect(runner.calls.count == 2)
+    #expect(runner.calls[0].variables["e1"] as? String == "abc:p1")
+    #expect(runner.calls[1].variables["e0"] as? String == "abc:p50")
+}
+
+@Test func pendingReviewSkipsTheConversation() async throws {
+    let runner = FakeRunner { _ in data(#"{"node":{"pending":{"nodes":[{"id":"R","commit":{"oid":"h"},"comments":{"nodes":[]}}]}}}"#) }
+    #expect(try await GitHub(runner: runner).pendingReview(prID: "PR_1")?.id == "R")
+    #expect(!(runner.calls.first?.query.contains("reviewThreads") ?? true))
 }

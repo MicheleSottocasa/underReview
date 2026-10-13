@@ -101,6 +101,7 @@ final class AppModel {
     private let aiRunsFile = JSONFile<[AIRun]>.appSupport("ai-runs.json")
     private let agentLinksFile = JSONFile<[String: AgentLink]>.appSupport("agent-links.json")
     private var pollTask: Task<Void, Never>?
+    private var lastFullRefresh = Date.distantPast
 
     init() {
         let overrides = Self.tools.reduce(into: [String: String]()) { $0[$1] = UserDefaults.standard.string(forKey: "path.\($1)") }
@@ -159,12 +160,20 @@ final class AppModel {
     func refresh() async throws {
         isRefreshing = true
         defer { isRefreshing = false }
+        // Cheap pass first (ids and update times), then full data only for PRs that changed.
         let inbox = try await github.inbox()
-        inboxIDs = Set(inbox.map(\.id))
-        var fresh = Dictionary(inbox.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        let others = org.followed.keys.filter { fresh[$0] == nil }
-        for pr in try await github.pullRequests(ids: Array(others)) { fresh[pr.id] = pr }
-        for pr in try await github.pullRequests(ids: Stacks.missingMembers(of: Array(fresh.values)).filter { !org.unfollowed.contains($0) }) { fresh[pr.id] = pr }
+        inboxIDs = Set(inbox.keys)
+        let stamps = inbox.merging(try await github.updatedAt(ids: org.followed.keys.filter { inbox[$0] == nil })) { a, _ in a }
+            .filter { !org.unfollowed.contains($0.key) }
+        // ponytail: resolving a thread may not bump updatedAt, so a full pass every 10 min catches it.
+        let full = Date.now.timeIntervalSince(lastFullRefresh) > 600
+        if full { lastFullRefresh = .now }
+        var fresh = full ? [:] : prs.filter { stamps[$0.key] != nil }
+        var fetched = Updates.changed(stamps, cached: fresh)
+        for pr in try await github.pullRequests(ids: fetched) { fresh[pr.id] = pr }
+        let members = Stacks.missingMembers(of: Array(fresh.values)).filter { !org.unfollowed.contains($0) }
+        fetched += members
+        for pr in try await github.pullRequests(ids: members) { fresh[pr.id] = pr }
 
         // ponytail: everything seen is followed until the user stops monitoring it, so merges and closes
         // still notify. Merged PRs keep being polled; auto-archive them if the list grows too long.
@@ -177,7 +186,8 @@ final class AppModel {
         lastError = nil
         await didRefresh(Array(prs.values))
         save(checkpointFile, checkpoints)
-        if let id = selectedPRID, prs[id] != nil { await loadDetail(id) }
+        // The open PR's conversation is reloaded only when GitHub says it changed.
+        if let id = selectedPRID, prs[id] != nil, details[id] == nil || fetched.contains(id) { await loadDetail(id) }
     }
 
     /// Hook for later features (notifications, stale drafts).
