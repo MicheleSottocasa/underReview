@@ -244,6 +244,7 @@ public enum Demo {
                 FollowUpItem(threadID: "DEMO_T_4", request: "Import `timezone` in models.py", status: "disputed",
                              explanation: "The author wants to leave it for a later PR, but `mark_sent` calls `timezone.now()` in this one, so it raises `NameError` until then."),
             ]))
+        run.usage = TokenUsage(input: 3, output: 640, cacheRead: 2_590, cacheWrite: 1_480, listPriceUSD: 0.02)
         run.date = ago(0.2)
         return [run]
     }
@@ -282,6 +283,9 @@ public enum Demo {
             ]))
         current.date = ago(0.5)
         current.options = CodeReviewOptions(model: "", effort: "high")
+        // Sample usage, so the run card shows what a review used (in line with a measured high-effort run).
+        current.usage = TokenUsage(input: 24, output: 9_800, cacheRead: 98_400, cacheWrite: 4_100, listPriceUSD: 0.31, passes: 2)
+        current.estimatedTokens = 1_900
         var old = AIRun(prID: mainID, engine: .claudeCode, headRefOid: oldHead, result: ReviewResult(
             summary: "The email task can send an invite twice when it retries.",
             findings: [Finding(severity: "medium", title: "Retries can email twice", rationale: "The task doesn't record that the email went out.",
