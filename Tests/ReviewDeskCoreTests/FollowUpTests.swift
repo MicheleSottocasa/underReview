@@ -85,6 +85,20 @@ private func pr(head: String = "new", reviewed: String? = "old") -> PullRequest 
     #expect(unloaded.open.map(\.threadID) == items.map(\.threadID) && unloaded.resolved.isEmpty)
 }
 
+@Test func approvalWaitsForTheViewersThreadsAndACheckOnTheHead() {
+    let run = FollowUpRun(prID: "PR_1", engine: .claudeCode, headRefOid: "new", reviewedOid: "old", result: FollowUpResult(summary: "", items: []))
+    let done = PRDetail(body: "", comments: [], reviews: [], threads: [resolved, others], pendingReview: nil)
+    #expect(FollowUp.approvalBlocker(pr(), latest: run, in: done, viewer: "me") == nil) // eve's open thread doesn't block
+    #expect(FollowUp.approvalBlocker(pr(), latest: nil, in: done, viewer: "me") == "No follow-up check yet")
+    #expect(FollowUp.approvalBlocker(pr(head: "newer"), latest: run, in: done, viewer: "me") == "Check again: new commits since the last check")
+    #expect(FollowUp.approvalBlocker(pr(), latest: run, in: detail, viewer: "me") == "2 of your threads are open")
+    let mention = ReviewThread(id: "T5", path: "e.py", line: 3, side: .right, isResolved: false, isOutdated: false,
+                               comments: [comment("C8", "eve", "@me what do you think?")])
+    let mentioned = PRDetail(body: "", comments: [], reviews: [], threads: [resolved, mention], pendingReview: nil)
+    #expect(FollowUp.approvalBlocker(pr(head: "newer"), latest: run, in: mentioned, viewer: "me")
+            == "Check again: new commits since the last check · 1 of your threads is open")
+}
+
 @Test func compareReturnsTheChangedFilesWithPatches() async throws {
     let runner = FakeRunner { _ in ok(#"{"status":"ahead","files":[{"filename":"a.py","status":"modified","additions":1,"deletions":0,"patch":"@@ -1 +1 @@\n+x"}]}"#) }
     let files = try await GitHub(runner: runner).compareFiles(repo: "o/r", from: "old", to: "new")
