@@ -68,11 +68,12 @@ public enum FollowUp {
         }
     }
 
-    /// The run's items with those whose conversation is resolved moved to the end, each group in the run's order.
-    public static func unresolvedFirst(_ items: [FollowUpItem], in detail: PRDetail?) -> [FollowUpItem] {
+    /// The run's items split into those still open and those whose conversation is resolved, each in the run's
+    /// order. Items without a thread (the review summary) or whose thread is gone count as open.
+    public static func splitByResolution(_ items: [FollowUpItem], in detail: PRDetail?) -> (open: [FollowUpItem], resolved: [FollowUpItem]) {
         let resolved = Set(detail?.threads.filter(\.isResolved).map(\.id) ?? [])
         let isResolved = { (item: FollowUpItem) in item.threadID.map(resolved.contains) ?? false }
-        return items.filter { !isResolved($0) } + items.filter(isResolved)
+        return (items.filter { !isResolved($0) }, items.filter(isResolved))
     }
 
     /// The viewer's submitted review summaries, which can hold requests too.

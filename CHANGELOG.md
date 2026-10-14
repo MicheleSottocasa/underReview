@@ -5,7 +5,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
-- **Follow-up order:** in a Follow-up result, requests whose conversation is resolved move to the bottom, so the ones still open stay on top.
+- **Resolved section in Follow-up:** in a Follow-up result, requests whose conversation is resolved move to a collapsed *Resolved* section at the bottom, so only the ones still open are listed on top.
 
 ## 0.9.1
 
