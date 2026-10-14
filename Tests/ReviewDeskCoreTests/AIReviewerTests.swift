@@ -272,3 +272,69 @@ private final class Steps: @unchecked Sendable {
         #expect(!runner.calls.contains { $0.args.contains("--json-schema") }) // no structuring pass on an empty review
     }
 }
+
+/// Writes a session's files where Claude Code would: the main stream says only that a helper started; the diff is read
+/// in `diffAgent`'s transcript, which isn't the one followed live (as with a nested agent) and isn't forwarded.
+private func sessionRunner(config: URL, session: String = "S1", diffAgent: String?, structured: String) -> FakeRunner {
+    FakeRunner { call in
+        if call.args.first == "auth" { return subscribed }
+        if call.args.contains("--json-schema") { return ok(structured) }
+        let files = ClaudeSessionFiles(configDirectory: config, cwd: try #require(call.cwd), session: session)
+        try FileManager.default.createDirectory(at: files.transcript(task: "T1").deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"type":"assistant","message":{"content":[{"type":"text","text":"Reviewing."}]}}"#.utf8).write(to: files.transcript(task: "T1"))
+        if let diffAgent {
+            try Data([
+                #"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"d1","name":"Bash","input":{"command":"gh pr diff 1 -R o/r"}}]}}"#,
+                #"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"d1","is_error":false,"content":"diff --git a/a.py b/a.py"}]}}"#,
+            ].joined(separator: "\n").utf8).write(to: files.transcript(task: diffAgent))
+        }
+        return ok([
+            #"{"type":"system","subtype":"task_started","session_id":"\#(session)","task_id":"T1","description":"/code-review"}"#,
+            #"{"type":"result","is_error":false,"result":"One finding in a.py."}"#,
+        ].joined(separator: "\n"))
+    }
+}
+
+private let structuredResult = #"{"type":"result","is_error":false,"structured_output":{"summary":"ok","findings":[],"keyAreas":[],"risks":[]}}"#
+
+@Test func codeReviewCountsADiffReadByANestedAgent() async throws {
+    // Issue #99: a real review was rejected as "couldn't read the diff" though its report said it had read it.
+    let config = FileManager.default.temporaryDirectory.appendingPathComponent("rd-config-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: config) }
+    let runner = sessionRunner(config: config, diffAgent: "T2-nested", structured: structuredResult)
+    let review = try await AIReviewer(runner: runner, claudeConfigDirectory: config)
+        .codeReview(.claudeCode, prURL: "u", context: context, options: CodeReviewOptions())
+    #expect(review.summary == "ok")
+    let left = (try? FileManager.default.contentsOfDirectory(atPath: config.appendingPathComponent("projects").path)) ?? []
+    #expect(left.isEmpty) // the run's files are still removed afterwards
+}
+
+@Test func codeReviewStillFailsWhenNoTranscriptReadTheDiff() async throws {
+    let config = FileManager.default.temporaryDirectory.appendingPathComponent("rd-config-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: config) }
+    let runner = sessionRunner(config: config, diffAgent: nil, structured: structuredResult)
+    await #expect(throws: AIError.self) {
+        try await AIReviewer(runner: runner, claudeConfigDirectory: config)
+            .codeReview(.claudeCode, prURL: "u", context: context, options: CodeReviewOptions())
+    }
+}
+
+@Test func linkedSessionsOnlyCountTheForkedSessionsTranscripts() async throws {
+    // A diff the linked session read earlier, in its own files, says nothing about this review.
+    let config = FileManager.default.temporaryDirectory.appendingPathComponent("rd-config-\(UUID().uuidString)")
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent("rd-linked-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: config); try? FileManager.default.removeItem(at: folder) }
+    let earlier = ClaudeSessionFiles(configDirectory: config, cwd: folder, session: "LINKED")
+    try FileManager.default.createDirectory(at: earlier.transcript(task: "OLD").deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data([
+        #"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"o1","name":"Bash","input":{"command":"gh pr diff 1 -R o/r"}}]}}"#,
+        #"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"o1","is_error":false,"content":"diff"}]}}"#,
+    ].joined(separator: "\n").utf8).write(to: earlier.transcript(task: "OLD"))
+    let runner = sessionRunner(config: config, session: "FORK", diffAgent: nil, structured: structuredResult)
+    await #expect(throws: AIError.self) {
+        try await AIReviewer(runner: runner, claudeConfigDirectory: config)
+            .codeReview(.claudeSession(id: "LINKED", name: "n", cwd: folder.path), prURL: "u", context: context, options: CodeReviewOptions())
+    }
+    #expect(FileManager.default.fileExists(atPath: earlier.transcript(task: "OLD").path)) // the linked session's files stay
+}
