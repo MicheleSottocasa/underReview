@@ -27,7 +27,18 @@ public struct Updater: Sendable {
     public static let systemTools = [
         "hdiutil": "/usr/bin/hdiutil", "ditto": "/usr/bin/ditto", "xattr": "/usr/bin/xattr",
         "codesign": "/usr/bin/codesign", "sh": "/bin/sh",
+        "lsregister": "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
     ]
+
+    /// Unregisters every copy of this app LaunchServices knows besides the installed one: an update's temporary
+    /// copy (it can get registered again after the install script forgets it), a dev build or a mounted disk image.
+    /// With one of those around, Notification Center shows a blank icon. Run at launch from the installed copy.
+    public func forgetOtherCopies(of installed: URL, among copies: [URL]) async {
+        let keep = installed.resolvingSymlinksInPath().standardizedFileURL.path
+        for copy in copies where copy.resolvingSymlinksInPath().standardizedFileURL.path != keep {
+            _ = try? await runner.run("lsregister", ["-u", copy.path], stdin: nil, cwd: nil, timeout: .seconds(30))
+        }
+    }
 
     /// Downloads the release's installer into `folder` and checks it against GitHub's checksum when there is one.
     public func download(_ release: AppRelease, repo: String, to folder: URL) async throws -> URL {

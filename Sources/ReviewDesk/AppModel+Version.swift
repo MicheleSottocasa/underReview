@@ -100,6 +100,18 @@ extension AppModel {
         if !notes.isEmpty { whatsNew = .installed(notes) }
     }
 
+    /// At launch from an installed `.app`: unregisters other copies of ReviewDesk LaunchServices still knows (an
+    /// update's temporary copy, a dev build), which leave notifications with a blank icon.
+    func forgetOtherCopies() {
+        let installed = Bundle.main.bundleURL
+        // Only from an Applications folder: a dev build running from the repo mustn't unregister the installed app.
+        guard installed.pathExtension == "app", installed.deletingLastPathComponent().lastPathComponent == "Applications",
+              let id = Bundle.main.bundleIdentifier else { return }
+        let copies = NSWorkspace.shared.urlsForApplications(withBundleIdentifier: id)
+        guard copies.count > 1 else { return }
+        Task { await Updater(runner: github.runner).forgetOtherCopies(of: installed, among: copies) }
+    }
+
     /// Help › What's New: this version's notes.
     func showCurrentNotes() {
         openMainWindow?()

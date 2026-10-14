@@ -237,6 +237,7 @@ final class AppModel {
         // A screenshot run only shows the demo: no polling, no notifications, no GitHub calls.
         guard pollTask == nil, !Screenshots.isRequested else { return }
         showWhatsNewAfterUpdate()
+        forgetOtherCopies()
         notifier.onOpen = { [weak self] id in self?.open(prID: id) }
         notifier.onOpenURL = { NSWorkspace.shared.open($0) }
         notifier.setUp()
