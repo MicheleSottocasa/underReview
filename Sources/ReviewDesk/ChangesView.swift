@@ -756,8 +756,7 @@ struct FileDiffView: View {
                         areaRowsNow[index].map { Navigation.position(row: $0, item: index, count: count) }
                     }
                     StepControl(noun: "key area", modifiers: [.command, .control], state: {
-                        let onArea = selectedAreaIndex.flatMap { areaRowsNow[$0] } == cursor ? selectedAreaIndex : nil
-                        return (positions, cursor.map { Navigation.position(row: $0, item: onArea, count: count) })
+                        (positions, Navigation.areaPosition(cursor: cursor, selected: selectedAreaIndex, rows: areaRowsNow, count: count))
                     }) { position in
                         let (row, index) = Navigation.item(at: position, count: count)
                         selectArea(index)

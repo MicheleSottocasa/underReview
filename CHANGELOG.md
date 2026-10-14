@@ -5,6 +5,8 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+- Opening a key area from Changes › Focus no longer crashes the app.
+
 ## 0.9.3
 
 - **Notification icon:** at launch ReviewDesk unregisters other copies of itself macOS still knows (an update's temporary copy, a dev build), which made notifications show a blank icon.

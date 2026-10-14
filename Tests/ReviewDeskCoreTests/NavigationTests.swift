@@ -31,3 +31,18 @@ import Testing
     #expect(Navigation.step([3, 7, 12], from: nil, forward: false) == 12)
     #expect(Navigation.step([], from: nil, forward: true) == nil)
 }
+
+@Test func areaPositionSitsOnTheSelectedAreaOnlyOnItsRow() {
+    let rows: [Int?] = [5, 9, nil]
+    #expect(Navigation.areaPosition(cursor: 9, selected: 1, rows: rows, count: 3) == Navigation.position(row: 9, item: 1, count: 3))
+    #expect(Navigation.areaPosition(cursor: 5, selected: 1, rows: rows, count: 3) == Navigation.position(row: 5, item: nil, count: 3))
+    #expect(Navigation.areaPosition(cursor: nil, selected: 1, rows: rows, count: 3) == nil)
+}
+
+/// Regression: opening a key area from Focus drew the diff once before it was rendered, with no area rows yet but the
+/// selected area's index set, and indexing the empty rows crashed the app.
+@Test func areaPositionToleratesRowsNotRenderedYet() {
+    #expect(Navigation.areaPosition(cursor: 4, selected: 0, rows: [], count: 2) == Navigation.position(row: 4, item: nil, count: 2))
+    #expect(Navigation.areaPosition(cursor: nil, selected: 0, rows: [], count: 2) == nil)
+    #expect(Navigation.areaPosition(cursor: 4, selected: 7, rows: [4], count: 1) == Navigation.position(row: 4, item: nil, count: 1))
+}
