@@ -5,6 +5,8 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+## 0.9.4
+
 - Opening a key area from Changes › Focus no longer crashes the app.
 
 ## 0.9.3
