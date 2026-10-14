@@ -58,6 +58,9 @@ struct FollowUpView: View {
                         .disabled(model.isAIBusy(pr) || (threads.isEmpty && detail.map { FollowUp.reviewBodies(of: model.viewer, in: $0) }?.isEmpty != false))
                         .help("Uses \(model.preferredEngine(for: pr).name), the engine picked in the AI Review tab")
                 }
+                if let detail, ReviewEvent.allowed(for: pr).contains(.approve) {
+                    ApproveFromFollowUp(pr: pr, blocker: FollowUp.approvalBlocker(pr, latest: runs.first, in: detail, viewer: model.viewer(for: pr)))
+                }
                 AIProgress(pr: pr)
                 let members = model.stackMembers(of: pr)
                 if members.count > 1 { StackFollowUp(pr: pr, members: members) }
@@ -219,6 +222,60 @@ private struct ResolveAllAddressed: View {
                 }
             }
         }
+    }
+}
+
+/// Approves once your threads are resolved and the latest check ran on the head; otherwise says what's missing.
+/// Hidden on your own pull request, where GitHub refuses an approval.
+private struct ApproveFromFollowUp: View {
+    @Environment(AppModel.self) private var model
+    let pr: PullRequest
+    let blocker: String?
+    @ViewState private var confirming = false
+
+    var body: some View {
+        let busy = model.pending.contains("\(pr.id):approve")
+        HStack(spacing: 8) {
+            Button("Approve…") { confirming = true }
+                .disabled(blocker != nil || busy)
+                .help(blocker ?? "Submit an approving review, after a confirmation with an optional comment")
+                .popover(isPresented: $confirming) { confirmation }
+            if busy { ProgressView().controlSize(.small) }
+            if let blocker { Text(blocker).font(.caption).foregroundStyle(.secondary) }
+        }
+        .controlSize(.small)
+    }
+
+    private var confirmation: some View {
+        let unsaved = model.drafts(for: pr.id).filter(\.needsSync)
+        let toSend = unsaved.filter { !$0.isStale }.count + (pr.pendingReviewComments ?? 0)
+        return VStack(alignment: .leading, spacing: 12) {
+            Text("Approve #\(pr.number)?").font(.headline)
+            CommentComposer(text: Binding(
+                get: { model.reviewDrafts.bodies[pr.id] ?? "" },
+                set: { model.reviewDrafts.bodies[pr.id] = $0.isEmpty ? nil : $0 }
+            ), placeholder: "Leave a comment (optional)")
+            // The same path as Submit Review: local drafts and the pending review go out with the approval.
+            if unsaved.contains(where: \.isStale) {
+                Label("Outdated drafts are left out until you confirm or delete them.", systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange)
+            }
+            if toSend > 0 {
+                Text("\(toSend) comment\(toSend == 1 ? "" : "s") not submitted yet will be submitted with the approval.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel") { confirming = false }.keyboardShortcut(.cancelAction)
+                Button("Approve") {
+                    confirming = false
+                    Task { await model.whilePending("\(pr.id):approve") { await model.submitReview(pr, event: .approve) } }
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(16)
+        .frame(width: 440)
     }
 }
 
