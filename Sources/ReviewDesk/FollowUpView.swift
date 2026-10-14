@@ -151,6 +151,7 @@ private struct FollowUpRunView: View {
                 Image(systemName: "checklist").foregroundStyle(.purple)
                 Text(run.engine.name).bold()
                 Text(run.date.formatted(.relative(presentation: .named))).foregroundStyle(.secondary)
+                UsageLabel(usage: run.usage)
                 if run.headRefOid != pr.headRefOid { Badge(text: "New commits since this check", color: .orange) }
                 if run.reviewedOid == nil { Badge(text: "Whole diff", color: .secondary).help("What changed since your review wasn't available") }
                 Spacer()

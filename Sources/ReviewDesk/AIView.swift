@@ -245,6 +245,7 @@ struct RunView: View {
                         .font(.caption.monospaced()).foregroundStyle(.secondary)
                 }
                 Text(run.date.formatted(.relative(presentation: .named))).foregroundStyle(.secondary)
+                UsageLabel(usage: run.usage)
                 if outdated { Badge(text: "Outdated by push", color: .orange) }
                 Spacer()
                 Button("Delete") { model.deleteRun(run.id) }.buttonStyle(.link)
@@ -876,6 +877,22 @@ struct StackRunBox: View {
         case .done(let findings): findings == 0 ? "No findings" : "\(findings) finding\(findings == 1 ? "" : "s")"
         case .failed(let reason): reason
         case .cancelled: "Stopped"
+        }
+    }
+}
+
+/// What an AI run used, as its CLI reported it: "25k tokens", with the breakdown and Claude's list-price equivalent on hover.
+struct UsageLabel: View {
+    let usage: TokenUsage?
+
+    var body: some View {
+        if let usage {
+            Label(TokenUsage.formatted(usage.total) + " tokens", systemImage: "gauge.with.dots.needle.33percent")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .help(usage.summary + (usage.listPriceUSD.map {
+                    String(format: "\nAbout $%.2f at API list prices: you're on a subscription, so this isn't charged; it counts toward your plan's limits.", $0)
+                } ?? ""))
         }
     }
 }

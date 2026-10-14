@@ -33,6 +33,8 @@ public struct FollowUpRun: Codable, Hashable, Identifiable, Sendable {
     public var reviewedOid: String?
     public var date = Date()
     public var result: FollowUpResult
+    /// What the check used, when the CLI reported it; nil for checks saved before ReviewDesk recorded usage.
+    public var usage: TokenUsage?
 
     public init(prID: String, engine: AIEngine, headRefOid: String, reviewedOid: String?, result: FollowUpResult) {
         (self.prID, self.engine, self.headRefOid, self.reviewedOid, self.result) = (prID, engine, headRefOid, reviewedOid, result)
