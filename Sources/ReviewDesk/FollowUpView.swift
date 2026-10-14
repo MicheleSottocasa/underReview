@@ -135,6 +135,11 @@ private struct FollowUpRunView: View {
     @Environment(AppModel.self) private var model
     let pr: PullRequest
     let run: FollowUpRun
+    @ViewState private var showsResolved = false
+
+    private func row(_ item: FollowUpItem) -> FollowUpItemView {
+        FollowUpItemView(pr: pr, item: item, thread: item.threadID.flatMap { id in model.details[pr.id]?.threads.first { $0.id == id } })
+    }
 
     var body: some View {
         let counts = Dictionary(grouping: run.result.items, by: \.status).mapValues(\.count)
@@ -156,8 +161,18 @@ private struct FollowUpRunView: View {
             }
             MarkdownText(run.result.summary)
             ResolveAllAddressed(pr: pr, run: run)
-            ForEach(Array(FollowUp.unresolvedFirst(run.result.items, in: model.details[pr.id]).enumerated()), id: \.offset) { _, item in
-                FollowUpItemView(pr: pr, item: item, thread: item.threadID.flatMap { id in model.details[pr.id]?.threads.first { $0.id == id } })
+            let split = FollowUp.splitByResolution(run.result.items, in: model.details[pr.id])
+            ForEach(Array(split.open.enumerated()), id: \.offset) { _, item in row(item) }
+            // Resolved conversations sit in their own section, always last and collapsed until opened.
+            if !split.resolved.isEmpty {
+                DisclosureGroup(isExpanded: $showsResolved) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(Array(split.resolved.enumerated()), id: \.offset) { _, item in row(item) }
+                    }
+                    .padding(.top, 6)
+                } label: {
+                    Label("Resolved (\(split.resolved.count))", systemImage: "checkmark.circle").foregroundStyle(.secondary).font(.callout.bold())
+                }
             }
         }
         .padding(14)
