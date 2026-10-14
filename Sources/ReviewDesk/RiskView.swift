@@ -64,6 +64,11 @@ struct RiskView: View {
             }
             Spacer()
             Text("\(checked)/\(RiskQuestion.allCases.count) checked").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+            if engine.tool == "claude" {
+                let effort = UserDefaults.standard.string(forKey: "reviewEffort") ?? "high"
+                let estimate = model.reviewEstimate(pr, engine: engine, effort: effort)
+                EstimateLabel(estimate: estimate, help: model.codeReviewEstimateHelp(estimate, effort: effort))
+            }
             Button(engine.tool == "claude" ? (run == nil ? "Run Risk Analysis" : "Run Again") : "Prepare in AI Tab…") {
                 model.runRiskAnalysis(pr)
             }
