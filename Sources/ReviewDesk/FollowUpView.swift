@@ -156,7 +156,7 @@ private struct FollowUpRunView: View {
             }
             MarkdownText(run.result.summary)
             ResolveAllAddressed(pr: pr, run: run)
-            ForEach(Array(run.result.items.enumerated()), id: \.offset) { _, item in
+            ForEach(Array(FollowUp.unresolvedFirst(run.result.items, in: model.details[pr.id]).enumerated()), id: \.offset) { _, item in
                 FollowUpItemView(pr: pr, item: item, thread: item.threadID.flatMap { id in model.details[pr.id]?.threads.first { $0.id == id } })
             }
         }
