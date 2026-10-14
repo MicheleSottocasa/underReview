@@ -68,6 +68,17 @@ public enum FollowUp {
         }
     }
 
+    /// Why *Approve* in Follow-up is off, or nil when it's on: every thread involving the viewer (the *Involving Me*
+    /// rule) must be resolved, and the latest check must have run on the current head. Others' open threads don't count.
+    public static func approvalBlocker(_ pr: PullRequest, latest run: FollowUpRun?, in detail: PRDetail, viewer: String) -> String? {
+        let open = detail.threads.filter { !$0.isResolved && $0.involves(viewer) }.count
+        let reasons = [
+            run == nil ? "No follow-up check yet" : run?.headRefOid != pr.headRefOid ? "Check again: new commits since the last check" : nil,
+            open == 0 ? nil : open == 1 ? "1 of your threads is open" : "\(open) of your threads are open",
+        ].compactMap { $0 }
+        return reasons.isEmpty ? nil : reasons.joined(separator: " · ")
+    }
+
     /// The run's items split into those still open and those whose conversation is resolved, each in the run's
     /// order. Items without a thread (the review summary) or whose thread is gone count as open.
     public static func splitByResolution(_ items: [FollowUpItem], in detail: PRDetail?) -> (open: [FollowUpItem], resolved: [FollowUpItem]) {
