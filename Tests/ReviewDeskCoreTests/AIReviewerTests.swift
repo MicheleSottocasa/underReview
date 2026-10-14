@@ -136,7 +136,7 @@ private let subscribed = ok(#"{"loggedIn":true,"authMethod":"claude.ai"}"#)
 @Test func askWithOllamaSkipsJSONFormat() async throws {
     let runner = FakeRunner { call in call.args.first == "list" ? ok("") : ok("Plain answer") }
     #expect(try await AIReviewer(runner: runner).ask(.ollama(model: "m"), prompt: "p") == "Plain answer")
-    #expect(runner.calls.last?.args == ["run", "m", "--hidethinking"])
+    #expect(runner.calls.last?.args == ["run", "m", "--hidethinking", "--verbose"])
 }
 
 private let context = ReviewContext(title: "T", body: "B", files: [

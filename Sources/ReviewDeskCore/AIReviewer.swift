@@ -116,8 +116,9 @@ public struct AIReviewer: Sendable {
         }
     }
 
-    public func review(_ engine: AIEngine, prompt: String, timeout: Duration = .seconds(600)) async throws -> ReviewResult {
-        try Self.decode(try await run(engine, prompt: prompt, schema: AIContext.schema, timeout: timeout))
+    /// `usage` collects what each CLI call reported, when the caller wants to show it.
+    public func review(_ engine: AIEngine, prompt: String, timeout: Duration = .seconds(600), usage: UsageMeter? = nil) async throws -> ReviewResult {
+        try Self.decode(try await run(engine, prompt: prompt, schema: AIContext.schema, timeout: timeout, usage: usage))
     }
 
     /// Claude Code's own `/code-review` on the PR, then a quick tool-less pass that turns its report into findings
@@ -131,7 +132,7 @@ public struct AIReviewer: Sendable {
                            folders: [String] = [],
                            instructions: String = AIContext.defaultCodeReviewInstructions,
                            structureInstructions: String = AIContext.defaultStructureInstructions,
-                           timeout: Duration = .seconds(1800),
+                           timeout: Duration = .seconds(1800), usage: UsageMeter? = nil,
                            progress: @escaping @Sendable (String) -> Void = { _ in }) async throws -> ReviewResult {
         try await checkAuth(engine)
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("reviewdesk-ai-\(UUID().uuidString)")
@@ -199,6 +200,7 @@ public struct AIReviewer: Sendable {
         }
         await live.stop()
         if let final = ClaudeActivity.result(in: result.stdout) { result.stdout = final }
+        usage?.add(Self.claudeUsage(result.stdout))
         let report = String(decoding: try Self.parseClaude(result), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !report.isEmpty, report != "Command completed" else { throw AIError.invalidOutput("/code-review returned no report") }
         // A review that never saw the diff can only be empty: say so instead of showing it as a clean pull request.
@@ -207,7 +209,7 @@ public struct AIReviewer: Sendable {
         }
         progress("Turning the review into findings, key areas and risk answers…")
         let prompt = AIContext.structurePrompt(report: report, context: context.fittingBudget(), instructions: structureInstructions)
-        return try Self.decode(try await run(.claudeCode, prompt: prompt, schema: AIContext.schema, model: options.model, timeout: .seconds(300)))
+        return try Self.decode(try await run(.claudeCode, prompt: prompt, schema: AIContext.schema, model: options.model, timeout: .seconds(300), usage: usage))
     }
 
     /// Permission rules denying hidden files and everything under hidden folders inside `folder` (an absolute path).
@@ -220,8 +222,8 @@ public struct AIReviewer: Sendable {
 
     /// A JSON answer matching `schema`, decoded as `T`, under the same restrictions as a review.
     public func structured<T: Decodable>(_ engine: AIEngine, prompt: String, schema: String, as type: T.Type,
-                                         timeout: Duration = .seconds(600)) async throws -> T {
-        let data = try await run(engine, prompt: prompt, schema: schema, timeout: timeout)
+                                         timeout: Duration = .seconds(600), usage: UsageMeter? = nil) async throws -> T {
+        let data = try await run(engine, prompt: prompt, schema: schema, timeout: timeout, usage: usage)
         do {
             return try JSONDecoder().decode(T.self, from: data)
         } catch {
@@ -230,15 +232,16 @@ public struct AIReviewer: Sendable {
     }
 
     /// A free-text answer in Markdown, under the same restrictions as a review.
-    public func ask(_ engine: AIEngine, prompt: String, timeout: Duration = .seconds(300)) async throws -> String {
-        let answer = String(decoding: try await run(engine, prompt: prompt, schema: nil, timeout: timeout), as: UTF8.self)
+    public func ask(_ engine: AIEngine, prompt: String, timeout: Duration = .seconds(300), usage: UsageMeter? = nil) async throws -> String {
+        let answer = String(decoding: try await run(engine, prompt: prompt, schema: nil, timeout: timeout, usage: usage), as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !answer.isEmpty else { throw AIError.invalidOutput("empty answer") }
         return answer
     }
 
     /// Runs the CLI and returns its answer: JSON matching `schema` when one is given, otherwise text.
-    private func run(_ engine: AIEngine, prompt: String, schema: String?, model: String = "", timeout: Duration) async throws -> Data {
+    private func run(_ engine: AIEngine, prompt: String, schema: String?, model: String = "", timeout: Duration,
+                     usage: UsageMeter? = nil) async throws -> Data {
         try await checkAuth(engine)
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("reviewdesk-ai-\(UUID().uuidString)")
         let workdir = dir.appendingPathComponent("empty")
@@ -256,6 +259,7 @@ public struct AIReviewer: Sendable {
                 "--tools", "", "--strict-mcp-config", "--setting-sources", "",
                 "--disable-slash-commands", "--no-session-persistence",
             ] + Self.claudeSchema(schema) + (model.isEmpty ? [] : ["--model", model]), stdin: input, cwd: workdir, timeout: timeout)
+            usage?.add(Self.claudeUsage(result.stdout))
             return try Self.parseClaude(result)
 
         case .claudeSession(let id, _, let cwd):
@@ -266,6 +270,7 @@ public struct AIReviewer: Sendable {
                 "-p", "--resume", id, "--fork-session", "--no-session-persistence", "--output-format", "json",
                 "--tools", "", "--strict-mcp-config", "--setting-sources", "", "--disable-slash-commands",
             ] + Self.claudeSchema(schema), stdin: input, cwd: URL(fileURLWithPath: cwd), timeout: timeout)
+            usage?.add(Self.claudeUsage(result.stdout))
             return try Self.parseClaude(result)
 
         case .codex:
@@ -276,22 +281,31 @@ public struct AIReviewer: Sendable {
                 try Data(schema.utf8).write(to: file)
                 schemaArgs = ["--output-schema", file.path]
             }
+            // --json prints events on stdout, the last one carrying the usage; the answer still goes to `output`.
             let result = try await runner.run("codex", [
-                "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral",
+                "exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral",
                 "--ignore-user-config", "--ignore-rules", "--disable", "hooks", "--disable", "plugins",
             ] + schemaArgs + ["-o", output.path, "-C", workdir.path, "-"], stdin: input, cwd: workdir, timeout: timeout)
             guard result.status == 0 else { throw AIError.failed(Self.tail(result.stderr)) }
+            usage?.add(TokenUsage.codex(events: result.text))
             return (try? Data(contentsOf: output)) ?? Data()
 
         case .ollama(let model):
             let format = schema == nil ? [] : ["--format", "json"]
-            let result = try await runner.run("ollama", ["run", model] + format + ["--hidethinking"], stdin: input, cwd: workdir, timeout: timeout)
+            // --verbose adds the token counts to stderr; the answer on stdout is unchanged.
+            let result = try await runner.run("ollama", ["run", model] + format + ["--hidethinking", "--verbose"], stdin: input, cwd: workdir, timeout: timeout)
             guard result.status == 0 else { throw AIError.failed(Self.tail(result.stderr)) }
+            usage?.add(TokenUsage.ollama(stderr: result.stderr))
             return result.stdout
         }
     }
 
     static func claudeSchema(_ schema: String?) -> [String] { schema.map { ["--json-schema", $0] } ?? [] }
+
+    /// The usage in Claude Code's JSON result, if it reported one.
+    static func claudeUsage(_ stdout: Data) -> TokenUsage? {
+        ((try? JSONSerialization.jsonObject(with: stdout)) as? [String: Any]).flatMap(TokenUsage.claude)
+    }
 
     /// The structured output as JSON when a schema was used, otherwise the answer text.
     static func parseClaude(_ result: CommandResult) throws -> Data {
