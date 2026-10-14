@@ -622,6 +622,8 @@ struct ExplanationView: View {
                             .textFieldStyle(.roundedBorder)
                             .onSubmit(send)
                             .disabled(chat.isAnswering)
+                        EstimateLabel(estimate: model.chatEstimate(chat, question: question),
+                                      help: "This question resends the chat's context and the conversation so far. It counts toward your plan's limits.")
                         Button("Ask", action: send)
                             .disabled(chat.isAnswering || question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }

@@ -110,12 +110,18 @@ struct AIView: View {
             if let stack = model.allItems.first(where: { $0.key == pr.itemKey && $0.isStack }) {
                 // PRs you already approved are done for you: no new agent on them.
                 let toReview = Stacks.toReview(stack.pullRequests)
+                let stackEstimate = model.reviewEstimate(toReview, engine: engine, effort: effort)
                 Button("Review Stack (\(toReview.count))") {
                     model.startStackReview(toReview, engine: engine, budget: budget, options: options, from: pr.id)
                 }
                 .disabled(busy || toReview.isEmpty)
                 .help(toReview.isEmpty ? "Every open PR of this stack is approved by you"
-                                       : "One agent per open PR you haven't approved, several at once (Settings › AI)")
+                                       : "One agent per open PR you haven't approved, several at once (Settings › AI)."
+                                         + (stackEstimate.map { " Estimated \($0.label) in all." } ?? ""))
+            }
+            if usesCodeReview {
+                let estimate = model.reviewEstimate(pr, engine: engine, effort: effort)
+                EstimateLabel(estimate: estimate, help: model.codeReviewEstimateHelp(estimate, effort: effort))
             }
             Button(usesCodeReview ? "Run /code-review" : preparing ? "Preparing…" : "Prepare Context") { start() }
                 .buttonStyle(.borderedProminent)
@@ -219,6 +225,8 @@ struct ContextPanel: View {
                     .font(.caption)
                     .foregroundStyle(context.fitsBudget ? Color.secondary : Color.red)
                 Spacer()
+                EstimateLabel(estimate: TokenEstimator.prompt(tokens: context.tokens, engine: engine, answer: .review),
+                              help: "The context above, plus \(engine.name)'s own prompt and the answer. It counts toward your plan's limits.")
                 Button("Run with \(engine.name)", action: run).buttonStyle(.borderedProminent).disabled(!context.fitsBudget)
             }
             .padding(12)
@@ -893,6 +901,22 @@ struct UsageLabel: View {
                 .help(usage.summary + (usage.listPriceUSD.map {
                     String(format: "\nAbout $%.2f at API list prices: you're on a subscription, so this isn't charged; it counts toward your plan's limits.", $0)
                 } ?? ""))
+        }
+    }
+}
+
+/// An estimate next to a run button: "~30k–110k tokens", with what it's based on on hover.
+struct EstimateLabel: View {
+    let estimate: TokenEstimate?
+    var prefix = ""
+    var help = ""
+
+    var body: some View {
+        if let estimate {
+            Text(prefix + estimate.label)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .help(help)
         }
     }
 }

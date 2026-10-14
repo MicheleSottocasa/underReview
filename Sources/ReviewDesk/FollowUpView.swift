@@ -23,6 +23,8 @@ struct FollowUpNotice: View {
                 .disabled(model.isAIBusy(pr))
                 .help("Check every pull request of the stack with new commits or replies since your review, bottom first")
             }
+            EstimateLabel(estimate: model.followUpEstimate(pr, engine: model.preferredEngine(for: pr)), prefix: "up to ",
+                          help: "At most: assumes the whole diff, but only what changed since your review is sent. It counts toward your plan's limits.")
             Button("Check if Addressed") {
                 model.detailTab = .followUp
                 model.startFollowUp(pr)
@@ -53,6 +55,8 @@ struct FollowUpView: View {
                             .font(.callout).foregroundStyle(.secondary)
                     }
                     Spacer()
+                    EstimateLabel(estimate: model.followUpEstimate(pr, engine: model.preferredEngine(for: pr)), prefix: "up to ",
+                                  help: "At most: assumes the whole diff, but only what changed since your review is sent. It counts toward your plan's limits.")
                     Button(runs.isEmpty ? "Check Now" : "Check Again") { model.startFollowUp(pr) }
                         .buttonStyle(.borderedProminent)
                         .disabled(model.isAIBusy(pr) || (threads.isEmpty && detail.map { FollowUp.reviewBodies(of: model.viewer, in: $0) }?.isEmpty != false))
@@ -98,6 +102,8 @@ private struct StackFollowUp: View {
                     Text("\(approved) approved by you, hidden").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
+                EstimateLabel(estimate: due.isEmpty ? nil : model.followUpEstimate(due, engine: model.preferredEngine(for: pr)), prefix: "up to ",
+                              help: "At most: assumes the whole diff, but only what changed since your review is sent. It counts toward your plan's limits.")
                 Button("Check Stack (\(due.count))") { model.startStackFollowUp(due, from: pr.id) }
                     .disabled(due.isEmpty || model.isAIBusy(pr))
                     .help(due.isEmpty ? "Nothing new since your review in this stack"
