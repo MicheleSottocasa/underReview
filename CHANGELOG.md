@@ -6,6 +6,7 @@ Add a `## <version>` section here before tagging a release: the release workflow
 ## Unreleased
 
 - **Token usage:** each AI run shows an estimate of the tokens it will use before you start it, including whole stacks, and what it really used afterwards (in, out and cached on hover). `/code-review` estimates learn from your past runs.
+- A `/code-review` that read the diff is no longer rejected as "couldn't read the diff" when the read happened in a helper agent the app wasn't watching live.
 
 ## 0.9.4
 

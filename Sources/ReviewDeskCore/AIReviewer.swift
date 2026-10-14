@@ -203,6 +203,15 @@ public struct AIReviewer: Sendable {
             throw error
         }
         await live.stop()
+        if !diff.happened {
+            // Live, only the stream and the first helper's transcript are watched, as they're written: a diff read by a
+            // nested or later agent, or in a transcript that appeared just as the run ended, is missed. Before the run's
+            // files are removed, read every transcript it left: the whole folder of our own temporary directory, or only
+            // the forked session's files in a linked session's folder.
+            let transcripts = resumed == nil ? ClaudeSessionFiles.transcripts(in: project)
+                : live.session.map { ClaudeSessionFiles(projectDirectory: project, session: $0).transcripts } ?? []
+            transcripts.forEach(diff.scan)
+        }
         if let final = ClaudeActivity.result(in: result.stdout) { result.stdout = final }
         usage?.add(Self.claudeUsage(result.stdout))
         let report = String(decoding: try Self.parseClaude(result), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)

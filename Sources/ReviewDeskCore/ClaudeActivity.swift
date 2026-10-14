@@ -130,6 +130,17 @@ public struct ClaudeSessionFiles: Sendable {
         projectDirectory.appendingPathComponent(session).appendingPathComponent("subagents").appendingPathComponent("agent-\(task).jsonl")
     }
 
+    /// The transcripts this session wrote: its own and every helper agent's, nested ones too.
+    public var transcripts: [URL] {
+        [projectDirectory.appendingPathComponent("\(session).jsonl")] + Self.transcripts(in: projectDirectory.appendingPathComponent(session))
+    }
+
+    /// Every transcript (`.jsonl`) under `folder`, at any depth.
+    static func transcripts(in folder: URL) -> [URL] {
+        let files = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil)?.compactMap { $0 as? URL } ?? []
+        return files.filter { $0.pathExtension == "jsonl" }.sorted { $0.path < $1.path }
+    }
+
     /// Deletes this session's files if they were created at or after `since`, and the project folder if it's
     /// then empty. Files from before (an existing session) are never touched.
     public func remove(createdSince since: Date) {
@@ -194,6 +205,12 @@ final class DiffRead: @unchecked Sendable {
     private var succeeded = false
 
     var happened: Bool { lock.withLock { succeeded } }
+
+    /// Reads a whole transcript, for the look back at a run's files once it's over.
+    func scan(_ url: URL) {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return }
+        for line in text.split(separator: "\n") { observe(String(line)) }
+    }
 
     /// Feed every event line, from the stream and the helper agent's transcript.
     func observe(_ line: String) {
