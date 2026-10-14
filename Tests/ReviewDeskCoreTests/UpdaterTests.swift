@@ -127,3 +127,14 @@ private func runInstallScript(newApp: URL, target: URL, work: URL) throws {
     #expect(try String(contentsOf: target.appendingPathComponent("version"), encoding: .utf8) == "new")
     #expect(!FileManager.default.fileExists(atPath: target.path + ".previous"))
 }
+
+@Test func launchForgetsEveryOtherRegisteredCopy() async {
+    let runner = FakeRunner { _ in ok("") }
+    let installed = URL(fileURLWithPath: "/Applications/ReviewDesk.app")
+    let copies = [installed, URL(fileURLWithPath: "/private/var/folders/x/T/reviewdesk-update-1/ReviewDesk.app"),
+                  URL(fileURLWithPath: "/Applications/./ReviewDesk.app"), URL(fileURLWithPath: "/Volumes/ReviewDesk/ReviewDesk.app")]
+    await Updater(runner: runner).forgetOtherCopies(of: installed, among: copies)
+    #expect(runner.calls.map(\.tool) == ["lsregister", "lsregister"])
+    #expect(runner.calls.map(\.args) == [["-u", "/private/var/folders/x/T/reviewdesk-update-1/ReviewDesk.app"],
+                                          ["-u", "/Volumes/ReviewDesk/ReviewDesk.app"]])
+}
