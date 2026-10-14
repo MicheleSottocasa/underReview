@@ -68,6 +68,13 @@ public enum FollowUp {
         }
     }
 
+    /// The run's items with those whose conversation is resolved moved to the end, each group in the run's order.
+    public static func unresolvedFirst(_ items: [FollowUpItem], in detail: PRDetail?) -> [FollowUpItem] {
+        let resolved = Set(detail?.threads.filter(\.isResolved).map(\.id) ?? [])
+        let isResolved = { (item: FollowUpItem) in item.threadID.map(resolved.contains) ?? false }
+        return items.filter { !isResolved($0) } + items.filter(isResolved)
+    }
+
     /// The viewer's submitted review summaries, which can hold requests too.
     public static func reviewBodies(of viewer: String, in detail: PRDetail) -> [String] {
         detail.reviews.filter { $0.author == viewer && !$0.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.map(\.body)

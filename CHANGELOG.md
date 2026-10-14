@@ -5,6 +5,8 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+- **Follow-up order:** in a Follow-up result, requests whose conversation is resolved move to the bottom, so the ones still open stay on top.
+
 ## 0.9.1
 
 - **Resolve All Addressed:** a Follow-up result resolves every conversation it judged addressed in one go, after a confirmation listing them; failures are named and don't stop the rest. It's off on a check older than the latest commits.

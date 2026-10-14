@@ -75,6 +75,14 @@ private func pr(head: String = "new", reviewed: String? = "old") -> PullRequest 
     #expect(FollowUp.resolvable(run, in: detail, head: "newer").isEmpty) // an outdated check resolves nothing
 }
 
+@Test func resolvedConversationsGoLastInRunOrder() {
+    let detail = PRDetail(body: "", comments: [], reviews: [], threads: [mine, waiting, resolved, others], pendingReview: nil)
+    func item(_ thread: String?) -> FollowUpItem { FollowUpItem(threadID: thread, request: "", status: "addressed", explanation: "") }
+    let items = [item("T3"), item("T1"), item(nil), item("T9"), item("T2")]
+    #expect(FollowUp.unresolvedFirst(items, in: detail).map(\.threadID) == ["T1", nil, "T9", "T2", "T3"])
+    #expect(FollowUp.unresolvedFirst(items, in: nil).map(\.threadID) == items.map(\.threadID)) // no detail yet: as checked
+}
+
 @Test func compareReturnsTheChangedFilesWithPatches() async throws {
     let runner = FakeRunner { _ in ok(#"{"status":"ahead","files":[{"filename":"a.py","status":"modified","additions":1,"deletions":0,"patch":"@@ -1 +1 @@\n+x"}]}"#) }
     let files = try await GitHub(runner: runner).compareFiles(repo: "o/r", from: "old", to: "new")
