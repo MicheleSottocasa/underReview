@@ -5,6 +5,8 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+## 0.9.2
+
 - **Resolved section in Follow-up:** in a Follow-up result, requests whose conversation is resolved move to a collapsed *Resolved* section at the bottom, so only the ones still open are listed on top.
 - **Approve from Follow-up:** the Follow-up tab has an *Approve…* button, on once every thread you're involved in is resolved and the latest check ran on the current head commit; while it's off it says what's missing. It asks for confirmation with an optional comment, and isn't offered on your own pull request.
 
