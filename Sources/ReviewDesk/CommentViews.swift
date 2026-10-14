@@ -584,6 +584,7 @@ struct ExplanationView: View {
                         .font(.caption.bold()).foregroundStyle(.secondary)
                     if chat.isAnswering { ProgressView().controlSize(.small) }
                     Spacer()
+                    UsageLabel(usage: chat.usage)
                     if !chat.isAnswering {
                         Button { model.explanations[key] = nil } label: { Image(systemName: "xmark") }
                             .buttonStyle(.borderless)

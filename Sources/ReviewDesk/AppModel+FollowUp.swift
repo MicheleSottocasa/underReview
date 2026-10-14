@@ -101,9 +101,12 @@ extension AppModel {
             logStep("Asking \(engine.name)…", pr: key)
             let prompt = FollowUp.prompt(title: pr.title, viewer: viewer, threads: threads, reviewBodies: bodies, changes: changes,
                                          sinceReview: sinceReview, instructions: Prompts.followUp)
-            let result = try await reviewer.structured(engine, prompt: prompt, schema: FollowUp.schema, as: FollowUpResult.self)
-            followUps.append(FollowUpRun(prID: pr.id, engine: engine, headRefOid: pr.headRefOid,
-                                         reviewedOid: sinceReview ? pr.viewerReviewedOid : nil, result: result))
+            let meter = UsageMeter()
+            let result = try await reviewer.structured(engine, prompt: prompt, schema: FollowUp.schema, as: FollowUpResult.self, usage: meter)
+            var run = FollowUpRun(prID: pr.id, engine: engine, headRefOid: pr.headRefOid,
+                                  reviewedOid: sinceReview ? pr.viewerReviewedOid : nil, result: result)
+            run.usage = meter.usage
+            followUps.append(run)
         } catch is CancellationError {
         } catch {
             if !Task.isCancelled { report(error, engine.name) }

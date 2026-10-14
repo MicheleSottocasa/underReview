@@ -266,12 +266,16 @@ extension AppModel {
             aiStatus[key] = "Running /code-review (\(options.effort))\(on) with \(engine.name)…"
             let context = AIContext.build(pr: pr, body: details[pr.id]?.body ?? "", files: changed, contents: [:],
                                           budget: UserDefaults.standard.object(forKey: "aiBudget") as? Int ?? 150_000, rules: rules)
+            let meter = UsageMeter()
             let result = try await reviewer.codeReview(engine, prURL: pr.url, context: context, options: options, folders: folders,
-                                                       instructions: Prompts.codeReview, structureInstructions: Prompts.structure) { step in
+                                                       instructions: Prompts.codeReview, structureInstructions: Prompts.structure,
+                                                       usage: meter) { step in
                 Task { @MainActor in self.logStep(step, pr: key) }
             }
             var run = AIRun(prID: pr.id, engine: engine, headRefOid: pr.headRefOid, result: result)
             run.options = options
+            run.usage = meter.usage
+            run.estimatedTokens = context.tokens
             aiRuns.append(run)
         } catch is CancellationError {
         } catch {
@@ -283,8 +287,13 @@ extension AppModel {
         aiStatus[pr.id] = "Reviewing with \(engine.name)…"
         defer { aiStatus[pr.id] = nil }
         do {
-            let result = try await reviewer.review(engine, prompt: AIContext.prompt(context, instructions: Prompts.review))
-            aiRuns.append(AIRun(prID: pr.id, engine: engine, headRefOid: pr.headRefOid, result: result))
+            let meter = UsageMeter()
+            let prompt = AIContext.prompt(context, instructions: Prompts.review)
+            let result = try await reviewer.review(engine, prompt: prompt, usage: meter)
+            var run = AIRun(prID: pr.id, engine: engine, headRefOid: pr.headRefOid, result: result)
+            run.usage = meter.usage
+            run.estimatedTokens = AIContext.estimateTokens(prompt)
+            aiRuns.append(run)
         } catch is CancellationError {
         } catch {
             if !Task.isCancelled { report(error, engine.name) }
@@ -386,8 +395,10 @@ extension AppModel {
         defer { explanations[commentID]?.isAnswering = false }
         do {
             let prompt = AIContext.followUpPrompt(explainPrompt: chat.prompt, chat: chat.messages, question: question)
-            let answer = try await reviewer.ask(chat.engine, prompt: prompt)
+            let meter = UsageMeter()
+            let answer = try await reviewer.ask(chat.engine, prompt: prompt, usage: meter)
             explanations[commentID]?.messages.append(ChatMessage(.assistant, answer))
+            explanations[commentID]?.add(meter.usage)
             return true
         } catch {
             if explanations[commentID]?.messages.last == ChatMessage(.reviewer, question) { explanations[commentID]?.messages.removeLast() }
@@ -466,8 +477,10 @@ extension AppModel {
                 let prompt = try await context()
                 explanations[key]?.prompt = prompt
                 if answerFirst {
-                    let answer = try await reviewer.ask(engine, prompt: prompt)
+                    let meter = UsageMeter()
+                    let answer = try await reviewer.ask(engine, prompt: prompt, usage: meter)
                     explanations[key]?.messages.append(ChatMessage(.assistant, answer))
+                    explanations[key]?.add(meter.usage)
                 }
                 explanations[key]?.isAnswering = false
             } catch {
@@ -501,6 +514,13 @@ struct Explanation {
     var isAnswering = true
     /// The project's extra context: the included entries are in `prompt`, the rest were left out.
     var extra: [ContextFile] = []
+    /// What the chat's answers used so far, as their CLI reported it.
+    var usage: TokenUsage?
+
+    mutating func add(_ more: TokenUsage?) {
+        guard let more else { return }
+        usage = usage.map { $0 + more } ?? more
+    }
 }
 
 /// A fix the AI is proposing for a finding or a comment, until the reviewer accepts or discards it. In memory only.

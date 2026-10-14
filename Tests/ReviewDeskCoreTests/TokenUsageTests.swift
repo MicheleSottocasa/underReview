@@ -75,3 +75,20 @@ private var codeReviewResult: [String: Any] { [
     _ = try await AIReviewer(runner: runner).review(.claudeCode, prompt: "p", usage: meter)
     #expect(meter.usage == TokenUsage(input: 100, output: 50))
 }
+
+@Test func runsSavedBeforeUsageWasRecordedStillLoad() throws {
+    var run = AIRun(prID: "PR_1", engine: .claudeCode, headRefOid: "h", result: ReviewResult(summary: "s", findings: []))
+    var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(run)) as! [String: Any]
+    json["usage"] = nil
+    json["estimatedTokens"] = nil
+    let old = try JSONDecoder().decode(AIRun.self, from: JSONSerialization.data(withJSONObject: json))
+    #expect(old.usage == nil && old.estimatedTokens == nil)
+
+    run.usage = TokenUsage(input: 1, output: 2, listPriceUSD: 0.5)
+    #expect(try JSONDecoder().decode(AIRun.self, from: JSONEncoder().encode(run)).usage == run.usage)
+
+    let check = FollowUpRun(prID: "PR_1", engine: .codex, headRefOid: "h", reviewedOid: nil, result: FollowUpResult(summary: "s", items: []))
+    var checkJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(check)) as! [String: Any]
+    checkJSON["usage"] = nil
+    #expect(try JSONDecoder().decode(FollowUpRun.self, from: JSONSerialization.data(withJSONObject: checkJSON)).usage == nil)
+}

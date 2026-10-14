@@ -67,6 +67,10 @@ public struct AIRun: Codable, Hashable, Identifiable, Sendable {
     public var result: ReviewResult
     /// Set when Claude Code ran `/code-review`.
     public var options: CodeReviewOptions?
+    /// What the run used, when its CLI reported it; nil for runs saved before ReviewDesk recorded usage.
+    public var usage: TokenUsage?
+    /// The estimate shown before running (the input the app sent), kept to calibrate later estimates against `usage`.
+    public var estimatedTokens: Int?
     /// Indexes of findings already turned into drafts or dismissed.
     public var handled: Set<Int> = []
 
