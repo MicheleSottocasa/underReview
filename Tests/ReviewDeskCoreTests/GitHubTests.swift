@@ -412,3 +412,22 @@ import Testing
     _ = try await github.pullRequests(updatedAt: ["PR_1": cached.updatedAt], cached: ["PR_1": cached])
     #expect(runner.calls.count == calls) // nothing changed: no request at all
 }
+
+@Test func snapshotExtractsTheHeadArchiveIntoAFolderOfItsOwn() async throws {
+    let runner = FakeRunner { call in ok(call.tool == "gh" ? "archive" : "") }
+    let dir = try await GitHub(runner: runner).snapshot(PRRef(nameWithOwner: "o/r", number: 7), sha: "abc")
+    defer { try? FileManager.default.removeItem(at: dir) }
+    #expect(runner.calls.first?.args == ["api", "repos/o/r/tarball/abc"])
+    let tar = try #require(runner.calls.last)
+    #expect(tar.tool == "tar" && tar.args == ["-xzf", "-", "-C", dir.path, "--strip-components", "1"] && tar.stdin == Data("archive".utf8))
+    let other = try await GitHub(runner: runner).snapshot(PRRef(nameWithOwner: "o/r", number: 7), sha: "abc")
+    defer { try? FileManager.default.removeItem(at: other) }
+    #expect(other != dir)
+}
+
+@Test func aFailedSnapshotLeavesNoFolderBehind() async throws {
+    let runner = FakeRunner { _ in CommandResult(status: 1, stdout: Data(), stderr: "Not Found") }
+    await #expect(throws: (any Error).self) { try await GitHub(runner: runner).snapshot(PRRef(nameWithOwner: "o/r", number: 7), sha: "abc") }
+    let left = try FileManager.default.contentsOfDirectory(atPath: FileManager.default.temporaryDirectory.path)
+    #expect(!left.contains { $0.hasPrefix("reviewdesk-r-7-") })
+}

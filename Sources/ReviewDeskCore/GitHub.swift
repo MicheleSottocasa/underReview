@@ -500,6 +500,23 @@ public struct GitHub: Sendable {
         }
     }
 
+    /// The repository's files at `sha`, downloaded as GitHub's archive into a new temporary folder: no clone needed,
+    /// and a folder per call so reviews can run side by side. The caller removes the folder.
+    /// ponytail: the whole archive sits in memory on its way to tar; stream it to a file if huge repos need it.
+    public func snapshot(_ ref: PRRef, sha: String) async throws -> URL {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("reviewdesk-\(ref.repo)-\(ref.number)-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        do {
+            let archive = try await runner.output("gh", ["api", "repos/\(ref.nameWithOwner)/tarball/\(sha)"], timeout: .seconds(300))
+            // The archive's single top folder (`owner-repo-sha/`) is dropped, so the files sit right in `dir`.
+            _ = try await runner.output("tar", ["-xzf", "-", "-C", dir.path, "--strip-components", "1"], stdin: archive, timeout: .seconds(300))
+        } catch {
+            try? FileManager.default.removeItem(at: dir)
+            throw error
+        }
+        return dir
+    }
+
     public func files(_ ref: PRRef) async throws -> [FileChange] {
         let data = try await runner.output("gh", ["api", "repos/\(ref.nameWithOwner)/pulls/\(ref.number)/files?per_page=100", "--paginate", "--slurp"])
         return try JSONDecoder().decode([[FileChange]].self, from: data).flatMap { $0 }

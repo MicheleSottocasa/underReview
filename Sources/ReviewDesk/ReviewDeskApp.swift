@@ -351,6 +351,7 @@ struct AISettings: View {
     @AppStorage("aiEngine") private var engine = "claude"
     @AppStorage("claudeModel") private var claudeModel = ""
     @AppStorage("reviewEffort") private var effort = "high"
+    @AppStorage(AppModel.codeReviewFilesKey) private var codeReviewFiles = "clone"
     @AppStorage("ollamaModel") private var ollamaModel = "qwen2.5-coder"
     @AppStorage("aiBudget") private var budget = 150_000
     @AppStorage("stackParallelAgents") private var parallelAgents = 3
@@ -367,7 +368,7 @@ struct AISettings: View {
             } footer: {
                 Text("Also used by Explain on comments. The AI tab changes the same setting. Claude Code support is in beta; Codex and Ollama are alpha, so expect rough edges with them.")
             }
-            Section("Claude Code /code-review") {
+            Section {
                 Picker("Model", selection: $claudeModel) {
                     Text("CLI default").tag("")
                     Text("Fable").tag("fable")
@@ -378,6 +379,14 @@ struct AISettings: View {
                 Picker("Effort", selection: $effort) {
                     ForEach(CodeReviewOptions.efforts, id: \.self) { Text($0.capitalized).tag($0) }
                 }
+                Picker("Pull request files", selection: $codeReviewFiles) {
+                    Text("Worktree of the linked clone").tag("clone")
+                    Text("Download from GitHub").tag("download")
+                }
+            } header: {
+                Text("Claude Code /code-review")
+            } footer: {
+                Text("Each review reads the pull request's files at its head commit, in a folder of its own that is removed afterwards. A worktree is quick and leaves the clone's branch alone, but needs a clone linked in Repositories; a download needs nothing, but fetches the whole repository every time. Without either, /code-review reads only the diff.")
             }
             Section {
                 Stepper("Agents at once in a stack review: \(parallelAgents)", value: $parallelAgents, in: 1...8)

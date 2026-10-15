@@ -227,7 +227,8 @@ extension AppModel {
     private func codeReview(_ pr: PullRequest, engine: AIEngine, options: CodeReviewOptions, key: String, label: String? = nil) async {
         let on = label.map { " on \($0)" } ?? ""
         aiStatus[key] = "Running /code-review (\(options.effort))\(on) with \(engine.name)…"
-        var snapshot: (path: URL, clone: String)?
+        // `clone` is nil for a downloaded snapshot, which is only a folder.
+        var snapshot: (path: URL, clone: String?)?
         do {
             if files[pr.id] == nil { try await fetchFiles(pr) }
             if details[pr.id] == nil { await loadDetail(pr.id) }
@@ -267,9 +268,15 @@ extension AppModel {
             let context = AIContext.build(pr: pr, body: details[pr.id]?.body ?? "", files: changed, contents: [:],
                                           budget: UserDefaults.standard.object(forKey: "aiBudget") as? Int ?? 150_000, rules: rules)
             let meter = UsageMeter()
-            // The PR's files at its head, in a worktree of its own: the clone stays on its branch, and reviews run side by side.
+            // The PR's files at its head, in a folder of its own per run, so reviews run side by side: downloaded from
+            // GitHub, or a worktree of the linked clone, which stays on its branch.
+            let download = UserDefaults.standard.string(forKey: Self.codeReviewFilesKey) == "download"
+            let clone = download ? nil : localClones[pr.repo]
             do {
-                if let clone = localClones[pr.repo] {
+                if download {
+                    aiStatus[key] = "Downloading \(pr.headRefOid.prefix(7))\(on)…"
+                    snapshot = (try await github.snapshot(pr.ref, sha: pr.headRefOid), nil)
+                } else if let clone {
                     aiStatus[key] = "Checking out \(pr.headRefOid.prefix(7))\(on)…"
                     snapshot = (try await clones.snapshot(pr.ref, sha: pr.headRefOid, from: URL(fileURLWithPath: clone)), clone)
                 } else {
@@ -298,8 +305,14 @@ extension AppModel {
         } catch {
             if !Task.isCancelled { report(error, engine.name) }
         }
-        if let snapshot { await clones.removeSnapshot(snapshot.path, from: URL(fileURLWithPath: snapshot.clone)) }
+        if let snapshot {
+            if let clone = snapshot.clone { await clones.removeSnapshot(snapshot.path, from: URL(fileURLWithPath: clone)) }
+            else { try? FileManager.default.removeItem(at: snapshot.path) }
+        }
     }
+
+    /// Where `/code-review` gets the pull request's files: "clone" (a worktree of the linked clone) or "download".
+    static let codeReviewFilesKey = "codeReviewFiles"
 
     private func review(_ pr: PullRequest, engine: AIEngine, context: ReviewContext) async {
         aiStatus[pr.id] = "Reviewing with \(engine.name)…"
