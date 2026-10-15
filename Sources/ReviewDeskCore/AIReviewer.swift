@@ -147,17 +147,26 @@ public struct AIReviewer: Sendable {
         // Streamed so `progress` can show each step. The session is persisted (unlike other runs) because the
         // command's helper agent only writes its transcript, which we follow live, for persisted sessions;
         // the files are removed again below.
-        // Fixed text, after the editable instructions, so a custom prompt can't drop it.
-        let source = checkout.map { "\n\nThe pull request's files, at its head commit, are checked out at \($0): "
-            + "read them with your file tools for context around the change." }
-            ?? "\n\nThere is no checkout of the repository: review from `gh pr diff` and `gh pr view`."
-        let limits = " Don't clone, check out or fetch anything, and don't look for files outside the folders named here."
-        let reference = folders.isEmpty ? "" : "\n\nThe reviewer attached reference folders to this project (documentation, related code); "
+        // Fixed rules, after the editable instructions so a custom prompt can't drop them. The review itself runs in a
+        // helper agent that sees neither the appended prompt nor a CLAUDE.md, and whose prompt is the command's own
+        // (checked live): only the command's arguments reach it, as its review target, so the rules go there too.
+        // Untold, it `cd`s into the checkout to run git, pipes or redirects `gh pr diff`, or looks for
+        // ~/.claude/CLAUDE.md, and each attempt is refused. No backticks or `--` words: the command would read
+        // `--fix`, `--comment` or `--post` there as flags.
+        let source = checkout.map { "The pull request's files, at its head commit, are in \($0): treat them as plain files "
+            + "(git can't run there) and read them with your file tools for context around the change." }
+            ?? "There is no checkout of the repository: review from gh pr diff and gh pr view."
+        let limits = "Don't run git, clone, check out or fetch anything, and don't look for files (CLAUDE.md included) "
+            + "outside the folders named here. The only commands that run are gh pr diff and gh pr view, each on its own: "
+            + "cd, other commands, pipes, redirections, && and ; are refused. Read a long output that was saved to a file "
+            + "with your file tools."
+        let reference = folders.isEmpty ? "" : " The reviewer attached reference folders to this project (documentation, related code); "
             + "read them with your file tools when they help you understand the change. They are not part of the pull request: "
             + folders.joined(separator: ", ")
+        let rules = source + " " + limits + reference
         let folders = (checkout.map { [$0] } ?? []) + folders
         var args = ["-p", "--output-format", "stream-json", "--verbose", "--forward-subagent-text",
-                    "--append-system-prompt", instructions + source + limits + reference, "--effort", options.effort,
+                    "--append-system-prompt", instructions + "\n\n" + rules, "--effort", options.effort,
                     "--restricted", "--strict-mcp-config", "--permission-prompts", "none",
                     "--tools", Self.codeReviewTools, "--allowedTools", Self.codeReviewAllowed]
         for folder in folders { args += ["--add-dir", folder] }
@@ -193,7 +202,7 @@ public struct AIReviewer: Sendable {
         }
         var result: CommandResult
         do {
-            result = try await runner.stream("claude", args, stdin: Data("/code-review \(options.effort) \(prURL)".utf8),
+            result = try await runner.stream("claude", args, stdin: Data("/code-review \(options.effort) \(prURL) (ReviewDesk: \(rules))".utf8),
                                              cwd: cwd, timeout: timeout) { line in
                 diff.observe(line)
                 if let task = ClaudeActivity.taskStarted(line) {

@@ -164,7 +164,8 @@ private func codeReviewRunner(report: String = "1. a.py:3 off by one") -> FakeRu
     let reviews = runner.calls.filter { $0.args.first == "-p" }
     #expect(reviews.count == 2)
     let command = reviews[0]
-    #expect(command.stdin == Data("/code-review xhigh https://github.com/o/r/pull/1".utf8))
+    let stdin = String(decoding: command.stdin ?? Data(), as: UTF8.self)
+    #expect(stdin.hasPrefix("/code-review xhigh https://github.com/o/r/pull/1 (ReviewDesk: There is no checkout"))
     func value(_ call: FakeRunner.Call, _ flag: String) -> String? { call.args.firstIndex(of: flag).map { call.args[$0 + 1] } }
     #expect(value(command, "--model") == "opus")
     #expect(value(command, "--effort") == "xhigh")
@@ -245,8 +246,15 @@ private final class Steps: @unchecked Sendable {
     #expect(args.indices.filter { args[$0] == "--add-dir" }.map { args[$0 + 1] } == ["/tmp/r-7", "/docs/api"])
     #expect(args.contains("Read(//tmp/r-7/**/.*)"))
     let prompt = args[args.firstIndex(of: "--append-system-prompt")! + 1]
-    #expect(prompt.contains("checked out at /tmp/r-7") && prompt.contains("Don't clone, check out or fetch anything"))
+    #expect(prompt.contains("are in /tmp/r-7") && prompt.contains("Don't run git, clone, check out or fetch anything"))
+    #expect(prompt.contains("cd, other commands, pipes, redirections, && and ; are refused") && prompt.hasSuffix("/docs/api"))
     #expect(!prompt.contains("There is no checkout"))
+    // The helper agent doing the review only gets the command's arguments, so the same rules follow the URL there,
+    // with no word the command would take for a flag.
+    let stdin = String(decoding: try #require(runner.calls.first { $0.args.contains("--restricted") }?.stdin), as: UTF8.self)
+    let rules = try #require(prompt.components(separatedBy: "\n\n").last)
+    #expect(stdin == "/code-review high u (ReviewDesk: \(rules))")
+    #expect(!stdin.split(separator: " ").contains { $0.hasPrefix("--") } && !stdin.contains("`"))
 }
 
 @Test func codeReviewFailsWhenTheCommandProducesNoReport() async {
