@@ -5,6 +5,10 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+## 0.9.7
+
+- `/code-review` no longer tries `cd` and `git` in the pull request's files, piped or redirected `gh pr diff` commands, or your `~/.claude/CLAUDE.md`, which were refused step after step: its rules now reach the agent that does the review.
+
 ## 0.9.6
 
 - **Pull request files for `/code-review`:** each review reads the pull request's files at its head commit, in a folder of its own removed afterwards, so reviews run side by side and your clone stays on its branch. Pick in Settings › AI: a worktree of the clone linked in Repositories (quick), or a download from GitHub (no clone needed). Without either it reads only the diff.
