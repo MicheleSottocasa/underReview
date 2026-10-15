@@ -135,6 +135,30 @@ public struct LocalClone: Sendable {
         return try await text("git", ["-C", dir, "branch", "--show-current"])
     }
 
+    /// The pull request's files at `sha`, in a detached worktree of the clone in a new temporary folder. The clone's
+    /// own branch and files stay as they are, and every call gets its own worktree, so reviews can run side by side.
+    /// Fetches the PR's head when the clone doesn't have `sha` yet. Remove it with `removeSnapshot`.
+    public func snapshot(_ pr: PRRef, sha: String, from folder: URL) async throws -> URL {
+        let (top, remote) = try await clone(folder, repo: pr.nameWithOwner)
+        let dir = top.path
+        if try await runner.run("git", ["-C", dir, "cat-file", "-e", "\(sha)^{commit}"]).status != 0 {
+            // No FETCH_HEAD: concurrent snapshots would race on it, and the worktree needs only the objects.
+            _ = try await runner.output("git", ["-C", dir, "fetch", "--no-write-fetch-head", remote, "refs/pull/\(pr.number)/head"],
+                                        timeout: .seconds(180))
+        }
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("reviewdesk-\(pr.repo)-\(pr.number)-\(UUID().uuidString)")
+        // No hooks: the clone's post-checkout hook (husky, lefthook…) has no business running here.
+        _ = try await runner.output("git", ["-C", dir, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--detach", path.path, sha],
+                                    timeout: .seconds(300))
+        return path
+    }
+
+    /// Removes a `snapshot` of the clone at `folder`, and its folder.
+    public func removeSnapshot(_ path: URL, from folder: URL) async {
+        _ = try? await runner.run("git", ["-C", folder.path, "worktree", "remove", "--force", path.path])
+        try? FileManager.default.removeItem(at: path)
+    }
+
     /// Files `rev` has that HEAD doesn't. `--no-renames`: a rename or copy onto an ignored path
     /// (`git mv config.example .env`) is an addition too. `-z`: otherwise git C-quotes non-ASCII paths
     /// (`"caf\303\251.txt"`) and none would be found on disk.

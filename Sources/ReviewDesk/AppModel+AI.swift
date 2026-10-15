@@ -227,6 +227,7 @@ extension AppModel {
     private func codeReview(_ pr: PullRequest, engine: AIEngine, options: CodeReviewOptions, key: String, label: String? = nil) async {
         let on = label.map { " on \($0)" } ?? ""
         aiStatus[key] = "Running /code-review (\(options.effort))\(on) with \(engine.name)…"
+        var snapshot: (path: URL, clone: String)?
         do {
             if files[pr.id] == nil { try await fetchFiles(pr) }
             if details[pr.id] == nil { await loadDetail(pr.id) }
@@ -263,11 +264,27 @@ extension AppModel {
             if !unused.isEmpty {
                 logStep("Not used by /code-review (Codex, Ollama and Ask use them): " + unused.joined(separator: ", "), pr: key)
             }
-            aiStatus[key] = "Running /code-review (\(options.effort))\(on) with \(engine.name)…"
             let context = AIContext.build(pr: pr, body: details[pr.id]?.body ?? "", files: changed, contents: [:],
                                           budget: UserDefaults.standard.object(forKey: "aiBudget") as? Int ?? 150_000, rules: rules)
             let meter = UsageMeter()
-            let result = try await reviewer.codeReview(engine, prURL: pr.url, context: context, options: options, folders: folders,
+            // The PR's files at its head, in a worktree of its own: the clone stays on its branch, and reviews run side by side.
+            do {
+                if let clone = localClones[pr.repo] {
+                    aiStatus[key] = "Checking out \(pr.headRefOid.prefix(7))\(on)…"
+                    snapshot = (try await clones.snapshot(pr.ref, sha: pr.headRefOid, from: URL(fileURLWithPath: clone)), clone)
+                } else {
+                    logStep("No local clone linked for \(pr.repo), so /code-review only reads the diff", pr: key)
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                logStep("Couldn't get the pull request's files, so /code-review only reads the diff: \(error.localizedDescription)", pr: key)
+            }
+            // The same checks as a project folder, and the real path Claude Code matches its rules against.
+            let checkout = snapshot.flatMap { ProjectContext.folders([ContextSource(kind: .local, location: $0.path.path)]).first }
+            aiStatus[key] = "Running /code-review (\(options.effort))\(on) with \(engine.name)…"
+            let result = try await reviewer.codeReview(engine, prURL: pr.url, context: context, options: options,
+                                                       folders: folders, checkout: checkout,
                                                        instructions: Prompts.codeReview, structureInstructions: Prompts.structure,
                                                        usage: meter) { step in
                 Task { @MainActor in self.logStep(step, pr: key) }
@@ -281,6 +298,7 @@ extension AppModel {
         } catch {
             if !Task.isCancelled { report(error, engine.name) }
         }
+        if let snapshot { await clones.removeSnapshot(snapshot.path, from: URL(fileURLWithPath: snapshot.clone)) }
     }
 
     private func review(_ pr: PullRequest, engine: AIEngine, context: ReviewContext) async {

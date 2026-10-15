@@ -23,7 +23,7 @@ private func tempClone() throws -> URL {
 /// is a local `h7` branch whose tip adds those files. `gh` succeeds unless told not to.
 private func fake(_ top: URL, remotes: String = forkRemotes, status: String = "", onBranch: Bool = true,
                   containing: String = "refs/heads/main", added: String = "", localBranchAdds: String? = nil,
-                  ghFails: Bool = false, sshHosts: [String: String] = [:]) -> FakeRunner {
+                  ghFails: Bool = false, sshHosts: [String: String] = [:], hasCommit: Bool = true) -> FakeRunner {
     FakeRunner { call in
         if call.tool == "ssh" { return ok("user git\nhostname \(sshHosts[call.args.last ?? ""] ?? call.args.last ?? "")\nport 22\n") }
         if call.tool == "gh" {
@@ -38,6 +38,7 @@ private func fake(_ top: URL, remotes: String = forkRemotes, status: String = ""
         case ["branch", "--show-current"]: return ok(ghFails ? "h7-old\n" : "h7\n")
         case ["rev-parse", "--verify", "-q", "refs/heads/h7"]: return CommandResult(status: localBranchAdds == nil ? 1 : 0, stdout: Data())
         case let args where args.first == "status": return ok(status)
+        case let args where args.first == "cat-file": return CommandResult(status: hasCommit ? 0 : 1, stdout: Data())
         // Like git, a rename onto a new path isn't an addition unless renames are off, and without `-z`
         // non-ASCII paths come back C-quoted.
         case let args where args.first == "diff":
@@ -213,4 +214,25 @@ private func expectRefusal(_ failure: LocalClone.Failure, _ top: URL, _ runner: 
     } catch LocalClone.Failure.checkoutFailed(_, let branch) {
         #expect(branch == "h7-old")
     }
+}
+
+// Regression: /code-review had no checkout and tried to clone; a shared clone would need the PR's branch checked out.
+@Test func snapshotFetchesAMissingHeadAndAddsADetachedWorktreeWithoutHooks() async throws {
+    let top = try tempClone()
+    defer { try? FileManager.default.removeItem(at: top) }
+    let runner = fake(top, hasCommit: false)
+    let path = try await LocalClone(runner: runner).snapshot(pr, sha: "abc", from: top)
+    let git = runner.calls.filter { $0.tool == "git" }.map(\.args)
+    #expect(git.contains(["-C", top.path, "fetch", "--no-write-fetch-head", "upstream", "refs/pull/7/head"]))
+    #expect(git.last == ["-C", top.path, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--detach", path.path, "abc"])
+    let other = try await LocalClone(runner: runner).snapshot(pr, sha: "abc", from: top)
+    #expect(other != path)
+}
+
+@Test func snapshotSkipsTheFetchWhenTheCloneHasTheCommit() async throws {
+    let top = try tempClone()
+    defer { try? FileManager.default.removeItem(at: top) }
+    let runner = fake(top)
+    _ = try await LocalClone(runner: runner).snapshot(pr, sha: "abc", from: top)
+    #expect(!runner.calls.contains { $0.args.contains("fetch") })
 }
