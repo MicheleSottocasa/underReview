@@ -168,7 +168,7 @@ private func codeReviewRunner(report: String = "1. a.py:3 off by one") -> FakeRu
     func value(_ call: FakeRunner.Call, _ flag: String) -> String? { call.args.firstIndex(of: flag).map { call.args[$0 + 1] } }
     #expect(value(command, "--model") == "opus")
     #expect(value(command, "--effort") == "xhigh")
-    #expect(value(command, "--append-system-prompt") == "be kind")
+    #expect(value(command, "--append-system-prompt")?.hasPrefix("be kind\n\nThere is no checkout") == true)
     #expect(value(command, "--permission-prompts") == "none")
     #expect(value(command, "--allowedTools") == "Read,Grep,Glob,Agent,Bash(gh pr diff:*),Bash(gh pr view:*)")
     for flag in ["--restricted", "--strict-mcp-config"] { #expect(command.args.contains(flag)) }
@@ -234,6 +234,19 @@ private final class Steps: @unchecked Sendable {
                                                      "Read(//src/lib/**/.*)", "Read(//src/lib/**/.*/**)"])
     // The tool-less structuring pass never gets the folders.
     #expect(!(runner.calls.first { $0.args.contains("--json-schema") }?.args.contains("--add-dir") ?? true))
+}
+
+// Regression: with no checkout, /code-review tried `gh pr checkout`, `git clone` and listing the home folder.
+@Test func codeReviewReadsTheCheckoutAndIsToldNotToCloneOrSearch() async throws {
+    let runner = codeReviewRunner()
+    _ = try await AIReviewer(runner: runner).codeReview(.claudeCode, prURL: "u", context: context, options: CodeReviewOptions(),
+                                                        folders: ["/docs/api"], checkout: "/tmp/r-7")
+    let args = try #require(runner.calls.first { $0.args.contains("--restricted") }?.args)
+    #expect(args.indices.filter { args[$0] == "--add-dir" }.map { args[$0 + 1] } == ["/tmp/r-7", "/docs/api"])
+    #expect(args.contains("Read(//tmp/r-7/**/.*)"))
+    let prompt = args[args.firstIndex(of: "--append-system-prompt")! + 1]
+    #expect(prompt.contains("checked out at /tmp/r-7") && prompt.contains("Don't clone, check out or fetch anything"))
+    #expect(!prompt.contains("There is no checkout"))
 }
 
 @Test func codeReviewFailsWhenTheCommandProducesNoReport() async {

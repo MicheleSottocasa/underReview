@@ -131,9 +131,11 @@ public struct AIReviewer: Sendable {
     /// Anything else, including every write, is denied without asking, and `instructions` forbid posting to GitHub.
     /// `context` holds the PR's diffs (no full files) for picking key areas. `folders` are the project's reference
     /// folders: added with `--add-dir`, so the same read-only file tools can read them (restricted mode confines
-    /// file tools to the working directory and these).
+    /// file tools to the working directory and these). `checkout` is the pull request's files at its head commit
+    /// (`LocalClone.snapshot`), added the same way. Without one, or without being told there is none, the command tries to
+    /// clone or search the disk.
     public func codeReview(_ engine: AIEngine, prURL: String, context: ReviewContext, options: CodeReviewOptions,
-                           folders: [String] = [],
+                           folders: [String] = [], checkout: String? = nil,
                            instructions: String = AIContext.defaultCodeReviewInstructions,
                            structureInstructions: String = AIContext.defaultStructureInstructions,
                            timeout: Duration = .seconds(1800), usage: UsageMeter? = nil,
@@ -145,11 +147,17 @@ public struct AIReviewer: Sendable {
         // Streamed so `progress` can show each step. The session is persisted (unlike other runs) because the
         // command's helper agent only writes its transcript, which we follow live, for persisted sessions;
         // the files are removed again below.
+        // Fixed text, after the editable instructions, so a custom prompt can't drop it.
+        let source = checkout.map { "\n\nThe pull request's files, at its head commit, are checked out at \($0): "
+            + "read them with your file tools for context around the change." }
+            ?? "\n\nThere is no checkout of the repository: review from `gh pr diff` and `gh pr view`."
+        let limits = " Don't clone, check out or fetch anything, and don't look for files outside the folders named here."
         let reference = folders.isEmpty ? "" : "\n\nThe reviewer attached reference folders to this project (documentation, related code); "
             + "read them with your file tools when they help you understand the change. They are not part of the pull request: "
             + folders.joined(separator: ", ")
+        let folders = (checkout.map { [$0] } ?? []) + folders
         var args = ["-p", "--output-format", "stream-json", "--verbose", "--forward-subagent-text",
-                    "--append-system-prompt", instructions + reference, "--effort", options.effort,
+                    "--append-system-prompt", instructions + source + limits + reference, "--effort", options.effort,
                     "--restricted", "--strict-mcp-config", "--permission-prompts", "none",
                     "--tools", Self.codeReviewTools, "--allowedTools", Self.codeReviewAllowed]
         for folder in folders { args += ["--add-dir", folder] }
