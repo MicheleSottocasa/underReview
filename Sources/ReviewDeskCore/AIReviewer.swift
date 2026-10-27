@@ -116,7 +116,8 @@ public struct AIOptions: Codable, Hashable, Sendable {
         let base = long ? String(model.dropLast(Self.longContextSuffix.count)) : model
         let name = (base.isEmpty ? "default model" : Self.models(for: engine).first { $0.id == base }?.label ?? base)
             + (long ? " · 1M context" : "")
-        if engine.tool == "claude" { return "\(name) · \(effort)" }
+        // Claude Code's other calls (its runs on ReviewDesk's prompt among them) keep the CLI's effort: no level to name.
+        if engine.tool == "claude" { return effort.isEmpty ? name : "\(name) · \(effort)" }
         return "\(name) · \(effort.isEmpty ? "default" : effort) effort"
     }
 

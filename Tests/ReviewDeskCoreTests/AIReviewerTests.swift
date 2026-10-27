@@ -417,6 +417,7 @@ private func codexRunner() -> FakeRunner {
 @Test func optionsDescribeHowARunWent() {
     #expect(AIOptions(model: "opus", effort: "high").label(for: .claudeCode) == "Opus · high")
     #expect(AIOptions(model: "", effort: "low").label(for: .claudeCode) == "default model · low")
+    #expect(AIOptions(model: "sonnet", effort: "").label(for: .claudeCode) == "Sonnet")
     #expect(AIOptions(model: "gpt-5-codex", effort: "").label(for: .codex) == "GPT-5 Codex · default effort")
     #expect(AIOptions(model: "o-custom", effort: "high").label(for: .codex) == "o-custom · high effort")
     #expect(AIOptions(effort: "off").label(for: .ollama(model: "m")) == "no thinking")
