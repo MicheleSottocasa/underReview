@@ -29,6 +29,11 @@ extension AppModel {
     /// context in the AI tab first, as always.
     func rerun(_ run: AIRun, pr: PullRequest) {
         guard !blockDemo(pr) else { return }
+        if run.agents != nil {
+            startSelfReview(pr, engine: run.engine, budget: UserDefaults.standard.object(forKey: "aiBudget") as? Int ?? 150_000,
+                            options: run.options ?? aiOptions(for: run.engine))
+            return
+        }
         if reviewCommand(for: run.engine) == .codeReview {
             var options = run.options ?? aiOptions(for: run.engine, codeReview: true)
             // A run on ReviewDesk's prompt kept no level: `/code-review` needs one, so it gets the current one.
@@ -725,4 +730,6 @@ struct StackRun: Equatable {
     var members: [String]
     var states: [String: State]
     var isFinished = false
+    /// A self-review: member (agent id) → its focus, shown instead of a pull request.
+    var labels: [String: String] = [:]
 }
