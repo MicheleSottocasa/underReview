@@ -39,15 +39,26 @@ public enum AppVersion {
     public static let repository = "MicheleSottocasa/underReview"
     public static let checkInterval: TimeInterval = 6 * 60 * 60
 
-    /// Numeric, part by part: 0.10.0 is newer than 0.9.3. Missing parts count as 0, a "v" prefix and
-    /// non-numeric suffixes ("-beta") are ignored.
+    /// Numeric, part by part: 0.10.0 is newer than 0.9.3. Missing parts count as 0 and a "v" prefix is ignored.
+    /// A pre-release ("-beta.2") is older than its release and newer than an earlier pre-release of it, so a
+    /// beta tester is offered the release once it's promoted.
     public static func isNewer(_ candidate: String, than current: String) -> Bool {
         let a = parts(candidate), b = parts(current)
         for index in 0..<max(a.count, b.count) {
             let x = index < a.count ? a[index] : 0, y = index < b.count ? b[index] : 0
             if x != y { return x > y }
         }
-        return false
+        switch (preRelease(candidate), preRelease(current)) {
+        case (nil, .some): return true
+        case let (.some(x), .some(y)): return x.compare(y, options: .numeric) == .orderedDescending
+        default: return false
+        }
+    }
+
+    /// What follows the first "-": "beta.2" in 0.10.0-beta.2.
+    static func preRelease(_ version: String) -> String? {
+        guard let dash = version.firstIndex(of: "-") else { return nil }
+        return String(version[version.index(after: dash)...])
     }
 
     /// What to show at launch.
@@ -89,7 +100,7 @@ public enum AppVersion {
     }
 
     static func parts(_ version: String) -> [Int] {
-        let trimmed = version.hasPrefix("v") ? version.dropFirst() : Substring(version)
+        let trimmed = (version.hasPrefix("v") ? version.dropFirst() : Substring(version)).prefix { $0 != "-" }
         return trimmed.split(separator: ".").map { Int($0.prefix { $0.isNumber }) ?? 0 }
     }
 }
