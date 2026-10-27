@@ -52,6 +52,7 @@ struct RiskView: View {
         let codeReview = model.reviewCommand(for: engine) == .codeReview
         let busy = model.isAIBusy(pr)
         HStack(alignment: .firstTextBaseline) {
+            if let score = run?.result.score { ScoreBadge(score: score) }
             VStack(alignment: .leading, spacing: 4) {
                 Text("Review risk, not lines").font(.title3.bold())
                 Group {
@@ -195,6 +196,30 @@ struct RiskBadge: View {
         case "low": .green
         default: .secondary
         }
+    }
+}
+
+/// The AI's overall score, 1.0 to 10.0 (higher is safer to merge), colored from red to green.
+struct ScoreBadge: View {
+    let score: Double
+
+    var body: some View {
+        let color = Self.color(score)
+        HStack(alignment: .firstTextBaseline, spacing: 1) {
+            Text(score, format: .number.precision(.fractionLength(1))).font(.title2.bold().monospacedDigit()).foregroundStyle(color)
+            Text(verbatim: "/10").font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 2)
+        .background(color.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
+        .help("How safe the AI judges this pull request to merge as it stands: 10 is ready, 7 to 9.9 needs minor changes, 4 to 6.9 has problems to fix first, below 4 has critical ones")
+    }
+
+    static func color(_ score: Double) -> Color {
+        if score >= 8 { return .green }
+        if score >= 6 { return .yellow }
+        if score >= 4 { return .orange }
+        return .red
     }
 }
 

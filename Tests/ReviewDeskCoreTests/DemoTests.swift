@@ -38,6 +38,7 @@ import Testing
     let (inline, general) = AIContext.validate(current.result, files: files)
     #expect(inline.count == current.result.findings.count && general.isEmpty) // every finding anchors in the diff
     #expect(current.result.risks.map(\.question) == RiskQuestion.allCases.map(\.rawValue))
+    #expect(current.result.score == 4.5) // a high-risk finding: fix before merging
     let focus = Focus.files(keyAreas: current.result.keyAreas, pendingPaths: Demo.drafts.map(\.anchor.path), changed: files.map(\.filename))
     #expect(focus.map(\.path) == ["app/invites/migrations/0003_invite_sent_at.py", "app/invites/views.py", "app/invites/tasks.py"])
     #expect(Set(current.result.keyAreas.compactMap(\.question)) == [.data, .access, .failure])

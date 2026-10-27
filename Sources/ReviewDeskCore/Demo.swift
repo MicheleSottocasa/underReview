@@ -280,7 +280,8 @@ public enum Demo {
                 RiskAssessment(question: "scale", level: "low", answer: "`get_or_create` on the (organization, email) pair is backed by the new unique index."),
                 RiskAssessment(question: "failure", level: "low", answer: "The task retries 3 times and returns early once `sent_at` is set, so retries don't email twice."),
                 RiskAssessment(question: "explain", level: "none", answer: "A small, conventional change; nothing needs explaining."),
-            ]))
+            ],
+            score: 4.5))
         current.date = ago(0.5)
         current.options = AIOptions(model: "", effort: "high")
         // Sample usage, so the run card shows what a review used (in line with a measured high-effort run).
@@ -289,7 +290,8 @@ public enum Demo {
         var old = AIRun(prID: mainID, engine: .claudeCode, headRefOid: oldHead, result: ReviewResult(
             summary: "The email task can send an invite twice when it retries.",
             findings: [Finding(severity: "medium", title: "Retries can email twice", rationale: "The task doesn't record that the email went out.",
-                               path: "app/invites/tasks.py", line: 9, comment: "A retry after a timeout would send the invite again.")]))
+                               path: "app/invites/tasks.py", line: 9, comment: "A retry after a timeout would send the invite again.")],
+            score: 6.5))
         old.date = ago(4)
         // The base PR's only analysis predates its last push: its banner, sidebar icon and header badge show it.
         var base = AIRun(prID: baseID, engine: .claudeCode, headRefOid: baseReviewed, result: ReviewResult(
