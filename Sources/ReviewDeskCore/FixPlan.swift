@@ -147,8 +147,31 @@ public struct FixPlanChoice: Codable, Hashable, Sendable {
     public var reply: String?
     /// The head of the plan the choice was made on.
     public var head: String
+    /// The reply went to GitHub from the plan. Nil in choices saved before replies could be posted.
+    public var posted: Bool?
 
     public init(head: String) { self.head = head }
+}
+
+extension FixPlanItem {
+    /// The item with the viewer's edits to its steps and reply, when they made some.
+    public func applying(_ choice: FixPlanChoice?) -> FixPlanItem {
+        var item = self
+        if let steps = choice?.steps { item.steps = steps }
+        if let reply = choice?.reply { item.reply = reply }
+        return item
+    }
+}
+
+/// A proposed reply ready to post: in its review thread, or as a pull request comment for a review's summary.
+public struct FixPlanReply: Hashable, Sendable {
+    /// The plan item, i.e. its feedback id.
+    public var sourceID: String
+    /// The thread to reply in; nil posts `body` as a comment on the pull request.
+    public var threadID: String?
+    public var body: String
+    /// Where it goes, for the confirmation: "a.py:12" or "alice's review".
+    public var label: String
 }
 
 public enum FixPlan {
@@ -249,6 +272,94 @@ public enum FixPlan {
         change(&choice)
         choices[key] = choice
         return choices
+    }
+
+    /// The reply to post for `item` (with the viewer's edits), or nil when there's none or its feedback is gone. A
+    /// thread gets the reply as is; a review summary has no thread, so the reply quotes its first line.
+    public static func reply(_ item: FixPlanItem, threads: [ReviewThread], reviews: [Review]) -> FixPlanReply? {
+        let body = item.reply.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return nil }
+        if let thread = threads.first(where: { $0.id == item.sourceID }) {
+            return FixPlanReply(sourceID: item.sourceID, threadID: thread.id, body: body,
+                                label: thread.line.map { "\(thread.path):\($0)" } ?? thread.path)
+        }
+        guard let review = reviews.first(where: { $0.id == item.sourceID }) else { return nil }
+        let first = review.body.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? ""
+        let quote = first.count > 200 ? String(first.prefix(200)) + "…" : first
+        return FixPlanReply(sourceID: item.sourceID, threadID: nil, body: quote.isEmpty ? body : "> \(quote)\n\n\(body)",
+                            label: "\(review.author)'s review")
+    }
+
+    /// The replies *Post Accepted Replies* sends: accepted items with a reply, not posted yet, in the tab's order.
+    public static func acceptedReplies(_ items: [FixPlanItem], choices: [String: FixPlanChoice], threads: [ReviewThread],
+                                       reviews: [Review]) -> [FixPlanReply] {
+        ordered(items, threads: threads).compactMap { item in
+            let choice = choices[item.sourceID]
+            guard choice?.decision == .accepted, choice?.posted != true else { return nil }
+            return reply(item.applying(choice), threads: threads, reviews: reviews)
+        }
+    }
+
+    /// The accepted "change code" items as one prompt to paste into a coding agent in the local clone: the pull
+    /// request, then each item with the reviewer's comment, where to change and the steps. It asks for the changes
+    /// only: no commit, no push, no replies. `head` is the commit the plan's line numbers are from.
+    public static func agentPrompt(pr: PullRequest, head: String, items: [FixPlanItem], choices: [String: FixPlanChoice],
+                                   threads: [ReviewThread], reviews: [Review]) -> String {
+        let accepted = ordered(items, threads: threads).filter { choices[$0.sourceID]?.decision == .accepted && $0.action == "change_code" }
+        var text = """
+        Address review feedback on pull request \(pr.repo)#\(pr.number), "\(pr.title)" (branch \(pr.headRefName), \
+        into \(pr.baseRefName)). You are in a local clone of the repository: check that \(pr.headRefName) is checked out \
+        first. Make the code changes below and nothing else. Don't commit, push or reply to anyone. Line numbers are \
+        from commit \(head.prefix(7)); find the code by its content if it moved.
+
+        """
+        for (index, item) in accepted.map({ $0.applying(choices[$0.sourceID]) }).enumerated() {
+            text += "\n## \(index + 1). \(item.request)\n"
+            if let thread = threads.first(where: { $0.id == item.sourceID }), let comment = thread.comments.first(where: { !$0.isPending }) {
+                text += "\nReviewer comment by \(comment.author) on \(thread.path)\(thread.line.map { ":\($0)" } ?? ""):\n"
+                text += comment.body.split(separator: "\n", omittingEmptySubsequences: false).map { "> \($0)" }.joined(separator: "\n") + "\n"
+            } else if let review = reviews.first(where: { $0.id == item.sourceID }) {
+                text += "\nFrom \(review.author)'s review:\n"
+                text += review.body.split(separator: "\n", omittingEmptySubsequences: false).map { "> \($0)" }.joined(separator: "\n") + "\n"
+            }
+            if !item.locations.isEmpty { text += "\nWhere: " + item.locations.map(\.label).joined(separator: ", ") + "\n" }
+            if !item.steps.isEmpty {
+                text += "\nSteps:\n" + item.steps.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n") + "\n"
+            }
+        }
+        return text
+    }
+
+    /// Ids of the "change code" items of a plan made at an older head whose code changed since: `changes` are the
+    /// files changed from the plan's head to the current one (GitHub's compare), so their OLD side is the code the plan
+    /// read. A location with lines counts when a changed line falls in them, one without when its file changed.
+    /// Only a hint: re-planning confirms.
+    public static func maybeDone(_ items: [FixPlanItem], changes: [FileChange]) -> Set<String> {
+        let touched = Dictionary(changes.map { ($0.filename, changedOldLines($0.patch ?? "")) }, uniquingKeysWith: { a, _ in a })
+        return Set(items.filter { item in
+            item.action == "change_code" && item.locations.contains { location in
+                guard let lines = touched[location.path] else { return false }
+                guard let start = location.startLine else { return true }
+                return lines.contains { (start...max(start, location.endLine ?? start)).contains($0) }
+            }
+        }.map(\.sourceID))
+    }
+
+    /// The old-side lines a patch changes: the removed ones, and those on either side of an addition.
+    static func changedOldLines(_ patch: String) -> Set<Int> {
+        var lines: Set<Int> = [], previous: Int?, added = false
+        for line in Diff.parse(patch) {
+            switch line.kind {
+            case .hunk: (previous, added) = (nil, false)
+            case .added:
+                if let previous { lines.formUnion([previous, previous + 1]) } else { added = true }
+            case .removed, .context:
+                if line.kind == .removed, let old = line.oldLine { lines.insert(old) }
+                if added, let old = line.oldLine { lines.insert(old) }
+                (previous, added) = (line.oldLine, false)
+            }
+        }
+        return lines
     }
 
     public static let schema = """

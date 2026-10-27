@@ -163,3 +163,64 @@ private func pr(head: String = "h1") -> PullRequest {
     let next = FixPlan.choices(choices, setting: "T2", head: "h2") { $0.steps = ["Rename it"] }
     #expect(next.keys.sorted() == ["T2"] && next["T2"]?.decision == nil && next["T2"]?.steps == ["Rename it"])
 }
+
+@Test func fixPlanAcceptedRepliesUseTheEditsAndQuoteAReviewSummary() {
+    let items = [
+        FixPlanItem(sourceID: "R2", request: "Scope and test", action: "change_code", reply: "Done in the next push."),
+        FixPlanItem(sourceID: "T1", request: "Scope", action: "change_code", reply: "Will scope it."),
+        FixPlanItem(sourceID: "T2", request: "Cache", action: "push_back", reply: "Not worth it."),
+        FixPlanItem(sourceID: "T9", request: "Gone", action: "reply_only", reply: "Thread was deleted."),
+        FixPlanItem(sourceID: "R4", request: "Naming", action: "reply_only", reply: "  "),
+    ]
+    var choices: [String: FixPlanChoice] = [:]
+    for id in ["R2", "T1", "T9", "R4"] { choices = FixPlan.choices(choices, setting: id, head: "h1") { $0.decision = .accepted } }
+    choices = FixPlan.choices(choices, setting: "T1", head: "h1") { $0.reply = "Scoped it to the org." }
+    let replies = FixPlan.acceptedReplies(items, choices: choices, threads: detail.threads, reviews: detail.reviews)
+    // T2 isn't accepted, T9's thread is gone and R4's reply is blank; threads come first, in file order.
+    #expect(replies.map(\.sourceID) == ["T1", "R2"])
+    #expect(replies[0] == FixPlanReply(sourceID: "T1", threadID: "T1", body: "Scoped it to the org.", label: "b.py:9"))
+    #expect(replies[1].threadID == nil && replies[1].label == "bob's review")
+    #expect(replies[1].body == "> Please scope the query and add a test.\n\nDone in the next push.")
+    // Once posted, it isn't sent again.
+    choices = FixPlan.choices(choices, setting: "T1", head: "h1") { $0.posted = true }
+    #expect(FixPlan.acceptedReplies(items, choices: choices, threads: detail.threads, reviews: detail.reviews).map(\.sourceID) == ["R2"])
+}
+
+@Test func fixPlanAgentPromptListsTheAcceptedCodeChangesOnly() {
+    var pr = pr()
+    (pr.headRefName, pr.baseRefName) = ("invites", "main")
+    let items = [
+        FixPlanItem(sourceID: "R2", request: "Add a test", action: "change_code", steps: ["Add test_scope"]),
+        FixPlanItem(sourceID: "T1", request: "Scope the query", action: "change_code",
+                    locations: [FixPlanLocation(path: "b.py", startLine: 9, endLine: 11)], steps: ["Filter by org", "Add an index"]),
+        FixPlanItem(sourceID: "T2", request: "Cache", action: "push_back", reply: "No"),
+    ]
+    var choices: [String: FixPlanChoice] = [:]
+    for id in ["R2", "T1", "T2"] { choices = FixPlan.choices(choices, setting: id, head: "h1") { $0.decision = .accepted } }
+    choices = FixPlan.choices(choices, setting: "R2", head: "h1") { $0.steps = ["Add test_scope_by_org"] }
+    let prompt = FixPlan.agentPrompt(pr: pr, head: "abcdef123", items: items, choices: choices, threads: detail.threads, reviews: detail.reviews)
+    #expect(prompt.contains("o/r#1, \"Invites\" (branch invites, into main)"))
+    #expect(prompt.contains("Don't commit, push or reply to anyone") && prompt.contains("from commit abcdef1"))
+    #expect(prompt.contains("## 1. Scope the query\n\nReviewer comment by bob on b.py:9:\n> Scope this query.\n\nWhere: b.py:9–11\n\nSteps:\n1. Filter by org\n2. Add an index\n"))
+    #expect(prompt.contains("## 2. Add a test\n\nFrom bob's review:\n> Please scope the query and add a test.\n\nSteps:\n1. Add test_scope_by_org\n"))
+    #expect(!prompt.contains("Cache"))
+}
+
+@Test func fixPlanMaybeDoneFlagsCodeChangesWhoseLinesChangedSincePlanning() {
+    let items = [
+        FixPlanItem(sourceID: "A", request: "", action: "change_code", locations: [FixPlanLocation(path: "a.py", startLine: 2, endLine: 3)]),
+        FixPlanItem(sourceID: "B", request: "", action: "change_code", locations: [FixPlanLocation(path: "a.py", startLine: 20)]),
+        FixPlanItem(sourceID: "C", request: "", action: "change_code", locations: [FixPlanLocation(path: "b.py")]),
+        FixPlanItem(sourceID: "D", request: "", action: "change_code", locations: [FixPlanLocation(path: "c.py")]),
+        FixPlanItem(sourceID: "E", request: "", action: "reply_only", locations: [FixPlanLocation(path: "b.py")]),
+        FixPlanItem(sourceID: "F", request: "", action: "change_code", locations: [FixPlanLocation(path: "a.py", startLine: 10, endLine: 10)]),
+    ]
+    let changes = [
+        // Old line 3 is replaced; an addition after old line 9 touches 9 and 10.
+        FileChange(filename: "a.py", status: "modified", additions: 2, deletions: 1,
+                   patch: "@@ -1,3 +1,3 @@\n a\n b\n-c\n+C\n@@ -9,1 +9,2 @@\n i\n+new"),
+        FileChange(filename: "b.py", status: "modified", additions: 1, deletions: 0, patch: "@@ -1,1 +1,2 @@\n x\n+y"),
+    ]
+    #expect(FixPlan.maybeDone(items, changes: changes) == ["A", "C", "F"])
+    #expect(FixPlan.changedOldLines("@@ -5,2 +5,3 @@\n+top\n e\n f") == [5])
+}

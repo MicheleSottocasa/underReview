@@ -97,6 +97,57 @@ extension AppModel {
         fixPlanChoices[run.prID] = FixPlan.choices(fixPlanChoices[run.prID] ?? [:], setting: item, head: run.headRefOid, change)
     }
 
+    /// Posts the replies one at a time, each showing its spinner until the single reload at the end: in their thread,
+    /// or as a pull request comment for a review's summary. Each one sent is marked posted on its item, so it isn't
+    /// sent twice; a failure doesn't stop the others, and the banner names the ones that didn't go.
+    func postFixPlanReplies(_ replies: [FixPlanReply], run: FixPlanRun, pr: PullRequest) async {
+        guard !blockDemo(pr) else { return }
+        let replies = replies.filter { pending.insert($0.sourceID).inserted }
+        defer { for reply in replies { pending.remove(reply.sourceID) } }
+        var failures: [String] = []
+        for reply in replies {
+            do {
+                if let thread = reply.threadID {
+                    try await reviewSync.reply(threadID: thread, body: reply.body, viewer: viewer)
+                } else {
+                    try await reviewSync.comment(prID: pr.id, body: reply.body, viewer: viewer)
+                }
+                setFixPlanChoice(run, item: reply.sourceID) { $0.posted = true }
+            } catch {
+                if let message = error.userMessage { failures.append("\(reply.label): \(message)") }
+            }
+        }
+        await afterOwnWrite(pr)
+        if !failures.isEmpty {
+            lastError = "Couldn't post \(failures.count) of \(replies.count) replies: " + failures.joined(separator: "; ")
+        }
+    }
+
+    /// The branch the repo's linked clone is on; nil without a linked clone, or when git can't tell.
+    func cloneBranch(_ pr: PullRequest) async -> String? {
+        guard !pr.isDemo, let path = localClones[pr.repo] else { return nil }
+        return await clones.currentBranch(in: URL(fileURLWithPath: path))
+    }
+
+    /// Fetches what changed from the plan's head to the current one, once per pair of heads (commits never change),
+    /// for the *maybe done* flags. A failure (a force-push dropped the plan's head) just leaves the flags off.
+    func loadFixPlanChanges(_ run: FixPlanRun, pr: PullRequest) async {
+        let current = prs[pr.id] ?? pr
+        let key = Self.comparisonKey(current, base: run.headRefOid, head: current.headRefOid)
+        guard !current.isDemo, !current.headRefOid.isEmpty, run.headRefOid != current.headRefOid, comparisons[key] == nil else { return }
+        if let changes = try? await github.compareFiles(repo: current.repo, from: run.headRefOid, to: current.headRefOid) {
+            comparisons[key] = changes
+        }
+    }
+
+    /// Ids of the plan's code changes whose lines changed in a push since the plan; empty until that's loaded.
+    func fixPlanMaybeDone(_ run: FixPlanRun, pr: PullRequest) -> Set<String> {
+        let current = prs[pr.id] ?? pr
+        guard run.headRefOid != current.headRefOid,
+              let changes = comparisons[Self.comparisonKey(current, base: run.headRefOid, head: current.headRefOid)] else { return [] }
+        return FixPlan.maybeDone(run.result.items, changes: changes)
+    }
+
     func deleteFixPlan(_ id: UUID) {
         fixPlans.removeAll { $0.id == id }
     }

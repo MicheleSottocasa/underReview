@@ -21,6 +21,8 @@ struct FixPlanView: View {
     @ViewState private var contextEngine: AIEngine?
     /// The model and effort a Re-plan asked for; nil runs with the provider's current ones.
     @ViewState private var contextOptions: AIOptions?
+    /// The branch the linked clone is on, to offer Check Out when it isn't the PR's.
+    @ViewState private var cloneBranch: String?
 
     private var engine: AIEngine { model.engine(named: engineName, ollamaModel: ollamaModel, for: pr) }
     /// Claude engines run straight away; Codex and Ollama show the context first.
@@ -54,6 +56,22 @@ struct FixPlanView: View {
                         }
                         .padding(.top, runs.isEmpty ? 40 : 0)
                     }
+                    if let branch = cloneBranch, branch != pr.headRefName, !runs.isEmpty {
+                        HStack(spacing: 10) {
+                            Image(systemName: "arrow.triangle.branch").foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(branch.isEmpty ? "The local clone is on a detached HEAD, not \(pr.headRefName)."
+                                                    : "The local clone is on \(branch), not \(pr.headRefName).")
+                                    .font(.callout)
+                                Text("Check it out before pasting the prompt into an agent or opening files in your editor.")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            CheckOutButton(pr: pr)
+                        }
+                        .padding(10)
+                        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                    }
                     if let run = runs.first {
                         FixPlanRunView(pr: pr, run: run) { replan(run) }
                     } else if feedback?.isEmpty == false, context == nil, !busy {
@@ -77,7 +95,13 @@ struct FixPlanView: View {
             contextEngine = nil
             contextOptions = nil
         }
-        .task { await model.loadDetail(pr.id) }
+        .task {
+            await model.loadDetail(pr.id)
+            // Open in Editor needs the file's diff.
+            if model.files[pr.id] == nil, !pr.isDemo { try? await model.fetchFiles(pr) }
+        }
+        // Read again when the clone is linked or changed, and after each checkout.
+        .task(id: "\(pr.id)|\(model.localClones[pr.repo] ?? "")|\(model.checkingOut.count)") { cloneBranch = await model.cloneBranch(pr) }
         .task(id: engineName) {
             guard engineName == "ollama" else { return }
             await model.loadOllamaModels()
@@ -177,12 +201,18 @@ private struct FixPlanRunView: View {
     let pr: PullRequest
     let run: FixPlanRun
     let replan: () -> Void
+    @ViewState private var confirmingReplies = false
+    @ViewState private var copied = false
 
     var body: some View {
         let detail = model.details[pr.id]
         let threads = detail?.threads ?? []
         let reviews = (detail?.reviews ?? []) + (detail?.latestReviews ?? [])
         let choices = model.fixPlanChoices(for: run)
+        let replies = FixPlan.acceptedReplies(run.result.items, choices: choices, threads: threads, reviews: reviews)
+        let changes = run.result.items.filter { $0.action == "change_code" && choices[$0.sourceID]?.decision == .accepted }.count
+        let posting = replies.contains { model.pending.contains($0.sourceID) }
+        let maybeDone = model.fixPlanMaybeDone(run, pr: pr)
         VStack(alignment: .leading, spacing: 10) {
             if let reason = model.fixPlanOutdatedReason(run, pr: pr) {
                 HStack(spacing: 10) {
@@ -220,11 +250,40 @@ private struct FixPlanRunView: View {
             .font(.callout)
             Text(FixPlan.tally(run.result.items)).font(.callout.bold())
             MarkdownText(run.result.summary)
+            HStack(spacing: 8) {
+                Button("Post Accepted Replies (\(replies.count))") { confirmingReplies = true }
+                    .disabled(replies.isEmpty || posting)
+                    .help(replies.isEmpty ? "Accept items with a reply to post them all at once"
+                                          : "Post the accepted items' replies: in their conversation, or as a comment for a review summary")
+                Button(copied ? "Copied" : "Copy as Agent Prompt (\(changes))") {
+                    let prompt = FixPlan.agentPrompt(pr: model.prs[pr.id] ?? pr, head: run.headRefOid, items: run.result.items,
+                                                     choices: choices, threads: threads, reviews: reviews)
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(prompt, forType: .string)
+                    copied = true
+                    Task {
+                        try? await Task.sleep(for: .seconds(1.5))
+                        copied = false
+                    }
+                }
+                .disabled(changes == 0)
+                .help(changes == 0 ? "Accept items that change the code to copy them as a prompt"
+                                   : "Copy the accepted code changes as one prompt for Claude Code or Codex, to paste into an agent in your local clone. ReviewDesk changes no code itself.")
+                if posting { ProgressView().controlSize(.small) }
+            }
+            .controlSize(.small)
+            .confirmationDialog("Post \(replies.count) repl\(replies.count == 1 ? "y" : "ies")?", isPresented: $confirmingReplies) {
+                Button("Post \(replies.count)") { Task { await model.postFixPlanReplies(replies, run: run, pr: pr) } }
+            } message: {
+                Text(replies.map { "• \($0.label): \($0.body.prefix(80))" }.joined(separator: "\n"))
+            }
             ForEach(Array(FixPlan.ordered(run.result.items, threads: threads).enumerated()), id: \.offset) { _, item in
                 FixPlanItemView(pr: pr, run: run, item: item, thread: threads.first { $0.id == item.sourceID },
-                                review: reviews.first { $0.id == item.sourceID }, choice: choices[item.sourceID])
+                                review: reviews.first { $0.id == item.sourceID }, choice: choices[item.sourceID],
+                                maybeDone: maybeDone.contains(item.sourceID))
             }
         }
+        .task(id: "\(run.id)|\(model.prs[pr.id]?.headRefOid ?? pr.headRefOid)") { await model.loadFixPlanChanges(run, pr: pr) }
         .padding(14)
         .background(Color.purple.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.purple.opacity(0.25)))
@@ -241,6 +300,8 @@ private struct FixPlanItemView: View {
     let thread: ReviewThread?
     let review: Review?
     let choice: FixPlanChoice?
+    /// Its lines changed in a push since the plan.
+    let maybeDone: Bool
     @ViewState private var showsThread = false
     @ViewState private var editing = false
     @ViewState private var stepsText = ""
@@ -258,6 +319,13 @@ private struct FixPlanItemView: View {
                     Text("\(item.confidence) confidence").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
+                if maybeDone {
+                    Badge(text: "Maybe done", color: .green)
+                        .help("Its lines changed in a push since this plan. Re-plan to confirm.")
+                }
+                if choice?.posted == true {
+                    Badge(text: "Reply posted", color: .blue)
+                }
                 if let decision {
                     Badge(text: decision == .accepted ? "Accepted" : "Skipped", color: decision == .accepted ? .green : .secondary)
                 }
@@ -337,6 +405,18 @@ private struct FixPlanItemView: View {
                 }
                 if let thread {
                     Button("Open in Changes") { model.openInChanges(thread.path, line: thread.line, side: thread.side, pr: pr) }
+                }
+                if let location = item.locations.first, let file = model.files[pr.id]?.first(where: { $0.filename == location.path }) {
+                    Button("Open in Editor") { Task { await model.openInEditor(pr, file: file, line: location.startLine) } }
+                        .help("Open \(location.label) from the local clone in your editor (Settings › Repositories)")
+                }
+                if let posting = FixPlan.reply(item.applying(choice), threads: thread.map { [$0] } ?? [], reviews: review.map { [$0] } ?? []),
+                   choice?.posted != true, !editing {
+                    Button("Post Reply") { Task { await model.postFixPlanReplies([posting], run: run, pr: pr) } }
+                        .disabled(model.pending.contains(item.sourceID))
+                        .help(thread == nil ? "Post the reply as a comment on the pull request, quoting the review"
+                                            : "Post the reply in its conversation")
+                    if model.pending.contains(item.sourceID) { ProgressView().controlSize(.small) }
                 }
             }
             .controlSize(.small)
