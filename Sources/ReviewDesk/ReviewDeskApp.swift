@@ -387,6 +387,7 @@ struct AISettings: View {
                 Text("Also used by Explain on comments. The AI tab changes the same setting. Claude Code support is in beta; Codex and Ollama are alpha, so expect rough edges with them.")
             }
             Section {
+                ProviderStatusRow(engine: .claudeCode)
                 ModelPicker(choices: AIOptions.models(for: .claudeCode), selection: $claudeModel, defaultLabel: "CLI default")
                 ContextPicker(model: claudeModel, selection: $claudeContext)
                 EffortPicker(engine: .claudeCode, selection: $effort)
@@ -400,14 +401,16 @@ struct AISettings: View {
                 Text("The model is used by every Claude Code action: a family follows its newest version, a version stays pinned. 1M tokens of context needs a model, and a plan that offers it. The effort is /code-review's level. Each review reads the pull request's files at its head commit, in a folder of its own that is removed afterwards. A worktree is quick and leaves the clone's branch alone, but needs a clone linked in Repositories; a download needs nothing, but fetches the whole repository every time. Without either, /code-review reads only the diff.")
             }
             Section {
+                ProviderStatusRow(engine: .codex)
                 ModelPicker(choices: AIOptions.models(for: .codex), selection: $codexModel, defaultLabel: "CLI default")
                 EffortPicker(engine: .codex, selection: $codexEffort)
             } header: {
                 Text("Codex")
             } footer: {
-                Text("Used by every Codex action. Your config.toml is ignored, so these choices are the only ones applied; Default keeps the CLI's own model and reasoning effort.")
+                Text("Used by every Codex action: reviews, Explain, Ask, fixes and follow-up checks. Codex runs read-only in an empty folder with your ChatGPT login (an API key is refused). Your config.toml, rules, hooks and plugins are ignored, so the model and effort here are the only ones applied; Default keeps the CLI's own. Reviews go through Prepare Context first, so you see what is sent.")
             }
             Section {
+                ProviderStatusRow(engine: .ollama(model: ollamaModel))
                 ModelPicker(choices: model.ollamaModels.map { ModelChoice($0, $0) }, selection: $ollamaModel, defaultLabel: nil)
                 if model.ollamaThinks[ollamaModel] == true {
                     EffortPicker(engine: .ollama(model: ollamaModel), selection: $ollamaThink)

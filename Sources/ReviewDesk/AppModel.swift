@@ -159,6 +159,8 @@ final class AppModel {
     /// The models Ollama has pulled, for its model picker, and which of them can think (by name).
     var ollamaModels: [String] = []
     var ollamaThinks: [String: Bool] = [:]
+    /// Each AI CLI's version and login (by tool), as Settings › AI last checked them.
+    var providerStatus: [String: ProviderStatus] = [:]
     /// Repository (`owner/repo`) → the folder of its clone on this Mac.
     var localClones: [String: String] { didSet { save(localClonesFile, localClones) } }
     /// Clone folders a checkout is running in, so a second one can't start there at the same time.

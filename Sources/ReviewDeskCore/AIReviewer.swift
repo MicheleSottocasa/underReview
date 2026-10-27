@@ -125,6 +125,19 @@ public struct AIOptions: Codable, Hashable, Sendable {
     }
 }
 
+/// A provider's CLI as Settings › AI shows it.
+public struct ProviderStatus: Equatable, Sendable {
+    /// Nil when the CLI isn't installed or didn't say.
+    public var version: String?
+    /// How it's logged in, or why it can't run.
+    public var detail: String
+    public var isReady: Bool
+
+    public init(version: String?, detail: String, isReady: Bool) {
+        (self.version, self.detail, self.isReady) = (version, detail, isReady)
+    }
+}
+
 /// A model in a picker: the id passed to the CLI, and its name.
 public struct ModelChoice: Hashable, Identifiable, Sendable {
     public let id: String
@@ -195,6 +208,33 @@ public struct AIReviewer: Sendable {
             let status = try await runner.run("ollama", ["list"])
             guard status.status == 0 else { throw AIError.failed("Ollama isn't running: \(status.stderr)") }
         }
+    }
+
+    /// Its CLI's version and whether it's ready to run (logged in with a subscription, or Ollama running), for
+    /// Settings › AI. Runs only the version and login checks, never a model.
+    public func status(_ engine: AIEngine) async -> ProviderStatus {
+        let output = try? await runner.run(engine.tool, ["--version"])
+        let version = output.flatMap { Self.version($0.text + "\n" + $0.stderr) }
+        do {
+            try await checkAuth(engine)
+            switch engine {
+            case .claudeCode, .claudeSession:
+                return ProviderStatus(version: version, detail: "Logged in with your Claude subscription", isReady: true)
+            case .codex:
+                return ProviderStatus(version: version, detail: "Logged in with ChatGPT", isReady: true)
+            case .ollama:
+                let count = await ollamaModels().count
+                return ProviderStatus(version: version, detail: "Running, \(count) model\(count == 1 ? "" : "s") pulled", isReady: true)
+            }
+        } catch {
+            return ProviderStatus(version: version, detail: error.localizedDescription, isReady: false)
+        }
+    }
+
+    /// The version number in a CLI's `--version` output: "2.1.3 (Claude Code)", "codex-cli 0.46.0",
+    /// "ollama version is 0.12.3" (or, with Ollama stopped, "Warning: client version is 0.12.3").
+    static func version(_ output: String) -> String? {
+        output.split(whereSeparator: \.isWhitespace).first { $0.first?.isNumber == true && $0.contains(".") }.map(String.init)
     }
 
     /// The models Ollama has pulled, by name (`qwen2.5-coder:latest`); empty when it isn't running.

@@ -977,6 +977,50 @@ struct EffortPicker: View {
             if engine.tool != "claude" { Text("Default").tag("") }
             ForEach(AIOptions.efforts(for: engine), id: \.self) { Text($0.capitalized).tag($0) }
         }
+        .help(help)
+    }
+
+    private var help: String {
+        switch engine {
+        case .claudeCode, .claudeSession: "/code-review's level: higher reads more of the code and uses more of your plan"
+        case .codex: "Codex's reasoning effort: higher thinks longer and uses more of your plan. Default keeps the CLI's own."
+        case .ollama: "How much the model thinks before it answers; its thinking isn't shown. Default keeps the model's own."
+        }
+    }
+}
+
+/// A provider's CLI in Settings › AI: its version and how it's logged in, checked when shown and on Refresh.
+struct ProviderStatusRow: View {
+    @Environment(AppModel.self) private var model
+    let engine: AIEngine
+    @ViewState private var checking = false
+
+    var body: some View {
+        LabeledContent("Command-line tool") {
+            HStack(spacing: 6) {
+                if let status = model.providerStatus[engine.tool] {
+                    Image(systemName: status.isReady ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .foregroundStyle(status.isReady ? Color.green : Color.orange)
+                    Text(verbatim: (status.version.map { "\(engine.tool) \($0) · " } ?? "") + status.detail)
+                        .lineLimit(2)
+                        .help(status.detail)
+                }
+                if checking {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button { Task { await check() } } label: { Image(systemName: "arrow.clockwise") }
+                        .buttonStyle(.borderless)
+                        .help("Check the version and login again")
+                }
+            }
+        }
+        .task { if model.providerStatus[engine.tool] == nil { await check() } }
+    }
+
+    private func check() async {
+        checking = true
+        await model.loadProviderStatus(engine)
+        checking = false
     }
 }
 

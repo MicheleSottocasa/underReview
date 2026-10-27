@@ -66,6 +66,11 @@ extension AppModel {
         return AIOptions(model: model, effort: defaults.string(forKey: keys.effort) ?? "")
     }
 
+    /// Checks a provider's CLI version and login for Settings › AI; nothing is sent to a model.
+    func loadProviderStatus(_ engine: AIEngine) async {
+        providerStatus[engine.tool] = await reviewer.status(engine)
+    }
+
     /// Fills the Ollama model picker from `ollama list`.
     func loadOllamaModels() async {
         ollamaModels = await reviewer.ollamaModels()
