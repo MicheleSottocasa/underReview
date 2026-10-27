@@ -35,6 +35,15 @@ private func finding(_ title: String, _ severity: String, path: String? = "a.py"
     #expect(merged.risks.map(\.level) == ["high", "none"])
 }
 
+@Test func selfReviewKeepsTheLowestScore() {
+    let (correctness, tests, security) = (SelfReview.focuses[0], SelfReview.focuses[1], SelfReview.focuses[2])
+    let merged = SelfReview.merge([(correctness, ReviewResult(summary: "", findings: [], score: 8.5)),
+                                   (tests, ReviewResult(summary: "", findings: [])),
+                                   (security, ReviewResult(summary: "", findings: [], score: 3.2))])
+    #expect(merged.score == 3.2)
+    #expect(SelfReview.merge([(tests, ReviewResult(summary: "", findings: []))]).score == nil)
+}
+
 @Test func selfReviewRunsAreNotCalibrationSamples() {
     var run = AIRun(prID: "PR_1", engine: .claudeCode, headRefOid: "h", result: ReviewResult(summary: "", findings: []))
     (run.options, run.estimatedTokens, run.usage) = (AIOptions(), 1_000, TokenUsage(input: 10, output: 5))
