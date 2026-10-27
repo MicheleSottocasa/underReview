@@ -87,12 +87,16 @@ public struct ReviewResult: Codable, Hashable, Sendable {
     public var findings: [Finding]
     public var keyAreas: [KeyArea]
     public var risks: [RiskAssessment]
+    /// How safe the PR is to merge as it stands, 1.0 to 10.0 in tenths (higher is safer); nil when the model gave
+    /// none or an unusable one, and for reviews saved before scores existed.
+    public var score: Double?
 
-    public init(summary: String, findings: [Finding], keyAreas: [KeyArea] = [], risks: [RiskAssessment] = []) {
+    public init(summary: String, findings: [Finding], keyAreas: [KeyArea] = [], risks: [RiskAssessment] = [], score: Double? = nil) {
         self.summary = summary
         self.findings = findings
         self.keyAreas = keyAreas
         self.risks = risks
+        self.score = score.flatMap(Self.validScore)
     }
 
     public init(from decoder: any Decoder) throws {
@@ -102,6 +106,17 @@ public struct ReviewResult: Codable, Hashable, Sendable {
         // Reviews saved before key areas or risk answers existed have none.
         keyAreas = try container.decodeIfPresent([KeyArea].self, forKey: .keyAreas) ?? []
         risks = try container.decodeIfPresent([RiskAssessment].self, forKey: .risks) ?? []
+        // A malformed score never fails the whole review: it's dropped like a missing one. Local models may quote it.
+        let raw = (try? container.decodeIfPresent(Double.self, forKey: .score))
+            ?? (try? container.decodeIfPresent(String.self, forKey: .score)).flatMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+        score = raw.flatMap(Self.validScore)
+    }
+
+    /// Rounds to one decimal; anything outside 1...10 (another scale, a refusal to score) is dropped, not clamped,
+    /// since it would show a confident number the model never meant.
+    static func validScore(_ value: Double) -> Double? {
+        let rounded = (value * 10).rounded() / 10
+        return rounded.isFinite && (1...10).contains(rounded) ? rounded : nil
     }
 
     /// The answer to one question, if the review gave one.
@@ -202,8 +217,9 @@ public struct ChatMessage: Hashable, Sendable {
 public enum AIContext {
     /// Strict-mode friendly (Codex requires every property listed and no extras).
     public static let schema = """
-    {"type":"object","additionalProperties":false,"required":["summary","findings","keyAreas","risks"],"properties":{
+    {"type":"object","additionalProperties":false,"required":["summary","score","findings","keyAreas","risks"],"properties":{
       "summary":{"type":"string"},
+      "score":{"type":["number","null"]},
       "risks":{"type":"array","items":{"type":"object","additionalProperties":false,
         "required":["question","level","answer"],"properties":{
           "question":{"type":"string","enum":["data","access","scale","failure","explain"]},
@@ -270,6 +286,14 @@ public enum AIContext {
     be. `answer` gives the evidence in one to three sentences, naming the files or functions involved.
     """
 
+    /// What `score` means. Part of the fixed format, like the schema, so every prompt (custom ones too) scores alike.
+    static let scoreInstructions = """
+    In `score`, rate how safe this pull request is to merge as it stands, from 1.0 to 10.0 with one decimal: 10.0 is
+    ready to merge with nothing to fix, 7.0 to 9.9 needs only minor or optional changes, 4.0 to 6.9 has problems to
+    fix first, and 1.0 to 3.9 has critical bugs, security holes or data loss risks. Weigh the findings' severities and
+    the risk levels; don't reward a small diff for being small. Use null only if the material is too incomplete to judge.
+    """
+
     /// Editable in Settings. The JSON schema is always appended, so a custom prompt can't break parsing.
     public static let defaultReviewInstructions = """
     You are reviewing a GitHub pull request. Use only the material below; do not run tools or commands.
@@ -309,6 +333,7 @@ public enum AIContext {
                                        source: String = "/code-review") -> String {
         var text = """
         \(instructions)
+        \(scoreInstructions)
         Reply only with JSON matching this schema:
         \(schema)
 
@@ -336,6 +361,7 @@ public enum AIContext {
     public static func prompt(_ context: ReviewContext, instructions: String = defaultReviewInstructions) -> String {
         """
         \(instructions)
+        \(scoreInstructions)
         Reply only with JSON matching this schema:
         \(schema)
 

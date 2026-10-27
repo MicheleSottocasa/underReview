@@ -44,11 +44,40 @@ private func finding(_ path: String?, _ line: Int?) -> Finding {
 
 @Test func schemaIsValidJSON() throws {
     let schema = try JSONSerialization.jsonObject(with: Data(AIContext.schema.utf8)) as? [String: Any]
-    #expect(schema?["required"] as? [String] == ["summary", "findings", "keyAreas", "risks"])
+    #expect(schema?["required"] as? [String] == ["summary", "score", "findings", "keyAreas", "risks"])
     let findingFields = (((schema?["properties"] as? [String: Any])?["findings"] as? [String: Any])?["items"] as? [String: Any])?["required"] as? [String]
     #expect(findingFields?.contains("suggestion") == true && findingFields?.contains("startLine") == true)
     let areaFields = (((schema?["properties"] as? [String: Any])?["keyAreas"] as? [String: Any])?["items"] as? [String: Any])?["required"] as? [String]
     #expect(areaFields?.contains("side") == true) // strict mode needs every property listed
+}
+
+@Test func scoreIsRoundedToOneDecimalAndOutOfRangeDropped() throws {
+    func decoded(_ score: String?) throws -> Double? {
+        let field = score.map { #","score":\#($0)"# } ?? ""
+        return try JSONDecoder().decode(ReviewResult.self, from: Data(#"{"summary":"s","findings":[]\#(field)}"#.utf8)).score
+    }
+    #expect(try decoded("7.46") == 7.5)
+    #expect(try decoded("10") == 10)
+    #expect(try decoded("1.0") == 1)
+    #expect(try decoded(#""8.2""#) == 8.2) // quoted by a local model
+    #expect(try decoded("0.4") == nil)
+    #expect(try decoded("85") == nil) // another scale, not a 10
+    #expect(try decoded("null") == nil)
+    #expect(try decoded(#""great""#) == nil)
+    #expect(try decoded(nil) == nil) // saved before scores existed
+    #expect(ReviewResult(summary: "", findings: [], score: 11).score == nil)
+}
+
+@Test func scoreSurvivesStorage() throws {
+    let result = ReviewResult(summary: "s", findings: [], score: 6.8)
+    let stored = try JSONDecoder().decode(ReviewResult.self, from: JSONEncoder().encode(result))
+    #expect(stored.score == 6.8)
+}
+
+@Test func everyReviewPromptDefinesTheScore() {
+    let context = ReviewContext(title: "T", body: "", files: [], budget: 1000)
+    #expect(AIContext.prompt(context, instructions: "custom").contains("In `score`"))
+    #expect(AIContext.structurePrompt(report: "r", context: context, instructions: "custom").contains("In `score`"))
 }
 
 @Test func explainPromptMarksTheCommentAndIncludesTheDiff() {

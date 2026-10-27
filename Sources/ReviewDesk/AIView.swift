@@ -289,7 +289,10 @@ struct RunView: View {
                 Button("Delete") { model.deleteRun(run.id) }.buttonStyle(.link)
             }
             .font(.callout)
-            MarkdownText(run.result.summary)
+            HStack(alignment: .top, spacing: 12) {
+                if let score = run.result.score { ScoreBadge(score: score) }
+                MarkdownText(run.result.summary)
+            }
             if !run.result.keyAreas.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     Label("Read before submitting (Changes › Focus)", systemImage: "scope").font(.callout.bold())
