@@ -476,3 +476,19 @@ private func codexRunner() -> FakeRunner {
         #expect(call.args[call.args.firstIndex(of: "--model")! + 1] == "claude-opus-5-5[1m]")
     }
 }
+
+@Test func codexFailuresSayWhatCodexReported() async {
+    let failed = #"{"type":"thread.started"}"# + "\n" + #"{"type":"turn.failed","error":{"message":"You've hit your usage limit."}}"#
+    let runner = FakeRunner { call in
+        call.args.first == "login" ? ok("Logged in using ChatGPT\n") : CommandResult(status: 1, stdout: Data(failed.utf8))
+    }
+    await #expect(throws: AIError.failed("You've hit your usage limit.")) { try await AIReviewer(runner: runner).review(.codex, prompt: "p") }
+
+    // Exit 0 but no answer file: the error event, or a plain "no answer", instead of an empty invalid review.
+    let silent = FakeRunner { call in
+        call.args.first == "login" ? ok("Logged in using ChatGPT\n") : ok(#"{"type":"error","message":"model not found"}"#)
+    }
+    await #expect(throws: AIError.failed("model not found")) { try await AIReviewer(runner: silent).ask(.codex, prompt: "p") }
+    let empty = FakeRunner { call in call.args.first == "login" ? ok("Logged in using ChatGPT\n") : ok("") }
+    await #expect(throws: AIError.invalidOutput("Codex wrote no answer")) { try await AIReviewer(runner: empty).ask(.codex, prompt: "p") }
+}

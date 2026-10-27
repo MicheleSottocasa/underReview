@@ -422,9 +422,15 @@ public struct AIReviewer: Sendable {
                 "exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral",
                 "--ignore-user-config", "--ignore-rules", "--disable", "hooks", "--disable", "plugins",
             ] + schemaArgs + chosen + ["-o", output.path, "-C", workdir.path, "-"], stdin: input, cwd: workdir, timeout: timeout)
-            guard result.status == 0 else { throw AIError.failed(Self.tail(result.stderr)) }
+            // With --json, Codex reports a failed turn (expired login, usage limit, unknown model) as an event on
+            // stdout, often with nothing on stderr.
+            let error = Self.codexError(events: result.text)
+            guard result.status == 0 else { throw AIError.failed(error ?? Self.tail(result.stderr)) }
             usage?.add(TokenUsage.codex(events: result.text))
-            return (try? Data(contentsOf: output)) ?? Data()
+            guard let answer = try? Data(contentsOf: output) else {
+                throw error.map(AIError.failed) ?? AIError.invalidOutput("Codex wrote no answer")
+            }
+            return answer
 
         case .ollama(let model):
             let format = schema == nil ? [] : ["--format", "json"]
@@ -434,6 +440,20 @@ public struct AIReviewer: Sendable {
             usage?.add(TokenUsage.ollama(stderr: result.stderr))
             return result.stdout
         }
+    }
+
+    /// The last error in `codex exec --json` events: an `error` event's message, or a failed turn's.
+    static func codexError(events: String) -> String? {
+        var message: String?
+        for line in events.split(separator: "\n") {
+            guard let event = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any] else { continue }
+            switch event["type"] as? String {
+            case "error": message = event["message"] as? String ?? message
+            case "turn.failed": message = (event["error"] as? [String: Any])?["message"] as? String ?? message
+            default: break
+            }
+        }
+        return message
     }
 
     static func claudeSchema(_ schema: String?) -> [String] { schema.map { ["--json-schema", $0] } ?? [] }
