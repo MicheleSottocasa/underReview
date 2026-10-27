@@ -33,6 +33,23 @@ private let subscribed = ok(#"{"loggedIn":true,"authMethod":"claude.ai"}"#)
     #expect(args[args.firstIndex(of: "--json-schema")! + 1] == AIContext.fixSchema)
 }
 
+@Test func aStructuredAnswerUsesThePickedModelAndEffortWithoutTools() async throws {
+    let runner = FakeRunner { call in
+        call.args.first == "auth" ? subscribed
+            : ok(#"{"type":"result","is_error":false,"structured_output":{"summary":"s","items":[]}}"#)
+    }
+    let reviewer = AIReviewer(runner: runner)
+    _ = try await reviewer.structured(.claudeCode, prompt: "p", schema: FixPlan.schema, as: FixPlanResult.self,
+                                      options: AIOptions(model: "opus", effort: "low"))
+    let args = try #require(runner.calls.last?.args)
+    #expect(args[args.firstIndex(of: "--model")! + 1] == "opus" && args[args.firstIndex(of: "--effort")! + 1] == "low")
+    #expect(args[args.firstIndex(of: "--tools")! + 1] == "" && !args.contains("--allowedTools"))
+    // Without options the CLI keeps its own defaults.
+    _ = try await reviewer.structured(.claudeCode, prompt: "p", schema: FixPlan.schema, as: FixPlanResult.self)
+    let plain = try #require(runner.calls.last?.args)
+    #expect(!plain.contains("--model") && !plain.contains("--effort"))
+}
+
 @Test func claudeRunsWithToolsHooksAndMCPDisabled() async throws {
     let runner = FakeRunner { call in
         call.args.first == "auth" ? subscribed : ok(#"{"type":"result","is_error":false,"structured_output":\#(review)}"#)

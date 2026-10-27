@@ -89,6 +89,8 @@ public enum TokenEstimator {
         case review
         /// A verdict per request.
         case followUp
+        /// A plan per piece of feedback: steps and a reply each.
+        case fixPlan
         /// A chat reply.
         case chat
 
@@ -96,6 +98,7 @@ public enum TokenEstimator {
             switch self {
             case .review: (1_500, 6_000)
             case .followUp: (500, 3_000)
+            case .fixPlan: (1_000, 6_000)
             case .chat: (200, 1_500)
             }
         }
