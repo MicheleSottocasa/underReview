@@ -136,6 +136,8 @@ final class AppModel {
     var followUps: [FollowUpRun] { didSet { save(followUpsFile, followUps.filter { !Demo.owns($0.prID) }) } }
     /// Project (top-level folder) id → extra AI context sent with its pull requests.
     var projectContext: [UUID: [ContextSource]] { didSet { save(projectContextFile, projectContext) } }
+    /// Project id → the rule files read instead of `RepoRules.rootFiles` (AGENTS.md…), when the project sets some.
+    var ruleEntryPoints: [UUID: [String]] { didSet { save(ruleEntryPointsFile, ruleEntryPoints) } }
     /// PR id → what the AI is doing right now.
     var aiStatus: [String: String] = [:]
     /// PR id → the latest steps of a running review, newest last; cleared when it ends.
@@ -194,6 +196,7 @@ final class AppModel {
     private let localClonesFile = JSONFile<[String: String]>.appSupport("local-clones.json")
     private let projectContextFile = JSONFile<[UUID: [ContextSource]]>.appSupport("project-context.json")
     private let reviewTemplatesFile = JSONFile<[ReviewTemplate]>.appSupport("review-commands.json")
+    private let ruleEntryPointsFile = JSONFile<[UUID: [String]]>.appSupport("rule-entry-points.json")
     private var pollTask: Task<Void, Never>?
     private var lastFullRefresh = Date.distantPast
 
@@ -230,6 +233,7 @@ final class AppModel {
         localClones = localClonesFile.load(default: [:])
         projectContext = projectContextFile.load(default: [:])
         reviewTemplates = reviewTemplatesFile.load(default: [])
+        ruleEntryPoints = ruleEntryPointsFile.load(default: [:])
     }
 
     var selectedPR: PullRequest? { selectedPRID.flatMap { prs[$0] } }
@@ -384,6 +388,7 @@ final class AppModel {
     func deleteFolder(_ id: UUID) {
         org.deleteFolder(id)
         projectContext = projectContext.filter { entry in org.folders.contains { $0.id == entry.key } }
+        ruleEntryPoints = ruleEntryPoints.filter { entry in org.folders.contains { $0.id == entry.key } }
         selection = selection.filter { if case .folder(let folder) = $0 { org.folders.contains { $0.id == folder } } else { true } }
     }
 

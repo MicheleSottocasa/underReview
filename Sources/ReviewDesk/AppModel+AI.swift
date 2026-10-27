@@ -131,7 +131,7 @@ extension AppModel {
         let paths = changed.filter { $0.status != "removed" && $0.patch != nil }.map(\.filename)
         let contents = try await github.fileContents(repo: pr.repo, paths: paths, ref: pr.headRefOid)
         var context = AIContext.build(pr: pr, body: details[pr.id]?.body ?? "", files: changed, contents: contents, budget: budget,
-                                      rules: await repoRules(pr, changed: changed))
+                                      rules: await repoRules(pr, changed: changed), ruleEntryPoints: projectRuleFiles(for: pr))
         if projectContext { context.extra = await extraContext(for: pr) }
         context.conversation = AIContext.conversationText(details[pr.id]?.comments ?? [])
         return context
@@ -160,7 +160,13 @@ extension AppModel {
     /// The repository's rule files on the PR's base branch: the rules the change has to follow. A failed fetch
     /// just means a review without them; it shouldn't block the review.
     func repoRules(_ pr: PullRequest, changed: [FileChange]) async -> [String: String] {
-        (try? await github.fileContents(repo: pr.repo, paths: RepoRules.candidates(changed: changed.map(\.filename)), ref: pr.baseRefName)) ?? [:]
+        let paths = RepoRules.candidates(changed: changed.map(\.filename), entryPoints: projectRuleFiles(for: pr))
+        return (try? await github.fileContents(repo: pr.repo, paths: paths, ref: pr.baseRefName)) ?? [:]
+    }
+
+    /// The rule files the PR's project reads instead of AGENTS.md and the like at the root; empty for the defaults.
+    func projectRuleFiles(for pr: PullRequest) -> [String] {
+        org.project(of: pr.itemKey).flatMap { ruleEntryPoints[$0.id] } ?? []
     }
 
     func startReview(_ pr: PullRequest, engine: AIEngine, context: ReviewContext, options: AIOptions) {
@@ -312,8 +318,11 @@ extension AppModel {
             let changed = files[pr.id] ?? []
             aiStatus[key] = "Reading the repository's rules\(on)…"
             let rules = await repoRules(pr, changed: changed)
-            logStep(rules.isEmpty ? "No repository rules found (AGENTS.md, CONTRIBUTING.md…)"
-                                  : "Repository rules: " + RepoRules.candidates(changed: changed.map(\.filename)).filter { rules[$0] != nil }.joined(separator: ", "),
+            let entryPoints = projectRuleFiles(for: pr)
+            let lookedFor = entryPoints.isEmpty ? "AGENTS.md, CONTRIBUTING.md…" : entryPoints.joined(separator: ", ")
+            logStep(rules.isEmpty ? "No repository rules found (\(lookedFor))"
+                                  : "Repository rules: " + RepoRules.candidates(changed: changed.map(\.filename), entryPoints: entryPoints)
+                                      .filter { rules[$0] != nil }.joined(separator: ", "),
                     pr: key)
             // The project's folders are readable with the same read-only tools; other sources need Prepare Context.
             let sources = contextSources(for: pr)?.sources ?? []
@@ -342,7 +351,8 @@ extension AppModel {
                 logStep("Not used by /code-review (Codex, Ollama and Ask use them): " + unused.joined(separator: ", "), pr: key)
             }
             let context = AIContext.build(pr: pr, body: details[pr.id]?.body ?? "", files: changed, contents: [:],
-                                          budget: UserDefaults.standard.object(forKey: "aiBudget") as? Int ?? 150_000, rules: rules)
+                                          budget: UserDefaults.standard.object(forKey: "aiBudget") as? Int ?? 150_000, rules: rules,
+                                          ruleEntryPoints: entryPoints)
             let meter = UsageMeter()
             // The PR's files at its head, in a folder of its own per run, so reviews run side by side: downloaded from
             // GitHub, or a worktree of the linked clone, which stays on its branch.

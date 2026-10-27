@@ -249,14 +249,15 @@ public enum AIContext {
     public static func estimateTokens(_ text: String) -> Int { text.utf8.count / 4 + 1 }
 
     /// Diff plus full content of each changed file at head. Files GitHub gave no patch for are listed as excluded.
+    /// `ruleEntryPoints` are the project's own root rule files, if it set any (`RepoRules.candidates`).
     public static func build(pr: PullRequest, body: String, files: [FileChange], contents: [String: String], budget: Int,
-                             rules: [String: String] = [:]) -> ReviewContext {
+                             rules: [String: String] = [:], ruleEntryPoints: [String] = []) -> ReviewContext {
         let contextFiles = files.map { file in
             let reason: String? = file.patch == nil ? "GitHub omitted the diff (binary or too large)" : nil
             return ContextFile(path: file.filename, patch: file.patch, content: contents[file.filename], included: reason == nil, excludedReason: reason)
         }
         return ReviewContext(title: pr.title, body: body, files: contextFiles, budget: budget,
-                             rules: RepoRules.contextFiles(rules, changed: files.map(\.filename)))
+                             rules: RepoRules.contextFiles(rules, changed: files.map(\.filename), entryPoints: ruleEntryPoints))
     }
 
     /// How key areas are asked for, shared by every review prompt.
