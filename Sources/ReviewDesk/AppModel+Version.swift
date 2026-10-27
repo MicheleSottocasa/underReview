@@ -8,6 +8,19 @@ extension AppModel {
     var currentVersion: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev" }
     var currentBuild: String { Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "" }
 
+    /// Opens a prefilled new issue on ReviewDesk's repository in the browser; nothing is sent until the user submits it.
+    func openFeedback(_ kind: Feedback) {
+        let os = ProcessInfo.processInfo.operatingSystemVersion
+        let providers: [String] = switch UserDefaults.standard.string(forKey: "aiEngine") ?? "claude" {
+        case "codex": ["Codex"]
+        case "ollama": ["Ollama"]
+        default: ["Claude Code"]
+        }
+        guard let url = kind.issueURL(version: currentVersion, macOS: "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)",
+                                      providers: providers) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
     /// The update to show in the sidebar: newer than this build and not put off with "Later".
     var visibleUpdate: AppRelease? {
         availableUpdate.flatMap { $0.version == dismissedUpdate ? nil : $0 }

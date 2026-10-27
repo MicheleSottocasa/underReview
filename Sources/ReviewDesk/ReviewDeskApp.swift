@@ -28,6 +28,10 @@ struct ReviewDeskApp: App {
             CommandGroup(replacing: .help) {
                 Button("Show Tour") { model.startTour() }
                 Button("What's New") { model.showCurrentNotes() }
+                Divider()
+                ForEach(Feedback.allCases, id: \.self) { kind in
+                    Button(kind.menuTitle) { model.openFeedback(kind) }
+                }
             }
             CommandGroup(after: .newItem) {
                 Button("Refresh") { model.refreshNow() }.keyboardShortcut("r")

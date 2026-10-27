@@ -153,3 +153,43 @@ extension GitHub {
         }
     }
 }
+
+/// Feedback goes to the app's own repository as a new GitHub issue, prefilled in the browser for the user to finish
+/// and submit. Only what's passed in goes in: the version, macOS and the AI providers in use, never repository names,
+/// accounts or tokens.
+public enum Feedback: String, CaseIterable, Sendable {
+    case feature, problem
+
+    public var menuTitle: String {
+        switch self {
+        case .feature: "Suggest a Feature…"
+        case .problem: "Report a Problem…"
+        }
+    }
+
+    var titlePrefix: String {
+        switch self {
+        case .feature: "Feature: "
+        case .problem: "Problem: "
+        }
+    }
+
+    var template: String {
+        switch self {
+        case .feature: "**What would you like ReviewDesk to do?**\n\n\n**How would it help your reviews?**\n\n"
+        case .problem: "**What happened?**\n\n\n**What did you expect?**\n\n\n**Steps to reproduce**\n\n1. \n\n"
+        }
+    }
+
+    /// GitHub's new-issue page for `AppVersion.repository`, with the title prefix and a body template ending in
+    /// the environment.
+    public func issueURL(version: String, macOS: String, providers: [String]) -> URL? {
+        let environment = "ReviewDesk \(version) · macOS \(macOS) · AI: \(providers.isEmpty ? "none" : providers.joined(separator: ", "))"
+        let body = template + "---\n" + environment + "\n"
+        // Stricter than URLComponents, which leaves `+` (read as a space), `&` and `=` in a value as they are.
+        func encoded(_ text: String) -> String {
+            text.addingPercentEncoding(withAllowedCharacters: CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")) ?? ""
+        }
+        return URL(string: "https://github.com/\(AppVersion.repository)/issues/new?title=\(encoded(titlePrefix))&body=\(encoded(body))")
+    }
+}
