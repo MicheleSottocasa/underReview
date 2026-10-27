@@ -138,8 +138,10 @@ public struct ReviewSync: Sendable {
         do {
             try await github.graphql("mutation($id: ID!) { deletePullRequestReview(input: {pullRequestReviewId: $id}) { clientMutationId } }",
                                      ["id": pending.id])
-        } catch GitHubError.graphQL {
-            // Already gone (submitted or deleted on github.com meanwhile): nothing to discard.
+        } catch let error as GitHubError {
+            // Already gone (submitted or deleted on github.com meanwhile): nothing to discard. Any other refusal
+            // leaves it in place, and must fail so the local drafts aren't dropped as if it were gone.
+            guard case .graphQL = error, try await pendingReview(prID: pr.id)?.id != pending.id else { throw error }
         }
     }
 
