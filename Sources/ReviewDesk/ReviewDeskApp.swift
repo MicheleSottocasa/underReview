@@ -265,6 +265,7 @@ struct GeneralSettings: View {
     @AppStorage("diffMode") private var diffMode = DiffMode.split
     @AppStorage("wrapLines") private var wrap = false
     @AppStorage(AppModel.autoMarkViewedKey) private var autoMarkViewed = false
+    @AppStorage(AppModel.archiveAfterDaysKey) private var archiveAfterDays = AppModel.defaultArchiveAfterDays
 
     var body: some View {
         Form {
@@ -317,6 +318,18 @@ struct GeneralSettings: View {
                 Text("Refresh")
             } footer: {
                 Text("Never more often than every \(Updates.minimumInterval) s, to stay inside GitHub's hourly API limit. Failures back off up to 30 min.")
+            }
+            Section {
+                Picker("Move merged and closed pull requests", selection: $archiveAfterDays) {
+                    Text("Never").tag(0)
+                    ForEach([1, 2, 3, 7, 14, 30], id: \.self) { days in
+                        Text(days == 1 ? "After 1 day" : "After \(days) days").tag(days)
+                    }
+                }
+            } header: {
+                Text("Archive")
+            } footer: {
+                Text("They go to the Archive group at the bottom of To Review, My PRs or their folder, collapsed until you open it. A stack waits for its last open pull request. Archived pull requests are still monitored.")
             }
             Section("Diff") {
                 Picker("Layout", selection: $diffMode) {

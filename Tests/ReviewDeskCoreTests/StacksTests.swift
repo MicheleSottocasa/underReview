@@ -95,3 +95,25 @@ private func pr(_ id: String, _ number: Int, stack: Int? = nil, entries: [String
     let all = [reviewed("done", 1), reRequested, pushed, merged, pr("new", 9)] + waitingStack + doneStack
     #expect(Stacks.reviewedItemKeys(all) { _ in "me" } == ["pr:done", "pr:merged", "stack:o/r#2"])
 }
+
+@Test func itemsDoneForLongerThanTheSettingAge() {
+    let now = Date(timeIntervalSince1970: 10 * 86_400)
+    func done(_ id: String, _ number: Int, state: String = "MERGED", daysAgo: Double, stack: Int? = nil, entries: [String] = []) -> PullRequest {
+        var pr = pr(id, number, stack: stack, entries: entries, updated: now.timeIntervalSince1970)
+        pr.state = state
+        pr.closedAt = now.addingTimeInterval(-daysAgo * 86_400)
+        return pr
+    }
+    var cached = pr("cached", 5, updated: now.timeIntervalSince1970 - 3 * 86_400)
+    cached.state = "CLOSED" // cached before closedAt was read: its update time counts
+    let prs = [
+        done("old", 1, daysAgo: 2), done("fresh", 2, daysAgo: 0.5), done("closed", 3, state: "CLOSED", daysAgo: 1.5), pr("open", 4), cached,
+        // A stack moves only once every member is done, counted from the last one.
+        done("A", 6, daysAgo: 5, stack: 1, entries: ["A", "B"]), pr("B", 7, stack: 1, entries: ["A", "B"]),
+        done("C", 8, daysAgo: 5, stack: 2, entries: ["C", "D"]), done("D", 9, daysAgo: 0.2, stack: 2, entries: ["C", "D"]),
+        done("E", 10, daysAgo: 5, stack: 3, entries: ["E", "F"]), done("F", 11, state: "CLOSED", daysAgo: 3, stack: 3, entries: ["E", "F"]),
+    ]
+    #expect(Stacks.agedItemKeys(prs, now: now, afterDays: 1) == ["pr:old", "pr:closed", "pr:cached", "stack:o/r#3"])
+    #expect(Stacks.agedItemKeys(prs, now: now, afterDays: 2) == ["pr:cached", "stack:o/r#3"])
+    #expect(Stacks.agedItemKeys(prs, now: now, afterDays: 0).isEmpty)
+}

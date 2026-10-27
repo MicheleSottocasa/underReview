@@ -2,6 +2,7 @@ import ReviewDeskCore
 import SwiftUI
 
 /// One outline: unfiled PRs split into To Review (others', with a Reviewed group for those waiting for nothing) and My PRs, then Projects, with PRs and stacks inside.
+/// Each place keeps its archived items (merged or closed a while ago) in a collapsed Archive group at its bottom.
 /// Cmd/Shift-click selects several; right-click acts on the whole selection.
 struct SidebarView: View {
     @Environment(AppModel.self) private var model
@@ -10,6 +11,7 @@ struct SidebarView: View {
     @ViewState private var newName = ""
     @ViewState private var confirmingStop: Set<String>?
     @ViewState private var editingContext: Folder?
+    @AppStorage(AppModel.archiveAfterDaysKey) private var archiveAfterDays = AppModel.defaultArchiveAfterDays
 
     var body: some View {
         @Bindable var model = model
@@ -17,16 +19,20 @@ struct SidebarView: View {
         let unfiled = index[nil] ?? []
         let mine = Stacks.viewersItemKeys(Array(model.prs.values))
         let reviewed = model.reviewedItemKeys()
+        let archived = model.archivedItemKeys(afterDays: archiveAfterDays)
         let others = unfiled.filter { !mine.contains($0.key) }
+        let active = others.filter { !archived.contains($0.key) }
         List(selection: $model.selection) {
-            unfiledGroup("To Review", systemImage: "tray", key: AppModel.toReviewKey, items: others.filter { !reviewed.contains($0.key) },
-                         reviewed: others.filter { reviewed.contains($0.key) })
+            unfiledGroup("To Review", systemImage: "tray", key: AppModel.toReviewKey, items: active.filter { !reviewed.contains($0.key) },
+                         reviewed: active.filter { reviewed.contains($0.key) }, archived: others.filter { archived.contains($0.key) })
                 .help("Pull requests by others waiting for you: your review is requested, they changed since your review, or you haven't reviewed them yet")
-            unfiledGroup("My PRs", systemImage: "person", key: AppModel.myPRsKey, items: unfiled.filter { mine.contains($0.key) })
+            unfiledGroup("My PRs", systemImage: "person", key: AppModel.myPRsKey,
+                         items: unfiled.filter { mine.contains($0.key) && !archived.contains($0.key) },
+                         archived: unfiled.filter { mine.contains($0.key) && archived.contains($0.key) })
                 .help("Pull requests you opened, with the reviews others left on them")
 
             Section("Projects") {
-                ForEach(model.org.children(of: nil)) { FolderBranch(folder: $0, index: index) }
+                ForEach(model.org.children(of: nil)) { FolderBranch(folder: $0, index: index, archived: archived) }
                 if model.org.folders.isEmpty {
                     Button("New Project") { model.org.addFolder("New Project") }.buttonStyle(.link)
                 }
@@ -138,8 +144,9 @@ struct SidebarView: View {
         }
     }
 
-    /// `reviewed` items, with nothing waiting for the viewer, go last in their own group.
-    private func unfiledGroup(_ title: String, systemImage: String, key: String, items: [Item], reviewed: [Item] = []) -> some View {
+    /// `reviewed` items, with nothing waiting for the viewer, go last in their own group, then the `archived` ones.
+    private func unfiledGroup(_ title: String, systemImage: String, key: String, items: [Item], reviewed: [Item] = [],
+                              archived: [Item]) -> some View {
         DisclosureGroup(isExpanded: model.expansion(key)) {
             RepoGroups(items: items, scope: key, folder: nil)
             if !reviewed.isEmpty {
@@ -152,6 +159,7 @@ struct SidebarView: View {
                         .help("Nothing waiting for you: you reviewed them and nothing changed since, or they're merged or closed")
                 }
             }
+            ArchiveGroup(items: archived, scope: key, folder: nil)
         } label: {
             Label(title, systemImage: systemImage)
                 .badge(openCount(items))
@@ -175,14 +183,16 @@ struct FolderBranch: View {
     @Environment(AppModel.self) private var model
     let folder: Folder
     let index: [UUID?: [Item]]
+    let archived: Set<String>
 
     var body: some View {
         let children = model.org.children(of: folder.id)
         let items = index[folder.id] ?? []
         if model.filter.isEmpty || subtreeCount(folder.id) > 0 {
             DisclosureGroup(isExpanded: model.expansion("folder:\(folder.id)")) {
-                ForEach(children) { FolderBranch(folder: $0, index: index) }
-                RepoGroups(items: items, scope: "folder:\(folder.id)", folder: folder.id)
+                ForEach(children) { FolderBranch(folder: $0, index: index, archived: archived) }
+                RepoGroups(items: items.filter { !archived.contains($0.key) }, scope: "folder:\(folder.id)", folder: folder.id)
+                ArchiveGroup(items: items.filter { archived.contains($0.key) }, scope: "folder:\(folder.id)", folder: folder.id)
                 if children.isEmpty && items.isEmpty {
                     Text("Drop pull requests here").font(.callout).foregroundStyle(.tertiary)
                 }
@@ -203,10 +213,33 @@ struct FolderBranch: View {
         (index[id]?.count ?? 0) + model.org.children(of: id).reduce(0) { $0 + subtreeCount($1.id) }
     }
 
-    /// Open PRs in this folder and its subfolders.
+    /// Open PRs in this folder and its subfolders, leaving out the archived ones.
     private func openCount(_ id: UUID) -> Int {
-        (index[id] ?? []).reduce(0) { $0 + $1.pullRequests.filter { $0.state == "OPEN" }.count }
+        (index[id] ?? []).filter { !archived.contains($0.key) }.reduce(0) { $0 + $1.pullRequests.filter { $0.state == "OPEN" }.count }
             + model.org.children(of: id).reduce(0) { $0 + openCount($1.id) }
+    }
+}
+
+/// A place's archived items, at its bottom and collapsed until opened; nothing when it has none.
+struct ArchiveGroup: View {
+    @Environment(AppModel.self) private var model
+    let items: [Item]
+    /// The place's own expansion key (To Review's, My PRs' or the folder's).
+    let scope: String
+    let folder: UUID?
+
+    var body: some View {
+        if !items.isEmpty {
+            let key = AppModel.archiveKey(scope)
+            DisclosureGroup(isExpanded: model.expansion(key)) {
+                RepoGroups(items: items, scope: key, folder: folder)
+            } label: {
+                Label("Archive", systemImage: "archivebox")
+                    .foregroundStyle(.secondary)
+                    .badge(items.count)
+                    .help("Merged or closed a while ago (Settings › General). Still monitored: they keep notifying until you stop monitoring them")
+            }
+        }
     }
 }
 
