@@ -214,8 +214,10 @@ public enum FixPlan {
     }
 
     /// Why `run` no longer matches the pull request, or nil when it's current: the head moved past the commit it
-    /// planned on, or feedback is new or has new comments by someone else since. Feedback resolved since doesn't count.
+    /// planned on, or feedback is new or has new comments by someone else since. Feedback resolved since doesn't count,
+    /// and once none is left there's nothing to plan again, so a later push doesn't make the plan outdated either.
     public static func outdatedReason(_ run: FixPlanRun, pr: PullRequest, feedback: FixPlanFeedback?, viewer: String) -> String? {
+        if feedback?.isEmpty == true { return nil }
         let pushed = !pr.headRefOid.isEmpty && run.headRefOid != pr.headRefOid
         let commented = feedback.map { $0.markers(viewer: viewer).contains { run.feedback[$0.key] != $0.value } } ?? false
         let reasons = [pushed ? "New commits since this plan" : nil, commented ? "New feedback since this plan" : nil].compactMap { $0 }
