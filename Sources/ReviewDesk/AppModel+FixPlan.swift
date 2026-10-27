@@ -6,6 +6,13 @@ extension AppModel {
         fixPlans.filter { $0.prID == prID }.sorted { $0.date > $1.date }
     }
 
+    /// The tab `pr` opens on when the chosen one isn't in `tabs`: Fix Plan on the viewer's own open PR while it has
+    /// feedback to address (the polled replies owed stand in until the conversation loads), else the first tab.
+    func defaultTab(_ pr: PullRequest, tabs: [DetailTab]) -> DetailTab {
+        let open = fixPlanFeedback(pr).map { !$0.isEmpty } ?? (pr.threadsAwaitingReply > 0)
+        return tabs.contains(.fixPlan) && pr.state == "OPEN" && open ? .fixPlan : tabs.first ?? .conversation
+    }
+
     /// What reviewers left on the viewer's pull request that still needs an answer; nil until its detail is loaded.
     func fixPlanFeedback(_ pr: PullRequest) -> FixPlanFeedback? {
         details[pr.id].map { FixPlan.feedback(in: $0, viewer: viewer(for: pr)) }
