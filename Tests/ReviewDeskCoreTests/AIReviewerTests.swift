@@ -158,7 +158,7 @@ private func codeReviewRunner(report: String = "1. a.py:3 off by one") -> FakeRu
     let runner = codeReviewRunner()
     let review = try await AIReviewer(runner: runner).codeReview(
         .claudeCode, prURL: "https://github.com/o/r/pull/1", context: context,
-        options: CodeReviewOptions(model: "opus", effort: "xhigh"), instructions: "be kind")
+        options: AIOptions(model: "opus", effort: "xhigh"), instructions: "be kind")
 
     #expect(review.keyAreas == [KeyArea(path: "a.py", startLine: 3, endLine: 9, reason: "r", risk: "data")])
     let reviews = runner.calls.filter { $0.args.first == "-p" }
@@ -196,7 +196,7 @@ private func codeReviewRunner(report: String = "1. a.py:3 off by one") -> FakeRu
         return ok(([diffReadEvents] + streamedReview).joined(separator: "\n"))
     }
     let steps = Steps()
-    _ = try await AIReviewer(runner: runner).codeReview(.claudeCode, prURL: "u", context: context, options: CodeReviewOptions()) { steps.append($0) }
+    _ = try await AIReviewer(runner: runner).codeReview(.claudeCode, prURL: "u", context: context, options: AIOptions()) { steps.append($0) }
     #expect(steps.value.first == "Starting /code-review (high)…")
     #expect(steps.value.contains("Reading `cmd/setdefault.go`"))
     #expect(steps.value.last == "Turning the review into findings, key areas and risk answers…")
@@ -216,13 +216,13 @@ private final class Steps: @unchecked Sendable {
 
 @Test func codeReviewKeepsTheCLIDefaultModelWhenNoneIsChosen() async throws {
     let runner = codeReviewRunner()
-    _ = try await AIReviewer(runner: runner).codeReview(.claudeCode, prURL: "u", context: context, options: CodeReviewOptions())
+    _ = try await AIReviewer(runner: runner).codeReview(.claudeCode, prURL: "u", context: context, options: AIOptions())
     #expect(!runner.calls.contains { $0.args.contains("--model") })
 }
 
 @Test func codeReviewReadsProjectFoldersThroughAddDirWithTheSameReadOnlyTools() async throws {
     let runner = codeReviewRunner()
-    _ = try await AIReviewer(runner: runner).codeReview(.claudeCode, prURL: "u", context: context, options: CodeReviewOptions(),
+    _ = try await AIReviewer(runner: runner).codeReview(.claudeCode, prURL: "u", context: context, options: AIOptions(),
                                                         folders: ["/docs/api", "/src/lib"])
     let args = try #require(runner.calls.first { $0.args.contains("--restricted") }?.args)
     #expect(args.indices.filter { args[$0] == "--add-dir" }.map { args[$0 + 1] } == ["/docs/api", "/src/lib"])
@@ -240,7 +240,7 @@ private final class Steps: @unchecked Sendable {
 // Regression: with no checkout, /code-review tried `gh pr checkout`, `git clone` and listing the home folder.
 @Test func codeReviewReadsTheCheckoutAndIsToldNotToCloneOrSearch() async throws {
     let runner = codeReviewRunner()
-    _ = try await AIReviewer(runner: runner).codeReview(.claudeCode, prURL: "u", context: context, options: CodeReviewOptions(),
+    _ = try await AIReviewer(runner: runner).codeReview(.claudeCode, prURL: "u", context: context, options: AIOptions(),
                                                         folders: ["/docs/api"], checkout: "/tmp/r-7")
     let args = try #require(runner.calls.first { $0.args.contains("--restricted") }?.args)
     #expect(args.indices.filter { args[$0] == "--add-dir" }.map { args[$0 + 1] } == ["/tmp/r-7", "/docs/api"])
@@ -260,7 +260,7 @@ private final class Steps: @unchecked Sendable {
 @Test func codeReviewFailsWhenTheCommandProducesNoReport() async {
     let runner = codeReviewRunner(report: "Command completed")
     await #expect(throws: AIError.invalidOutput("/code-review returned no report")) {
-        try await AIReviewer(runner: runner).codeReview(.claudeCode, prURL: "u", context: context, options: CodeReviewOptions())
+        try await AIReviewer(runner: runner).codeReview(.claudeCode, prURL: "u", context: context, options: AIOptions())
     }
 }
 
@@ -288,7 +288,7 @@ private final class Steps: @unchecked Sendable {
     for output in [refused, #"{"type":"result","is_error":false,"result":"No findings."}"#] {
         let runner = FakeRunner { call in call.args.first == "auth" ? subscribed : ok(output) }
         await #expect(throws: AIError.self) {
-            try await AIReviewer(runner: runner).codeReview(.claudeCode, prURL: "u", context: context, options: CodeReviewOptions())
+            try await AIReviewer(runner: runner).codeReview(.claudeCode, prURL: "u", context: context, options: AIOptions())
         }
         #expect(!runner.calls.contains { $0.args.contains("--json-schema") }) // no structuring pass on an empty review
     }
@@ -324,7 +324,7 @@ private let structuredResult = #"{"type":"result","is_error":false,"structured_o
     defer { try? FileManager.default.removeItem(at: config) }
     let runner = sessionRunner(config: config, diffAgent: "T2-nested", structured: structuredResult)
     let review = try await AIReviewer(runner: runner, claudeConfigDirectory: config)
-        .codeReview(.claudeCode, prURL: "u", context: context, options: CodeReviewOptions())
+        .codeReview(.claudeCode, prURL: "u", context: context, options: AIOptions())
     #expect(review.summary == "ok")
     let left = (try? FileManager.default.contentsOfDirectory(atPath: config.appendingPathComponent("projects").path)) ?? []
     #expect(left.isEmpty) // the run's files are still removed afterwards
@@ -336,7 +336,7 @@ private let structuredResult = #"{"type":"result","is_error":false,"structured_o
     let runner = sessionRunner(config: config, diffAgent: nil, structured: structuredResult)
     await #expect(throws: AIError.self) {
         try await AIReviewer(runner: runner, claudeConfigDirectory: config)
-            .codeReview(.claudeCode, prURL: "u", context: context, options: CodeReviewOptions())
+            .codeReview(.claudeCode, prURL: "u", context: context, options: AIOptions())
     }
 }
 
@@ -355,7 +355,106 @@ private let structuredResult = #"{"type":"result","is_error":false,"structured_o
     let runner = sessionRunner(config: config, session: "FORK", diffAgent: nil, structured: structuredResult)
     await #expect(throws: AIError.self) {
         try await AIReviewer(runner: runner, claudeConfigDirectory: config)
-            .codeReview(.claudeSession(id: "LINKED", name: "n", cwd: folder.path), prURL: "u", context: context, options: CodeReviewOptions())
+            .codeReview(.claudeSession(id: "LINKED", name: "n", cwd: folder.path), prURL: "u", context: context, options: AIOptions())
     }
     #expect(FileManager.default.fileExists(atPath: earlier.transcript(task: "OLD").path)) // the linked session's files stay
+}
+
+/// Answers `codex login status` and writes `review` to the `-o` file, like `codex exec`.
+private func codexRunner() -> FakeRunner {
+    FakeRunner { call in
+        if call.args.first == "login" { return ok("Logged in using ChatGPT\n") }
+        if let index = call.args.firstIndex(of: "-o") { try Data(review.utf8).write(to: URL(fileURLWithPath: call.args[index + 1])) }
+        return ok("")
+    }
+}
+
+@Test func codexRunsWithTheChosenModelAndEffort() async throws {
+    let runner = codexRunner()
+    _ = try await AIReviewer(runner: runner).review(.codex, prompt: "p", options: AIOptions(model: "gpt-5-codex", effort: "minimal"))
+    let args = try #require(runner.calls.last?.args)
+    #expect(args[args.firstIndex(of: "--model")! + 1] == "gpt-5-codex")
+    #expect(args[args.firstIndex(of: "-c")! + 1] == "model_reasoning_effort=minimal")
+    // The read-only sandbox and the ignored user config stay.
+    #expect(args[args.firstIndex(of: "--sandbox")! + 1] == "read-only" && args.contains("--ignore-user-config"))
+
+    _ = try await AIReviewer(runner: runner).review(.codex, prompt: "p", options: AIOptions(model: "", effort: ""))
+    let defaults = try #require(runner.calls.last?.args)
+    #expect(!defaults.contains("--model") && !defaults.contains("-c"))
+}
+
+@Test func ollamaThinksAtTheChosenLevel() async throws {
+    let runner = FakeRunner { call in call.args.first == "list" ? ok("") : ok(review) }
+    let reviewer = AIReviewer(runner: runner)
+    _ = try await reviewer.review(.ollama(model: "gpt-oss"), prompt: "p", options: AIOptions(effort: "low"))
+    #expect(runner.calls.last?.args == ["run", "gpt-oss", "--format", "json", "--think=low", "--hidethinking", "--verbose"])
+    _ = try await reviewer.ask(.ollama(model: "qwen3"), prompt: "p", options: AIOptions(effort: "off"))
+    #expect(runner.calls.last?.args == ["run", "qwen3", "--think=false", "--hidethinking", "--verbose"])
+    _ = try await reviewer.ask(.ollama(model: "qwen3"), prompt: "p", options: AIOptions(effort: ""))
+    #expect(runner.calls.last?.args == ["run", "qwen3", "--hidethinking", "--verbose"])
+}
+
+@Test func claudeCallsPassTheChosenModelAndEffort() async throws {
+    let runner = FakeRunner { call in
+        call.args.first == "auth" ? subscribed : ok(#"{"type":"result","is_error":false,"result":"A."}"#)
+    }
+    _ = try await AIReviewer(runner: runner).ask(.claudeCode, prompt: "p", options: AIOptions(model: "sonnet", effort: ""))
+    let args = try #require(runner.calls.last?.args)
+    #expect(args[args.firstIndex(of: "--model")! + 1] == "sonnet")
+    #expect(!args.contains("--effort"))
+}
+
+@Test func optionsPassOnlyKnownEffortsAndModelNames() {
+    // Nothing typed as a model may become a flag of its own.
+    #expect(AIOptions(model: "--dangerously-skip-permissions", effort: "high").arguments(for: .claudeCode) == ["--effort", "high"])
+    #expect(AIOptions(model: "opus --tools Bash", effort: "").arguments(for: .claudeCode) == [])
+    #expect(AIOptions(model: "hf.co/org/model:Q4", effort: "").arguments(for: .codex) == ["--model", "hf.co/org/model:Q4"])
+    #expect(AIOptions(model: "", effort: "max").arguments(for: .codex) == []) // a Claude level isn't Codex's
+    #expect(AIOptions(model: "", effort: "x\nsandbox_mode=\"danger-full-access\"").arguments(for: .codex) == [])
+    #expect(AIOptions(model: "ignored", effort: "high").arguments(for: .ollama(model: "m")) == ["--think=high"])
+}
+
+@Test func optionsDescribeHowARunWent() {
+    #expect(AIOptions(model: "opus", effort: "high").label(for: .claudeCode) == "Opus · high")
+    #expect(AIOptions(model: "", effort: "low").label(for: .claudeCode) == "default model · low")
+    #expect(AIOptions(model: "gpt-5-codex", effort: "").label(for: .codex) == "GPT-5 Codex · default effort")
+    #expect(AIOptions(model: "o-custom", effort: "high").label(for: .codex) == "o-custom · high effort")
+    #expect(AIOptions(effort: "off").label(for: .ollama(model: "m")) == "no thinking")
+    #expect(AIOptions(effort: "").label(for: .ollama(model: "m")) == "default thinking")
+}
+
+@Test func ollamaListsPulledModelsAndWhichCanThink() async {
+    let list = """
+    NAME                    ID              SIZE      MODIFIED
+    qwen2.5-coder:latest    2b0496514337    4.7 GB    3 weeks ago
+    gpt-oss:20b             aa4295ac10c3    13 GB     2 days ago
+    """
+    let show = """
+      Model
+        architecture        gptoss
+        parameters          20.9B
+
+      Capabilities
+        completion
+        tools
+        thinking
+
+      Parameters
+        temperature    1
+    """
+    let runner = FakeRunner { call in
+        switch call.args.first {
+        case "list": ok(list)
+        case "show": call.args.last == "gpt-oss:20b" ? ok(show) : ok(show.replacingOccurrences(of: "thinking", with: "insert"))
+        default: CommandResult(status: 1, stdout: Data())
+        }
+    }
+    let reviewer = AIReviewer(runner: runner)
+    #expect(await reviewer.ollamaModels() == ["qwen2.5-coder:latest", "gpt-oss:20b"])
+    #expect(await reviewer.ollamaThinks("gpt-oss:20b"))
+    #expect(await !reviewer.ollamaThinks("qwen2.5-coder:latest"))
+    #expect(await !reviewer.ollamaThinks("--help")) // never sent
+    #expect(runner.calls.filter { $0.args.first == "show" }.count == 2)
+    #expect(AIReviewer.ollamaThinks(show: "  Model\n    architecture  llama\n") == false) // older Ollama: no section
+    #expect(await AIReviewer(runner: FakeRunner { _ in throw CommandError.toolNotFound("ollama") }).ollamaModels() == [])
 }

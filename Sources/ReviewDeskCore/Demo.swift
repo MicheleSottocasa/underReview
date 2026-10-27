@@ -282,7 +282,7 @@ public enum Demo {
                 RiskAssessment(question: "explain", level: "none", answer: "A small, conventional change; nothing needs explaining."),
             ]))
         current.date = ago(0.5)
-        current.options = CodeReviewOptions(model: "", effort: "high")
+        current.options = AIOptions(model: "", effort: "high")
         // Sample usage, so the run card shows what a review used (in line with a measured high-effort run).
         current.usage = TokenUsage(input: 24, output: 9_800, cacheRead: 98_400, cacheWrite: 4_100, listPriceUSD: 0.31, passes: 2)
         current.estimatedTokens = 1_900
@@ -299,7 +299,7 @@ public enum Demo {
             keyAreas: [KeyArea(path: "app/invites/models.py", startLine: 1, endLine: 13, reason: "The invite model: check what keeps invites unique.", risk: "data")],
             risks: [RiskAssessment(question: "data", level: "medium", answer: "Adds the `Invite` table in `models.py` without a uniqueness constraint.")]))
         base.date = ago(6)
-        base.options = CodeReviewOptions(model: "", effort: "high")
+        base.options = AIOptions(model: "", effort: "high")
         return [current, old, base]
     }
 }

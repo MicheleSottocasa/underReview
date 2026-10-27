@@ -44,16 +44,76 @@ public enum AIError: Error, LocalizedError, Equatable {
     }
 }
 
-/// How Claude Code runs `/code-review`: the model ("" keeps the CLI default) and the effort level.
-public struct CodeReviewOptions: Codable, Hashable, Sendable {
-    public static let efforts = ["low", "medium", "high", "xhigh", "max"]
-
+/// The model and effort an engine runs with, picked per provider. "" keeps the CLI's own default, so an update that
+/// changes it keeps working. Claude Code's effort is also `/code-review`'s level; Ollama's is how much the model thinks.
+/// Ollama's model is part of its engine, so `model` is unused there.
+public struct AIOptions: Codable, Hashable, Sendable {
     public var model: String
     public var effort: String
 
     public init(model: String = "", effort: String = "high") {
         (self.model, self.effort) = (model, effort)
     }
+
+    /// The efforts `engine` takes, lowest first. Claude Code always gets one (`/code-review` needs a level);
+    /// Codex and Ollama may keep their default ("").
+    public static func efforts(for engine: AIEngine) -> [String] {
+        switch engine {
+        case .claudeCode, .claudeSession: ["low", "medium", "high", "xhigh", "max"]
+        case .codex: ["minimal", "low", "medium", "high"]
+        case .ollama: ["off", "low", "medium", "high"]
+        }
+    }
+
+    /// The models offered for `engine` besides Default and *Other…*. Ollama's come from `ollama list` instead.
+    // ponytail: Codex has no command that lists its models, so these are the ones its docs name; Other… takes any id.
+    public static func models(for engine: AIEngine) -> [ModelChoice] {
+        switch engine {
+        case .claudeCode, .claudeSession:
+            [ModelChoice("fable", "Fable"), ModelChoice("opus", "Opus"), ModelChoice("sonnet", "Sonnet"), ModelChoice("haiku", "Haiku")]
+        case .codex: [ModelChoice("gpt-5-codex", "GPT-5 Codex"), ModelChoice("gpt-5", "GPT-5")]
+        case .ollama: []
+        }
+    }
+
+    /// The CLI flags for `engine`; a default passes nothing. Only listed efforts go through, and a model that could
+    /// read as a flag (or holds spaces) is dropped, so nothing typed under *Other…* can add an option of its own.
+    public func arguments(for engine: AIEngine) -> [String] {
+        let model = Self.isModelName(model) ? model : ""
+        let effort = Self.efforts(for: engine).contains(effort) ? effort : ""
+        switch engine {
+        case .claudeCode, .claudeSession:
+            return (model.isEmpty ? [] : ["--model", model]) + (effort.isEmpty ? [] : ["--effort", effort])
+        case .codex:
+            // We run with --ignore-user-config, so config.toml can't set the effort: it goes as an override.
+            return (model.isEmpty ? [] : ["--model", model]) + (effort.isEmpty ? [] : ["-c", "model_reasoning_effort=\(effort)"])
+        case .ollama:
+            return effort.isEmpty ? [] : ["--think=\(effort == "off" ? "false" : effort)"]
+        }
+    }
+
+    /// How a run used them, for its card and Re-run: "Opus · high", "GPT-5 Codex · default effort", "low thinking".
+    public func label(for engine: AIEngine) -> String {
+        if case .ollama = engine {
+            return effort.isEmpty ? "default thinking" : effort == "off" ? "no thinking" : "\(effort) thinking"
+        }
+        let name = model.isEmpty ? "default model" : Self.models(for: engine).first { $0.id == model }?.label ?? model
+        if engine.tool == "claude" { return "\(name) · \(effort)" }
+        return "\(name) · \(effort.isEmpty ? "default" : effort) effort"
+    }
+
+    /// A model id or alias: letters, digits and `.-_:/[]`, not starting with `-`.
+    static func isModelName(_ name: String) -> Bool {
+        !name.isEmpty && !name.hasPrefix("-") && name.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "._-:/[]".contains($0)) }
+    }
+}
+
+/// A model in a picker: the id passed to the CLI, and its name.
+public struct ModelChoice: Hashable, Identifiable, Sendable {
+    public let id: String
+    public let label: String
+
+    public init(_ id: String, _ label: String) { (self.id, self.label) = (id, label) }
 }
 
 /// A stored AI review. Findings stay local until the user accepts them as drafts.
@@ -65,8 +125,8 @@ public struct AIRun: Codable, Hashable, Identifiable, Sendable {
     public var headRefOid: String
     public var date = Date()
     public var result: ReviewResult
-    /// Set when Claude Code ran `/code-review`.
-    public var options: CodeReviewOptions?
+    /// The model and effort it ran with; nil for Codex and Ollama runs saved before they had a choice.
+    public var options: AIOptions?
     /// What the run used, when its CLI reported it; nil for runs saved before ReviewDesk recorded usage.
     public var usage: TokenUsage?
     /// The estimate shown before running (the input the app sent), kept to calibrate later estimates against `usage`.
@@ -120,9 +180,35 @@ public struct AIReviewer: Sendable {
         }
     }
 
+    /// The models Ollama has pulled, by name (`qwen2.5-coder:latest`); empty when it isn't running.
+    public func ollamaModels() async -> [String] {
+        guard let list = try? await runner.run("ollama", ["list"]), list.status == 0 else { return [] }
+        return Self.ollamaModels(list: list.text)
+    }
+
+    /// The first column of `ollama list`, below its header.
+    static func ollamaModels(list: String) -> [String] {
+        list.split(separator: "\n").dropFirst().compactMap { $0.split(separator: " ").first.map(String.init) }
+    }
+
+    /// Whether `model` can think, so its thinking level can be picked; false when Ollama can't tell.
+    public func ollamaThinks(_ model: String) async -> Bool {
+        guard AIOptions.isModelName(model), let show = try? await runner.run("ollama", ["show", model]), show.status == 0 else { return false }
+        return Self.ollamaThinks(show: show.text)
+    }
+
+    /// `ollama show` lists "thinking" in the model's Capabilities section when it supports `--think`.
+    static func ollamaThinks(show: String) -> Bool {
+        let lines = show.split(separator: "\n", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
+        guard let start = lines.firstIndex(of: "Capabilities") else { return false }
+        return lines[(start + 1)...].prefix { !$0.isEmpty }.contains("thinking")
+    }
+
     /// `usage` collects what each CLI call reported, when the caller wants to show it.
-    public func review(_ engine: AIEngine, prompt: String, timeout: Duration = .seconds(600), usage: UsageMeter? = nil) async throws -> ReviewResult {
-        try Self.decode(try await run(engine, prompt: prompt, schema: AIContext.schema, timeout: timeout, usage: usage))
+    /// `options` are the provider's model and effort; nil runs on the CLI's defaults.
+    public func review(_ engine: AIEngine, prompt: String, options: AIOptions? = nil, timeout: Duration = .seconds(600),
+                       usage: UsageMeter? = nil) async throws -> ReviewResult {
+        try Self.decode(try await run(engine, prompt: prompt, schema: AIContext.schema, options: options, timeout: timeout, usage: usage))
     }
 
     /// Claude Code's own `/code-review` on the PR, then a quick tool-less pass that turns its report into findings
@@ -134,7 +220,7 @@ public struct AIReviewer: Sendable {
     /// file tools to the working directory and these). `checkout` is the pull request's files at its head commit
     /// (`LocalClone.snapshot`), added the same way. Without one, or without being told there is none, the command tries to
     /// clone or search the disk.
-    public func codeReview(_ engine: AIEngine, prURL: String, context: ReviewContext, options: CodeReviewOptions,
+    public func codeReview(_ engine: AIEngine, prURL: String, context: ReviewContext, options: AIOptions,
                            folders: [String] = [], checkout: String? = nil,
                            instructions: String = AIContext.defaultCodeReviewInstructions,
                            structureInstructions: String = AIContext.defaultStructureInstructions,
@@ -166,14 +252,14 @@ public struct AIReviewer: Sendable {
         let rules = source + " " + limits + reference
         let folders = (checkout.map { [$0] } ?? []) + folders
         var args = ["-p", "--output-format", "stream-json", "--verbose", "--forward-subagent-text",
-                    "--append-system-prompt", instructions + "\n\n" + rules, "--effort", options.effort,
+                    "--append-system-prompt", instructions + "\n\n" + rules,
                     "--restricted", "--strict-mcp-config", "--permission-prompts", "none",
                     "--tools", Self.codeReviewTools, "--allowedTools", Self.codeReviewAllowed]
         for folder in folders { args += ["--add-dir", folder] }
         // Hidden files and folders (.env, .git…) stay unreadable in the added folders: deny rules beat the allow
         // list, and Claude Code applies Read rules to Grep and Glob too. `//` starts an absolute path in a rule.
         if !folders.isEmpty { args += ["--disallowedTools"] + folders.flatMap(Self.hiddenFileRules) }
-        if !options.model.isEmpty { args += ["--model", options.model] }
+        args += options.arguments(for: .claudeCode)
         var cwd = dir
         var resumed: String?
         switch engine {
@@ -239,7 +325,8 @@ public struct AIReviewer: Sendable {
         }
         progress("Turning the review into findings, key areas and risk answers…")
         let prompt = AIContext.structurePrompt(report: report, context: context.fittingBudget(), instructions: structureInstructions)
-        return try Self.decode(try await run(.claudeCode, prompt: prompt, schema: AIContext.schema, model: options.model, timeout: .seconds(300), usage: usage))
+        return try Self.decode(try await run(.claudeCode, prompt: prompt, schema: AIContext.schema,
+                                             options: AIOptions(model: options.model, effort: ""), timeout: .seconds(300), usage: usage))
     }
 
     /// Permission rules denying hidden files and everything under hidden folders inside `folder` (an absolute path).
@@ -251,9 +338,9 @@ public struct AIReviewer: Sendable {
     static let codeReviewAllowed = "Read,Grep,Glob,Agent,Bash(gh pr diff:*),Bash(gh pr view:*)"
 
     /// A JSON answer matching `schema`, decoded as `T`, under the same restrictions as a review.
-    public func structured<T: Decodable>(_ engine: AIEngine, prompt: String, schema: String, as type: T.Type,
+    public func structured<T: Decodable>(_ engine: AIEngine, prompt: String, schema: String, as type: T.Type, options: AIOptions? = nil,
                                          timeout: Duration = .seconds(600), usage: UsageMeter? = nil) async throws -> T {
-        let data = try await run(engine, prompt: prompt, schema: schema, timeout: timeout, usage: usage)
+        let data = try await run(engine, prompt: prompt, schema: schema, options: options, timeout: timeout, usage: usage)
         do {
             return try JSONDecoder().decode(T.self, from: data)
         } catch {
@@ -262,16 +349,18 @@ public struct AIReviewer: Sendable {
     }
 
     /// A free-text answer in Markdown, under the same restrictions as a review.
-    public func ask(_ engine: AIEngine, prompt: String, timeout: Duration = .seconds(300), usage: UsageMeter? = nil) async throws -> String {
-        let answer = String(decoding: try await run(engine, prompt: prompt, schema: nil, timeout: timeout, usage: usage), as: UTF8.self)
+    public func ask(_ engine: AIEngine, prompt: String, options: AIOptions? = nil, timeout: Duration = .seconds(300),
+                    usage: UsageMeter? = nil) async throws -> String {
+        let answer = String(decoding: try await run(engine, prompt: prompt, schema: nil, options: options, timeout: timeout, usage: usage), as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !answer.isEmpty else { throw AIError.invalidOutput("empty answer") }
         return answer
     }
 
     /// Runs the CLI and returns its answer: JSON matching `schema` when one is given, otherwise text.
-    private func run(_ engine: AIEngine, prompt: String, schema: String?, model: String = "", timeout: Duration,
+    private func run(_ engine: AIEngine, prompt: String, schema: String?, options: AIOptions? = nil, timeout: Duration,
                      usage: UsageMeter? = nil) async throws -> Data {
+        let chosen = options?.arguments(for: engine) ?? []
         try await checkAuth(engine)
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("reviewdesk-ai-\(UUID().uuidString)")
         let workdir = dir.appendingPathComponent("empty")
@@ -288,7 +377,7 @@ public struct AIReviewer: Sendable {
                 "-p", "--output-format", "json",
                 "--tools", "", "--strict-mcp-config", "--setting-sources", "",
                 "--disable-slash-commands", "--no-session-persistence",
-            ] + Self.claudeSchema(schema) + (model.isEmpty ? [] : ["--model", model]), stdin: input, cwd: workdir, timeout: timeout)
+            ] + Self.claudeSchema(schema) + chosen, stdin: input, cwd: workdir, timeout: timeout)
             usage?.add(Self.claudeUsage(result.stdout))
             return try Self.parseClaude(result)
 
@@ -299,7 +388,7 @@ public struct AIReviewer: Sendable {
             let result = try await runner.run("claude", [
                 "-p", "--resume", id, "--fork-session", "--no-session-persistence", "--output-format", "json",
                 "--tools", "", "--strict-mcp-config", "--setting-sources", "", "--disable-slash-commands",
-            ] + Self.claudeSchema(schema), stdin: input, cwd: URL(fileURLWithPath: cwd), timeout: timeout)
+            ] + Self.claudeSchema(schema) + chosen, stdin: input, cwd: URL(fileURLWithPath: cwd), timeout: timeout)
             usage?.add(Self.claudeUsage(result.stdout))
             return try Self.parseClaude(result)
 
@@ -315,7 +404,7 @@ public struct AIReviewer: Sendable {
             let result = try await runner.run("codex", [
                 "exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral",
                 "--ignore-user-config", "--ignore-rules", "--disable", "hooks", "--disable", "plugins",
-            ] + schemaArgs + ["-o", output.path, "-C", workdir.path, "-"], stdin: input, cwd: workdir, timeout: timeout)
+            ] + schemaArgs + chosen + ["-o", output.path, "-C", workdir.path, "-"], stdin: input, cwd: workdir, timeout: timeout)
             guard result.status == 0 else { throw AIError.failed(Self.tail(result.stderr)) }
             usage?.add(TokenUsage.codex(events: result.text))
             return (try? Data(contentsOf: output)) ?? Data()
@@ -323,7 +412,7 @@ public struct AIReviewer: Sendable {
         case .ollama(let model):
             let format = schema == nil ? [] : ["--format", "json"]
             // --verbose adds the token counts to stderr; the answer on stdout is unchanged.
-            let result = try await runner.run("ollama", ["run", model] + format + ["--hidethinking", "--verbose"], stdin: input, cwd: workdir, timeout: timeout)
+            let result = try await runner.run("ollama", ["run", model] + format + chosen + ["--hidethinking", "--verbose"], stdin: input, cwd: workdir, timeout: timeout)
             guard result.status == 0 else { throw AIError.failed(Self.tail(result.stderr)) }
             usage?.add(TokenUsage.ollama(stderr: result.stderr))
             return result.stdout

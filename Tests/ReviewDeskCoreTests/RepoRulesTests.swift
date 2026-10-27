@@ -44,7 +44,7 @@ import Testing
     let context = ReviewContext(title: "T", body: "", files: [], budget: 1000, rules: rules)
     let config = FileManager.default.temporaryDirectory.appendingPathComponent("rd-config-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: config) }
-    _ = try await AIReviewer(runner: runner, claudeConfigDirectory: config).codeReview(.claudeCode, prURL: "u", context: context, options: CodeReviewOptions())
+    _ = try await AIReviewer(runner: runner, claudeConfigDirectory: config).codeReview(.claudeCode, prURL: "u", context: context, options: AIOptions())
     let structure = try #require(runner.calls.last { $0.args.contains("--json-schema") })
     #expect(String(decoding: structure.stdin ?? Data(), as: UTF8.self).contains("Every endpoint needs a permission check."))
 }

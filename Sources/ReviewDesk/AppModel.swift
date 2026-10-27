@@ -7,6 +7,8 @@ import SwiftUI
 struct ContextRequest: Equatable {
     let prID: String
     let engine: AIEngine
+    /// The run's model and effort; nil uses the provider's current ones.
+    var options: AIOptions?
 }
 
 struct RecentEvent: Identifiable {
@@ -154,6 +156,9 @@ final class AppModel {
     /// PR id → the Claude Code session linked to it in AI Review.
     var agentLinks: [String: AgentLink] { didSet { save(agentLinksFile, agentLinks.filter { !Demo.owns($0.key) }) } }
     var runningAgents: [RunningAgent] = []
+    /// The models Ollama has pulled, for its model picker, and which of them can think (by name).
+    var ollamaModels: [String] = []
+    var ollamaThinks: [String: Bool] = [:]
     /// Repository (`owner/repo`) → the folder of its clone on this Mac.
     var localClones: [String: String] { didSet { save(localClonesFile, localClones) } }
     /// Clone folders a checkout is running in, so a second one can't start there at the same time.

@@ -47,8 +47,16 @@ import Testing
 @Test func codeReviewRunsBecomeSamples() {
     var run = AIRun(prID: "PR_1", engine: .claudeCode, headRefOid: "h", result: ReviewResult(summary: "", findings: []))
     #expect(run.sample == nil)
-    run.options = CodeReviewOptions(effort: "low")
+    run.options = AIOptions(effort: "low")
     run.estimatedTokens = 469
     run.usage = TokenUsage(input: 8, output: 1_100, cacheRead: 30_790)
     #expect(run.sample == TokenEstimator.Sample(effort: "low", input: 469, actual: 31_898))
+}
+
+@Test func codexAndOllamaRunsDontCalibrateCodeReview() {
+    var run = AIRun(prID: "PR_1", engine: .codex, headRefOid: "h", result: ReviewResult(summary: "", findings: []))
+    run.options = AIOptions(effort: "high")
+    run.estimatedTokens = 469
+    run.usage = TokenUsage(input: 8, output: 1_100, cacheRead: 30_790)
+    #expect(run.sample == nil)
 }
