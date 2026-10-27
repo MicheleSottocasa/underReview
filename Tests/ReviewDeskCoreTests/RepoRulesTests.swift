@@ -8,6 +8,22 @@ import Testing
     #expect(Array(candidates.dropFirst(RepoRules.rootFiles.count)) == ["app/AGENTS.md", "app/CLAUDE.md", "app/api/AGENTS.md", "app/api/CLAUDE.md"])
 }
 
+@Test func projectEntryPointsReplaceTheRootFiles() {
+    let entryPoints = ["docs/AGENTS.md", ".cursor/rules/review.md"]
+    let candidates = RepoRules.candidates(changed: ["docs/guide.md", "app/a.py"], entryPoints: entryPoints)
+    // Nested rules still apply; docs/AGENTS.md is looked for once, as an entry point.
+    #expect(candidates == entryPoints + ["app/AGENTS.md", "app/CLAUDE.md", "docs/CLAUDE.md"])
+    #expect(RepoRules.candidates(changed: [], entryPoints: []) == RepoRules.rootFiles) // default unchanged
+    let rules = RepoRules.contextFiles(["AGENTS.md": "root, not used", ".cursor/rules/review.md": "custom"], changed: [], entryPoints: entryPoints)
+    #expect(rules.map(\.path) == [".cursor/rules/review.md"])
+}
+
+@Test func entryPointsAreParsedFromTheRepositoryRoot() {
+    #expect(RepoRules.entryPoints(from: " docs/AGENTS.md, /.cursor/rules/x.md\n./CLAUDE.md\n\n") == ["docs/AGENTS.md", ".cursor/rules/x.md", "CLAUDE.md"])
+    #expect(RepoRules.entryPoints(from: "../secrets.md, docs/../x.md, docs/, a//b.md, ./, docs/AGENTS.md, docs/AGENTS.md") == ["docs/AGENTS.md"])
+    #expect(RepoRules.entryPoints(from: "   ").isEmpty)
+}
+
 @Test func rulesKeepCandidateOrderAndStateCuts() {
     let long = String(repeating: "x", count: RepoRules.maxCharacters + 5)
     let rules = RepoRules.contextFiles(["app/AGENTS.md": "nested", "AGENTS.md": "root", "CLAUDE.md": "  ", "CONTRIBUTING.md": long],

@@ -660,6 +660,7 @@ struct ProjectContextSheet: View {
     @ViewState private var repo = ""
     @ViewState private var path = ""
     @ViewState private var ref = ""
+    @ViewState private var rulesText = ""
 
     var body: some View {
         let sources = model.projectContext[project.id] ?? []
@@ -698,6 +699,18 @@ struct ProjectContextSheet: View {
                 }
                 .padding(4)
             }
+            GroupBox("Repository rules") {
+                VStack(alignment: .leading, spacing: 4) {
+                    TextField("AGENTS.md, CLAUDE.md, CONTRIBUTING.md… (the default)", text: $rulesText)
+                        .onChange(of: rulesText) { _, text in
+                            let entryPoints = RepoRules.entryPoints(from: text)
+                            model.ruleEntryPoints[project.id] = entryPoints.isEmpty ? nil : entryPoints
+                        }
+                    Text("Rule files every review checks the change against, from the repository root on the base branch, comma-separated (e.g. docs/AGENTS.md, .cursor/rules/review.md). They replace the root files read by default; nested AGENTS.md and CLAUDE.md in folders the pull request touches are still read.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(4)
+            }
             Text("Up to \(ProjectContext.maxFiles) files per source and \(ProjectContext.maxFileBytes / 1000) KB per file; larger and binary files are listed as left out, never cut. In folders, hidden files (like .env) are skipped and links leading out of the folder are left out. Repositories use the default branch unless you name a ref; submodules and LFS content aren't fetched.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack {
@@ -706,7 +719,8 @@ struct ProjectContextSheet: View {
             }
         }
         .padding(16)
-        .frame(width: 640, height: 540)
+        .frame(width: 640, height: 640)
+        .onAppear { rulesText = (model.ruleEntryPoints[project.id] ?? []).joined(separator: ", ") }
     }
 
     private func choose() {
