@@ -39,14 +39,14 @@ func data(_ json: String) -> CommandResult { ok(#"{"data":\#(json)}"#) }
 func prNode(id: String = "PR_1", number: Int = 1, head: String = "aaa", state: String = "OPEN", comments: Int = 0,
             reviews: Int = 0, threadComments: [Int] = [], requested: [String] = [], stack: String = "null",
             author: Bool = false, latestReview: String? = nil, reviewedAt: String = "aaa", pending: Int? = nil,
-            threads: [(comments: Int, resolved: Bool, lastMine: Bool, startedByMe: Bool)] = []) -> String {
+            threads: [(comments: Int, resolved: Bool, lastMine: Bool, startedByMe: Bool)] = [], closedAt: String? = nil) -> String {
     let allThreads = threadComments.map { ($0, false, true, true) } + threads.map { ($0.comments, $0.resolved, $0.lastMine, $0.startedByMe) }
     let threadJSON = allThreads.map { count, resolved, lastMine, mine in
         #"{"isResolved":\#(resolved),"comments":{"totalCount":\#(count),"nodes":[{"viewerDidAuthor":\#(lastMine)}]},"starter":{"nodes":[{"viewerDidAuthor":\#(mine)}]}}"#
     }.joined(separator: ",")
     return """
     {"id":"\(id)","number":\(number),"title":"T\(number)","url":"https://github.com/o/r/pull/\(number)","state":"\(state)",
-     "isDraft":false,"updatedAt":"2026-10-12T14:27:55Z","headRefOid":"\(head)","headRefName":"h\(number)","baseRefName":"main",
+     "isDraft":false,"updatedAt":"2026-10-12T14:27:55Z","closedAt":\(closedAt.map { "\"\($0)\"" } ?? "null"),"headRefOid":"\(head)","headRefName":"h\(number)","baseRefName":"main",
      "additions":120,"deletions":7,"changedFiles":3,"mergeable":"CONFLICTING","mergeStateStatus":"DIRTY",
      "author":{"login":"alice"},"repository":{"nameWithOwner":"o/r"},
      "comments":{"totalCount":\(comments)},"reviews":{"totalCount":\(reviews)},

@@ -74,3 +74,21 @@ extension Stacks {
         return Set(prs.map(\.itemKey)).subtracting(waiting)
     }
 }
+
+extension Item {
+    /// Every PR merged or closed, the last of them more than `days` days ago: the sidebar moves it to its Archive.
+    /// Lists cached before the close time was read fall back to the update time. `days` 0 turns it off.
+    public func isAged(now: Date, afterDays days: Int) -> Bool {
+        guard days > 0, !pullRequests.isEmpty, pullRequests.allSatisfy({ $0.state != "OPEN" }) else { return false }
+        let done = pullRequests.map { $0.closedAt ?? $0.updatedAt }.max() ?? .distantPast
+        return now.timeIntervalSince(done) > TimeInterval(days) * 86_400
+    }
+}
+
+extension Stacks {
+    /// Keys of the items done for more than `days` days. A stack waits for its last open PR. Pass every PR, as for
+    /// `viewersItemKeys`, so hiding a state never moves a stack in or out.
+    public static func agedItemKeys(_ prs: [PullRequest], now: Date, afterDays days: Int) -> Set<String> {
+        Set(items(prs).filter { $0.isAged(now: now, afterDays: days) }.map(\.key))
+    }
+}

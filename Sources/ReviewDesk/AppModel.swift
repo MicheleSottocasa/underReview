@@ -298,7 +298,7 @@ final class AppModel {
         for pr in try await github.pullRequests(ids: members) { fresh[pr.id] = pr }
 
         // ponytail: everything seen is followed until the user stops monitoring it, so merges and closes
-        // still notify. Merged PRs keep being polled; auto-archive them if the list grows too long.
+        // still notify. Merged PRs keep being polled, archived or not; stop polling archived ones if the list grows too long.
         var updated = org
         for pr in fresh.values where updated.followed[pr.id] == nil && !updated.unfollowed.contains(pr.id) {
             updated.follow(id: pr.id, url: pr.url)

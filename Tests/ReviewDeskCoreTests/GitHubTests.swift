@@ -52,6 +52,14 @@ import Testing
     #expect(runner.calls.first?.variables["ids"] as? [String] == ["PR_1", "PR_gone"])
 }
 
+@Test func decodesWhenAPullRequestClosed() async throws {
+    let runner = FakeRunner { _ in data(#"{"nodes":[\#(prNode(state: "MERGED", closedAt: "2026-10-13T09:00:00Z")), \#(prNode(id: "PR_2", number: 2))]}"#) }
+    let prs = try await GitHub(runner: runner).pullRequests(ids: ["PR_1", "PR_2"])
+    #expect(prs.first { $0.id == "PR_1" }?.closedAt == Date(timeIntervalSince1970: 1_791_882_000))
+    #expect(prs.first { $0.id == "PR_2" }?.closedAt == nil)
+    #expect(runner.calls.first?.query.contains("updatedAt closedAt") == true)
+}
+
 @Test func batchesPollingInChunksOfFifty() async throws {
     let runner = FakeRunner { _ in data(#"{"nodes":[]}"#) }
     _ = try await GitHub(runner: runner).pullRequests(ids: (0..<120).map { "PR_\($0)" })

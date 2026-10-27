@@ -7,10 +7,23 @@ extension AppModel {
     static let toReviewKey = "inbox", myPRsKey = "mine"
     /// To Review's group of items with nothing waiting for the viewer: collapsed until they open it.
     static let reviewedKey = "reviewed"
+    /// Settings › General: days a merged or closed item waits before it moves to its place's Archive; 0 is never.
+    static let archiveAfterDaysKey = "archiveAfterDays", defaultArchiveAfterDays = 1
+    static var archiveAfterDays: Int {
+        UserDefaults.standard.object(forKey: archiveAfterDaysKey) as? Int ?? defaultArchiveAfterDays
+    }
+
+    /// Expansion key of a place's Archive group (`scope` is To Review's, My PRs' or a folder's key): collapsed by default.
+    static func archiveKey(_ scope: String) -> String { "archive:\(scope)" }
 
     /// To Review items with nothing waiting for the viewer, across every PR so filters never move a stack.
     func reviewedItemKeys() -> Set<String> {
         Stacks.reviewedItemKeys(Array(prs.values)) { self.viewer(for: $0) }
+    }
+
+    /// Items the sidebar shows in an Archive group, across every PR like `reviewedItemKeys`.
+    func archivedItemKeys(afterDays days: Int = AppModel.archiveAfterDays) -> Set<String> {
+        Stacks.agedItemKeys(Array(prs.values), now: .now, afterDays: days)
     }
 
     /// Items per folder (nil = unfiled: To Review and My PRs), filtered by state and the sidebar search. Build once per render.
@@ -35,7 +48,7 @@ extension AppModel {
 
     func isExpanded(_ key: String) -> Bool {
         if !filter.isEmpty { return true }
-        let openByDefault = !key.hasPrefix("stack:") && key != Self.reviewedKey
+        let openByDefault = !key.hasPrefix("stack:") && key != Self.reviewedKey && !key.hasPrefix(Self.archiveKey(""))
         return openByDefault != toggledExpansion.contains(key)
     }
 
@@ -55,11 +68,12 @@ extension AppModel {
             folder = org.folders.first { $0.id == id }?.parentID
         }
         let section = Stacks.viewersItemKeys(Array(prs.values)).contains(pr.itemKey) ? Self.myPRsKey : Self.toReviewKey
-        let group = section == Self.toReviewKey && reviewedItemKeys().contains(pr.itemKey) ? Self.reviewedKey : section
-        if org.placements[pr.itemKey] == nil {
-            for key in Set([section, group]) where !isExpanded(key) { toggleExpansion(key) }
-        }
-        let scope = org.placements[pr.itemKey].map { "folder:\($0)" } ?? group
+        let place = org.placements[pr.itemKey].map { "folder:\($0)" } ?? section
+        let scope = archivedItemKeys().contains(pr.itemKey) ? Self.archiveKey(place)
+            : place == Self.toReviewKey && reviewedItemKeys().contains(pr.itemKey) ? Self.reviewedKey : place
+        // A folder chain is already open; an unfiled item also needs its section.
+        let groups = org.placements[pr.itemKey] == nil ? [section, scope] : [scope]
+        for key in Set(groups) where !isExpanded(key) { toggleExpansion(key) }
         if !isExpanded("repo:\(scope):\(pr.repo)") { toggleExpansion("repo:\(scope):\(pr.repo)") }
         if pr.stack != nil, !isExpanded(pr.itemKey) { toggleExpansion(pr.itemKey) }
     }

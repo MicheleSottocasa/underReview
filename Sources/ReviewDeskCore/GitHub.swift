@@ -87,6 +87,8 @@ public struct PullRequest: Codable, Hashable, Identifiable, Sendable {
     /// Everyone else's review, by login: their latest APPROVED or CHANGES_REQUESTED, else their latest COMMENTED
     /// or DISMISSED one.
     public var reviewsByOthers: [String: String] = [:]
+    /// When it was merged or closed; nil while open (and in lists cached before this was read).
+    public var closedAt: Date?
 
     public var ref: PRRef { PRRef(nameWithOwner: repo, number: number) }
     public var stackPosition: Int? { stack?.entries.first { $0.id == id }?.position }
@@ -681,7 +683,7 @@ public struct GitHub: Sendable {
     static let prFragment = """
 
     fragment PR on PullRequest {
-      id number title url state isDraft updatedAt headRefOid headRefName baseRefName additions deletions changedFiles
+      id number title url state isDraft updatedAt closedAt headRefOid headRefName baseRefName additions deletions changedFiles
       mergeable mergeStateStatus
       author { login } repository { nameWithOwner }
       comments { totalCount } reviews { totalCount }
@@ -742,7 +744,8 @@ public struct GitHub: Sendable {
             // change request: those come from the opinionated list and win.
             reviewsByOthers: (nodes(node["latestReviews"]) + nodes(node["latestOpinionatedReviews"]))
                 .filter { $0["viewerDidAuthor"] as? Bool != true }
-                .reduce(into: [:]) { $0[login($1)] = $1["state"] as? String }
+                .reduce(into: [:]) { $0[login($1)] = $1["state"] as? String },
+            closedAt: date(node["closedAt"])
         )
     }
 
