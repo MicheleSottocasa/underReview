@@ -33,7 +33,8 @@ public enum SelfReview {
     }
 
     /// One review from the agents' results, in focus order: a summary paragraph per focus (and the ones that didn't
-    /// finish), findings without duplicates, key areas once each and the highest level per risk question. Findings
+    /// finish), findings without duplicates, key areas once each, the highest level per risk question and the lowest
+    /// score, since one agent's critical problem makes the whole PR unsafe to merge. Findings
     /// are duplicates when they're on the same file (or both general), at most 2 lines apart, with mostly the same
     /// title words; the more severe one stays.
     public static func merge(_ parts: [(focus: ReviewFocus, result: ReviewResult)], missing: [ReviewFocus] = []) -> ReviewResult {
@@ -60,7 +61,8 @@ public enum SelfReview {
                 risks.append(risk)
             }
         }
-        return ReviewResult(summary: summary.joined(separator: "\n\n"), findings: findings, keyAreas: areas, risks: risks)
+        return ReviewResult(summary: summary.joined(separator: "\n\n"), findings: findings, keyAreas: areas, risks: risks,
+                            score: parts.compactMap(\.result.score).min())
     }
 
     static func isDuplicate(_ a: Finding, _ b: Finding) -> Bool {
