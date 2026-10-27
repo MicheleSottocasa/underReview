@@ -186,6 +186,8 @@ struct AIView: View {
 struct ContextPanel: View {
     @Binding var context: ReviewContext
     let engine: AIEngine
+    /// What the run asks for, which bounds the answer in the estimate.
+    var answer = TokenEstimator.Answer.review
     let run: () -> Void
 
     var body: some View {
@@ -255,7 +257,7 @@ struct ContextPanel: View {
                     .font(.caption)
                     .foregroundStyle(context.fitsBudget ? Color.secondary : Color.red)
                 Spacer()
-                EstimateLabel(estimate: TokenEstimator.prompt(tokens: context.tokens, engine: engine, answer: .review),
+                EstimateLabel(estimate: TokenEstimator.prompt(tokens: context.tokens, engine: engine, answer: answer),
                               help: "The context above, plus \(engine.name)'s own prompt and the answer. It counts toward your plan's limits.")
                 Button("Run with \(engine.name)", action: run).buttonStyle(.borderedProminent).disabled(!context.fitsBudget)
             }

@@ -46,6 +46,15 @@ extension AppModel {
         return TokenEstimate.sum(each.compactMap { $0 })
     }
 
+    /// A fix plan's ceiling: the feedback plus the whole PR diff (only the files the feedback points at are sent when
+    /// the whole diff is over the budget). Nil until the PR's detail is loaded.
+    func fixPlanEstimate(_ pr: PullRequest, engine: AIEngine) -> TokenEstimate? {
+        guard let feedback = fixPlanFeedback(pr) else { return nil }
+        let text = feedback.threads.flatMap(\.comments).map(\.body) + feedback.reviews.map(\.body)
+        let input = AIContext.estimateTokens(text.joined(separator: "\n")) + reviewInput(pr)
+        return TokenEstimator.prompt(tokens: input, engine: engine, answer: .fixPlan)
+    }
+
     /// The next question in a chat: its context and the conversation so far are resent every time.
     func chatEstimate(_ chat: Explanation, question: String) -> TokenEstimate? {
         guard !chat.prompt.isEmpty else { return nil }

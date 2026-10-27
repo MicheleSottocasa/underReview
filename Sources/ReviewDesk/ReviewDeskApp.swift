@@ -571,6 +571,7 @@ struct PromptSettings: View {
     @AppStorage(Prompts.reviewKey) private var review = ""
     @AppStorage(Prompts.explainKey) private var explain = ""
     @AppStorage(Prompts.followUpKey) private var followUp = ""
+    @AppStorage(Prompts.fixPlanKey) private var fixPlan = ""
     @AppStorage(Prompts.fixKey) private var fix = ""
     @AppStorage(Prompts.selectionKey) private var selection = ""
 
@@ -584,6 +585,8 @@ struct PromptSettings: View {
                    text: $review, fallback: AIContext.defaultReviewInstructions)
             editor("Follow-up check", note: "Asks whether the changes and replies since your review handle each of your comments. The result format, your threads and the changes are always appended.",
                    text: $followUp, fallback: FollowUp.defaultInstructions)
+            editor("Fix plan", note: "Plans how to address the feedback reviewers left on your own pull request. The result format, the feedback and the diff are always appended.",
+                   text: $fixPlan, fallback: FixPlan.defaultInstructions)
             editor("Explain a comment", note: "Starts the prompt. The PR description, the diff and the conversation are always appended.",
                    text: $explain, fallback: AIContext.defaultExplainInstructions)
             editor("Suggest a fix", note: "Asks for a fix to a finding or a comment as a GitHub suggested change. The result format, the PR description, the file's diff with line numbers and the problem are always appended.",

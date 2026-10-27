@@ -147,6 +147,13 @@ private func pr(head: String = "h1") -> PullRequest {
     #expect(FixPlan.ordered(items, threads: detail.threads).map(\.sourceID) == ["T2", "T1", "T4", "R2", "T9"])
 }
 
+@Test func fixPlanTallyCountsEachAction() {
+    func item(_ action: String) -> FixPlanItem { FixPlanItem(sourceID: "T1", request: "", action: action) }
+    #expect(FixPlan.tally([item("change_code"), item("change_code"), item("already_done")])
+            == "2 to change · 0 reply only · 0 push back · 1 already done")
+    #expect(FixPlan.tally([item("unclear")]).hasSuffix(" · 1 unclear"))
+}
+
 @Test func fixPlanChoicesBelongToThePlansHead() {
     var choices = FixPlan.choices([:], setting: "T1", head: "h1") { $0.decision = .accepted }
     choices = FixPlan.choices(choices, setting: "T1", head: "h1") { $0.reply = "Thanks, done." }
