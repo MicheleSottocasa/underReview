@@ -138,6 +138,8 @@ struct SidebarView: View {
             }
             let muted = keys.allSatisfy(model.org.muted.contains)
             Button(muted ? "Unmute Notifications" : "Mute Notifications") { model.setMuted(keys, !muted) }
+            let archived = keys.isSubset(of: model.archivedItemKeys())
+            Button(archived ? "Unarchive\(label)" : "Move\(label) to Archive") { model.setArchived(keys, !archived) }
             Button("Open on GitHub") { model.openOnGitHub(ids) }
             Divider()
             Button("Stop Monitoring\(label)…", role: .destructive) { confirmingStop = keys }
@@ -237,7 +239,13 @@ struct ArchiveGroup: View {
                 Label("Archive", systemImage: "archivebox")
                     .foregroundStyle(.secondary)
                     .badge(items.count)
-                    .help("Merged or closed a while ago (Settings › General). Still monitored: they keep notifying until you stop monitoring them")
+                    .help("Merged or closed a while ago (Settings › General), or moved here with Move to Archive. Still monitored: a push or a new review request brings a pull request you archived back")
+                    .dropDestination(for: String.self) { payload, _ in
+                        let keys = Set(payload.flatMap { $0.split(separator: "\n").map(String.init) })
+                        model.move(keys, to: folder)
+                        model.setArchived(keys, true)
+                        return !keys.isEmpty
+                    }
             }
         }
     }

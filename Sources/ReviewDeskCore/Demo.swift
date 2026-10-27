@@ -321,3 +321,13 @@ extension Organization {
         return clean
     }
 }
+
+extension PRArchive {
+    /// The archive without the demo's item keys: what may be saved.
+    public func removingDemo() -> PRArchive {
+        var clean = self
+        clean.manual = manual.filter { !Demo.owns($0.key) }
+        clean.kept = kept.filter { !Demo.owns($0) }
+        return clean
+    }
+}
