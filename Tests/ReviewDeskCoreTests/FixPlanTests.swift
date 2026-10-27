@@ -140,6 +140,17 @@ private func pr(head: String = "h1") -> PullRequest {
     #expect(FixPlan.outdatedReason(run, pr: pr(), feedback: nil, viewer: "me") == nil) // detail not loaded yet
 }
 
+@Test func aFixPlanIsNotOutdatedOnceNoFeedbackIsLeft() {
+    let feedback = FixPlan.feedback(in: detail, viewer: "me")
+    let run = FixPlanRun(prID: "PR_1", engine: .claudeCode, headRefOid: "h1", feedback: feedback.markers(viewer: "me"),
+                         result: FixPlanResult(summary: "", items: []))
+    // Everything addressed and resolved, then pushed: Re-plan would have nothing to plan for.
+    let none = FixPlanFeedback(threads: [], reviews: [])
+    #expect(FixPlan.outdatedReason(run, pr: pr(head: "h2"), feedback: none, viewer: "me") == nil)
+    // Before the conversation is loaded, a push still shows.
+    #expect(FixPlan.outdatedReason(run, pr: pr(head: "h2"), feedback: nil, viewer: "me") == "New commits since this plan")
+}
+
 @Test func fixPlanItemsAreShownInFileOrderThenGeneralRemarks() {
     func item(_ source: String) -> FixPlanItem { FixPlanItem(sourceID: source, request: "", action: "reply_only") }
     let items = [item("R2"), item("T1"), item("T9"), item("T4"), item("T2")]
