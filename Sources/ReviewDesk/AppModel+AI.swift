@@ -25,10 +25,11 @@ extension AppModel {
     static func headPair(_ run: AIRun, _ pr: PullRequest) -> String { "\(run.headRefOid)..\(pr.headRefOid)" }
 
     /// Runs `run`'s analysis again on the current head, with the same engine, model and effort (the provider's current
-    /// ones for runs saved without them). Codex and Ollama show their context in the AI tab first, as always.
+    /// ones for runs saved without them) and the provider's review command. Every command but `/code-review` shows its
+    /// context in the AI tab first, as always.
     func rerun(_ run: AIRun, pr: PullRequest) {
         guard !blockDemo(pr) else { return }
-        if run.engine.tool == "claude" {
+        if reviewCommand(for: run.engine) == .codeReview {
             startCodeReview(pr, engine: run.engine, options: run.options ?? aiOptions(for: run.engine, codeReview: true))
             return
         }
@@ -39,6 +40,35 @@ extension AppModel {
 
     /// Claude Code's context window: "" for the model's default, "1m" for 1M tokens.
     static let claudeContextKey = "claudeContext"
+
+    /// Where a provider's review command is kept (`ReviewCommand.stored`); Settings › AI and the AI tab change it.
+    nonisolated static func reviewCommandKey(_ engine: AIEngine) -> String { "reviewCommand.\(engine.tool)" }
+
+    /// What *Review* runs for `engine`: its own command, a saved prompt (Ollama) or ReviewDesk's prompt.
+    func reviewCommand(for engine: AIEngine) -> ReviewCommand {
+        ReviewCommand.resolve(UserDefaults.standard.string(forKey: Self.reviewCommandKey(engine)), for: engine, saved: reviewTemplates)
+    }
+
+    /// Adds or replaces a saved review prompt.
+    func saveReviewTemplate(_ template: ReviewTemplate) {
+        if let index = reviewTemplates.firstIndex(where: { $0.id == template.id }) {
+            reviewTemplates[index] = template
+        } else {
+            reviewTemplates.append(template)
+        }
+    }
+
+    /// A copy under a new id, right after the original.
+    func duplicateReviewTemplate(_ template: ReviewTemplate) {
+        let copy = ReviewTemplate(name: template.name + " copy", template: template.template)
+        let index = reviewTemplates.firstIndex { $0.id == template.id }.map { $0 + 1 } ?? reviewTemplates.endIndex
+        reviewTemplates.insert(copy, at: index)
+    }
+
+    /// Ollama falls back to ReviewDesk's prompt when its chosen saved prompt is deleted.
+    func deleteReviewTemplate(_ id: UUID) {
+        reviewTemplates.removeAll { $0.id == id }
+    }
 
     /// Where each provider's model and effort are kept; Settings › AI and the AI tab change the same values.
     /// Ollama's model is its engine's (`ollamaModel`), so it has no model key here.
@@ -100,6 +130,7 @@ extension AppModel {
         var context = AIContext.build(pr: pr, body: details[pr.id]?.body ?? "", files: changed, contents: contents, budget: budget,
                                       rules: await repoRules(pr, changed: changed))
         if projectContext { context.extra = await extraContext(for: pr) }
+        context.conversation = AIContext.conversationText(details[pr.id]?.comments ?? [])
         return context
     }
 
@@ -185,7 +216,7 @@ extension AppModel {
         guard !Task.isCancelled, stackRuns[run]?.states[pr.id] == .waiting else { return } // stopped before its turn
         stackRuns[run]?.states[pr.id] = .running
         let before = aiRuns.count, errorBefore = lastError
-        if engine.tool == "claude" {
+        if reviewCommand(for: engine) == .codeReview {
             await codeReview(pr, engine: engine, options: options, key: pr.id)
         } else {
             do {
@@ -342,6 +373,7 @@ extension AppModel {
             run.options = options
             run.usage = meter.usage
             run.estimatedTokens = context.tokens
+            run.command = ReviewCommand.codeReview.label(saved: reviewTemplates)
             aiRuns.append(run)
         } catch is CancellationError {
         } catch {
@@ -356,17 +388,39 @@ extension AppModel {
     /// Where `/code-review` gets the pull request's files: "clone" (a worktree of the linked clone) or "download".
     static let codeReviewFilesKey = "codeReviewFiles"
 
+    /// A review of the prepared context with the provider's review command: Codex's own review, a saved prompt, or
+    /// ReviewDesk's prompt. Every one of them runs as tool-less (Codex: read-only) as before.
     private func review(_ pr: PullRequest, engine: AIEngine, context: ReviewContext, options: AIOptions) async {
-        aiStatus[pr.id] = "Reviewing with \(engine.name)…"
+        // Context prepared before the picker moved to /code-review still runs as prepared: on ReviewDesk's prompt.
+        let chosen = reviewCommand(for: engine)
+        let command = chosen == .codeReview ? ReviewCommand.generic : chosen
+        let label = command.label(saved: reviewTemplates)
+        aiStatus[pr.id] = command == .generic ? "Reviewing with \(engine.name)…" : "Reviewing with \(engine.name) (\(label))…"
         defer { aiStatus[pr.id] = nil }
         do {
             let meter = UsageMeter()
-            let prompt = AIContext.prompt(context, instructions: Prompts.review)
-            let result = try await reviewer.review(engine, prompt: prompt, options: options, usage: meter)
+            let prompt: String
+            let result: ReviewResult
+            switch command {
+            case .codexReview:
+                prompt = AIContext.codexReviewPrompt(context)
+                result = try await reviewer.codexReview(prompt: prompt, context: context, options: options,
+                                                        structureInstructions: Prompts.structure, usage: meter)
+            case .saved(let id):
+                guard let template = reviewTemplates.first(where: { $0.id == id }) else {
+                    throw AIError.failed("The saved review prompt \(label) was deleted")
+                }
+                prompt = template.prompt(context)
+                result = try await reviewer.review(engine, prompt: prompt, options: options, usage: meter)
+            case .generic, .codeReview:
+                prompt = AIContext.prompt(context, instructions: Prompts.review)
+                result = try await reviewer.review(engine, prompt: prompt, options: options, usage: meter)
+            }
             var run = AIRun(prID: pr.id, engine: engine, headRefOid: pr.headRefOid, result: result)
             run.options = options
             run.usage = meter.usage
             run.estimatedTokens = AIContext.estimateTokens(prompt)
+            run.command = label
             aiRuns.append(run)
         } catch is CancellationError {
         } catch {

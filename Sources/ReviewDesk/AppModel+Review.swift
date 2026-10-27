@@ -23,12 +23,12 @@ extension AppModel {
         runs(for: pr.id).first { !$0.result.keyAreas.isEmpty || !$0.result.risks.isEmpty }
     }
 
-    /// Runs the risk analysis with the AI tab's engine. Claude Code starts `/code-review` with the last used model
-    /// and effort; Codex and Ollama go to the AI tab, where the context is shown before anything is sent.
+    /// Runs the risk analysis with the AI tab's engine. `/code-review` starts with the last used model and effort;
+    /// every other review command goes to the AI tab, where the context is shown before anything is sent.
     func runRiskAnalysis(_ pr: PullRequest) {
         guard !blockDemo(pr) else { return }
         let engine = preferredEngine(for: pr)
-        guard engine.tool == "claude" else {
+        guard reviewCommand(for: engine) == .codeReview else {
             detailTab = .ai
             return
         }

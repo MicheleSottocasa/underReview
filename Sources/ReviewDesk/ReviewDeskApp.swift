@@ -360,6 +360,11 @@ struct AISettings: View {
     @AppStorage("ollamaModel") private var ollamaModel = "qwen2.5-coder"
     @AppStorage("aiBudget") private var budget = 150_000
     @AppStorage("stackParallelAgents") private var parallelAgents = 3
+    @AppStorage(AppModel.reviewCommandKey(.claudeCode)) private var claudeCommand = ReviewCommand.codeReview.stored
+    @AppStorage(AppModel.reviewCommandKey(.codex)) private var codexCommand = ReviewCommand.generic.stored
+    @AppStorage(AppModel.reviewCommandKey(.ollama(model: ""))) private var ollamaCommand = ReviewCommand.generic.stored
+    /// The saved review prompt being added or edited.
+    @ViewState private var editingTemplate: ReviewTemplate?
 
     var body: some View {
         Form {
@@ -375,6 +380,7 @@ struct AISettings: View {
             }
             Section {
                 ProviderStatusRow(engine: .claudeCode)
+                ReviewCommandPicker(engine: .claudeCode, selection: $claudeCommand)
                 ModelPicker(choices: AIOptions.models(for: .claudeCode), selection: $claudeModel, defaultLabel: "CLI default")
                 ContextPicker(model: claudeModel, selection: $claudeContext)
                 EffortPicker(engine: .claudeCode, selection: $effort)
@@ -385,16 +391,17 @@ struct AISettings: View {
             } header: {
                 Text("Claude Code")
             } footer: {
-                Text("The model is used by every Claude Code action: a family follows its newest version, a version stays pinned. 1M tokens of context needs a model, and a plan that offers it. The effort is /code-review's level. Each review reads the pull request's files at its head commit, in a folder of its own that is removed afterwards. A worktree is quick and leaves the clone's branch alone, but needs a clone linked in Repositories; a download needs nothing, but fetches the whole repository every time. Without either, /code-review reads only the diff.")
+                Text("Review runs Claude Code's own /code-review, or ReviewDesk's prompt on the context you approve in Prepare Context, without tools. The model is used by every Claude Code action: a family follows its newest version, a version stays pinned. 1M tokens of context needs a model, and a plan that offers it. The effort is /code-review's level. Each review reads the pull request's files at its head commit, in a folder of its own that is removed afterwards. A worktree is quick and leaves the clone's branch alone, but needs a clone linked in Repositories; a download needs nothing, but fetches the whole repository every time. Without either, /code-review reads only the diff.")
             }
             Section {
                 ProviderStatusRow(engine: .codex)
+                ReviewCommandPicker(engine: .codex, selection: $codexCommand)
                 ModelPicker(choices: AIOptions.models(for: .codex), selection: $codexModel, defaultLabel: "CLI default")
                 EffortPicker(engine: .codex, selection: $codexEffort)
             } header: {
                 Text("Codex")
             } footer: {
-                Text("Used by every Codex action: reviews, Explain, Ask, fixes and follow-up checks. Codex runs read-only in an empty folder with your ChatGPT login (an API key is refused). Your config.toml, rules, hooks and plugins are ignored, so the model and effort here are the only ones applied; Default keeps the CLI's own. Reviews go through Prepare Context first, so you see what is sent.")
+                Text("Used by every Codex action: reviews, Explain, Ask, fixes and follow-up checks. Codex runs read-only in an empty folder with your ChatGPT login (an API key is refused). Your config.toml, rules, hooks and plugins are ignored, so the model and effort here are the only ones applied; Default keeps the CLI's own. Reviews go through Prepare Context first, so you see what is sent. Codex review runs Codex's own review flow on that context, under the same restrictions, and a second pass turns its report into findings; ReviewDesk's prompt asks for the findings directly.")
             }
             Section {
                 ProviderStatusRow(engine: .ollama(model: ollamaModel))
@@ -402,12 +409,30 @@ struct AISettings: View {
                 if model.ollamaThinks[ollamaModel] == true {
                     EffortPicker(engine: .ollama(model: ollamaModel), selection: $ollamaThink)
                 }
+                ReviewCommandPicker(engine: .ollama(model: ollamaModel), selection: $ollamaCommand)
             } header: {
                 Text("Ollama")
             } footer: {
                 Text(model.ollamaModels.isEmpty
                      ? "No pulled models found: start Ollama, or pick Other… and type a model's name."
                      : "The models you have pulled. Other… takes a name that isn't pulled yet. Thinking shows for models that support it.")
+            }
+            Section {
+                ForEach(model.reviewTemplates) { template in
+                    HStack {
+                        Text(template.name)
+                        Spacer()
+                        Button("Edit") { editingTemplate = template }
+                        Button("Duplicate") { model.duplicateReviewTemplate(template) }
+                        Button("Delete", role: .destructive) { model.deleteReviewTemplate(template.id) }
+                    }
+                    .buttonStyle(.borderless)
+                }
+                Button("Add…") { editingTemplate = ReviewTemplate(name: "New review prompt") }
+            } header: {
+                Text("Saved review prompts for Ollama")
+            } footer: {
+                Text("Your own review prompts, picked under Review above or in the AI tab. Placeholders such as {diff} or {title} are filled with the context you approve in Prepare Context; the result format is always appended, so the answer still becomes findings. They are prompts, never commands: nothing in them runs, and Ollama still has no tools.")
             }
             Section {
                 Stepper("Agents at once in a stack review: \(parallelAgents)", value: $parallelAgents, in: 1...8)
@@ -427,6 +452,49 @@ struct AISettings: View {
         .formStyle(.grouped)
         .task { await model.loadOllamaModels() }
         .task(id: ollamaModel) { await model.loadOllamaThinks(ollamaModel) }
+        .sheet(item: $editingTemplate) { template in
+            ReviewTemplateEditor(template: template) { model.saveReviewTemplate($0) }
+        }
+    }
+}
+
+/// Adds or edits a saved review prompt: its name and template, with the placeholders it can use.
+struct ReviewTemplateEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @ViewState private var template: ReviewTemplate
+    let save: (ReviewTemplate) -> Void
+
+    init(template: ReviewTemplate, save: @escaping (ReviewTemplate) -> Void) {
+        _template = ViewState(initialValue: template)
+        self.save = save
+    }
+
+    var body: some View {
+        Form {
+            TextField("Name", text: $template.name)
+            Section {
+                TextEditor(text: $template.template)
+                    .font(.callout.monospaced())
+                    .frame(minHeight: 220)
+            } header: {
+                Text("Prompt")
+            } footer: {
+                Text(ReviewTemplate.placeholders.map { "{\($0.name)}: \($0.help)" }.joined(separator: "\n")
+                     + "\nOther text in braces is sent as typed.")
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 560)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Save") {
+                    save(template)
+                    dismiss()
+                }
+                .disabled(template.name.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
     }
 }
 
@@ -444,9 +512,9 @@ struct PromptSettings: View {
         Form {
             editor("Claude Code /code-review", note: "Added to Claude Code's system prompt when it runs /code-review. The review itself follows the command's own instructions.",
                    text: $codeReview, fallback: AIContext.defaultCodeReviewInstructions)
-            editor("Findings and key areas from /code-review", note: "Turns the /code-review report into findings and picks the key areas. The JSON schema, the report and the PR's diffs are always appended.",
+            editor("Findings and key areas from /code-review and Codex review", note: "Turns the review command's report into findings and picks the key areas. The JSON schema, the report and the PR's diffs are always appended.",
                    text: $structure, fallback: AIContext.defaultStructureInstructions)
-            editor("Codex and Ollama review", note: "Starts the review prompt. The JSON schema, PR description and files are always appended.",
+            editor("ReviewDesk review prompt", note: "Starts the review prompt that every provider can use instead of its own review command (Settings › AI); Ollama can use a saved prompt instead. The JSON schema, PR description and files are always appended.",
                    text: $review, fallback: AIContext.defaultReviewInstructions)
             editor("Follow-up check", note: "Asks whether the changes and replies since your review handle each of your comments. The result format, your threads and the changes are always appended.",
                    text: $followUp, fallback: FollowUp.defaultInstructions)

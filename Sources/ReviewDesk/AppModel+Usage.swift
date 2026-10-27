@@ -23,7 +23,7 @@ extension AppModel {
     /// Prepare Context then shows the exact input, with the full files it adds.
     func reviewEstimate(_ pr: PullRequest, engine: AIEngine, effort: String) -> TokenEstimate {
         let input = reviewInput(pr)
-        return engine.tool == "claude" ? TokenEstimator.codeReview(input: input, effort: effort, history: codeReviewSamples)
+        return reviewCommand(for: engine) == .codeReview ? TokenEstimator.codeReview(input: input, effort: effort, history: codeReviewSamples)
             : TokenEstimator.prompt(tokens: input, engine: engine, answer: .review)
     }
 

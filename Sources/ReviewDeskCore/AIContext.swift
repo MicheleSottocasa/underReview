@@ -132,6 +132,9 @@ public struct ReviewContext: Sendable {
     public var rules: [ContextFile] = []
     /// The project's extra context (docs, folders, other repositories), shown and sent like files.
     public var extra: [ContextFile] = []
+    /// The pull request's conversation, for saved review prompts that ask for it (`{conversation}`).
+    // ponytail: left out of `tokens`, since only those prompts send it; the run's estimate counts the real prompt.
+    public var conversation = ""
 
     public init(title: String, body: String, files: [ContextFile], budget: Int, rules: [ContextFile] = [], extra: [ContextFile] = []) {
         (self.title, self.body, self.files, self.budget, self.rules, self.extra) = (title, body, files, budget, rules, extra)
@@ -288,7 +291,8 @@ public enum AIContext {
     /// Turns the `/code-review` report into the app's findings and key areas. Editable in Settings;
     /// the JSON schema, the report and the diff are always appended.
     public static let defaultStructureInstructions = """
-    Below is a code review of a GitHub pull request, written by Claude Code's /code-review, followed by the PR's diff.
+    Below is a code review of a GitHub pull request, written by a review command (Claude Code's /code-review or
+    Codex's review), followed by the PR's diff.
     Turn the review into findings: one per issue it reports, never adding issues it doesn't contain, except that you
     check the diff against the repository rules (if included) and add a finding for each clear violation the review
     didn't report, quoting the rule; skip rules a linter or formatter enforces. For each finding, keep
@@ -300,7 +304,9 @@ public enum AIContext {
     \(keyAreasInstructions)
     """
 
-    public static func structurePrompt(report: String, context: ReviewContext, instructions: String = defaultStructureInstructions) -> String {
+    /// `source` names the command that wrote `report`.
+    public static func structurePrompt(report: String, context: ReviewContext, instructions: String = defaultStructureInstructions,
+                                       source: String = "/code-review") -> String {
         var text = """
         \(instructions)
         Reply only with JSON matching this schema:
@@ -310,7 +316,7 @@ public enum AIContext {
 
         \(context.body)
 
-        ## Review from /code-review
+        ## Review from \(source)
 
         \(report)
 
@@ -328,11 +334,19 @@ public enum AIContext {
     }
 
     public static func prompt(_ context: ReviewContext, instructions: String = defaultReviewInstructions) -> String {
-        var text = """
+        """
         \(instructions)
         Reply only with JSON matching this schema:
         \(schema)
 
+
+        """ + material(context)
+    }
+
+    /// The pull request as a review prompt carries it: title, description, rules, project context, then each kept
+    /// file's diff and full content, and the files left out.
+    static func material(_ context: ReviewContext) -> String {
+        var text = """
         # \(context.title)
 
         \(context.body)
@@ -351,6 +365,43 @@ public enum AIContext {
             text += "\nThese changed files were not provided: \(skipped.joined(separator: ", ")).\n"
         }
         return text
+    }
+
+    /// The kept files' diffs, for a saved prompt's `{diff}`.
+    static func diffs(_ files: [ContextFile]) -> String {
+        files.filter(\.included).map { "\n## Diff: \($0.path)\n```diff\n\($0.patch ?? "")\n```\n" }.joined()
+    }
+
+    /// Appended to every saved review prompt, which can't change it: the JSON the answer must match and how its
+    /// fields are filled.
+    public static let resultFormat = """
+    Use only the material above; do not run tools or commands. Reply only with JSON matching this schema:
+    \(schema)
+    Report real problems as findings. For inline findings set `path` and `line` to a line number on the NEW side of
+    the diff that appears in a hunk; use null path/line for general remarks. `comment` is the text to post on GitHub,
+    in Markdown.
+    \(suggestionInstructions)
+    \(keyAreasInstructions)
+    """
+
+    /// What Codex's built-in review is asked to review: the same material as ReviewDesk's prompt, with fixed
+    /// instructions (Codex's review flow brings its own), and no JSON: the report is structured in a second pass.
+    public static func codexReviewPrompt(_ context: ReviewContext) -> String {
+        """
+        Review the GitHub pull request below. There is no checkout of the repository: its description, diffs and the
+        full changed files are all here, so review from them and don't look for a repository or run git. Check the
+        change against the repository rules, if included, quoting the rule for each violation. Never post anything to
+        GitHub (no comments, reviews or reactions) and never modify files.
+
+
+        """ + material(context)
+    }
+
+    /// The pull request's conversation as a saved prompt's `{conversation}`: each comment with its author, oldest
+    /// first, the latest `limit` only.
+    // ponytail: the latest 30 comments; older ones rarely change what a review should say.
+    public static func conversationText(_ comments: [Comment], limit: Int = 30) -> String {
+        comments.suffix(limit).map { "**\($0.author)**:\n\($0.body)\n" }.joined(separator: "\n")
     }
 
     /// Asks for a plain-language explanation of one comment, with the code and conversation around it.
