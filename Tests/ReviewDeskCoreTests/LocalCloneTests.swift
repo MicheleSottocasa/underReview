@@ -236,3 +236,11 @@ private func expectRefusal(_ failure: LocalClone.Failure, _ top: URL, _ runner: 
     _ = try await LocalClone(runner: runner).snapshot(pr, sha: "abc", from: top)
     #expect(!runner.calls.contains { $0.args.contains("fetch") })
 }
+
+@Test func currentBranchReadsTheClonesBranch() async throws {
+    let top = try tempClone()
+    defer { try? FileManager.default.removeItem(at: top) }
+    #expect(await LocalClone(runner: fake(top)).currentBranch(in: top) == "h7")
+    let failing = FakeRunner { _ in CommandResult(status: 128, stdout: Data(), stderr: "not a git repository") }
+    #expect(await LocalClone(runner: failing).currentBranch(in: top) == nil)
+}

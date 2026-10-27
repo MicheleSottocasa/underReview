@@ -187,6 +187,27 @@ public struct ReviewSync: Sendable {
         }
     }
 
+    /// Adds a comment to the pull request's conversation immediately, e.g. an answer to a review's summary, which
+    /// has no thread to reply in.
+    public func comment(prID: String, body: String, viewer: String) async throws {
+        let since = Date()
+        _ = try await idempotent {
+            let data = try await self.github.graphql("""
+            mutation($subject: ID!, $body: String!) {
+              addComment(input: {subjectId: $subject, body: $body}) { commentEdge { node { id } } }
+            }
+            """, ["subject": prID, "body": body])
+            let edge = (data["addComment"] as? [String: Any])?["commentEdge"] as? [String: Any]
+            return (edge?["node"] as? [String: Any])?["id"] as? String ?? ""
+        } reconcile: {
+            let data = try await self.github.graphql("""
+            query($id: ID!) { node(id: $id) { ... on PullRequest { comments(last: 10) { nodes { id author { login } body createdAt } } } } }
+            """, ["id": prID])
+            return GitHub.nodes((data["node"] as? [String: Any])?["comments"]).map(GitHub.decodeComment)
+                .first { $0.author == viewer && $0.body == body && $0.createdAt >= since.addingTimeInterval(-60) }?.id
+        }
+    }
+
     // MARK: - Helpers
 
     /// Runs a write; on timeout, asks GitHub whether it landed before trying once more.

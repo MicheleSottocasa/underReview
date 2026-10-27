@@ -135,6 +135,11 @@ public struct LocalClone: Sendable {
         return try await text("git", ["-C", dir, "branch", "--show-current"])
     }
 
+    /// The branch checked out in the clone at `folder`: "" on a detached HEAD, nil when git can't tell.
+    public func currentBranch(in folder: URL) async -> String? {
+        try? await text("git", ["-C", folder.path, "branch", "--show-current"])
+    }
+
     /// The pull request's files at `sha`, in a detached worktree of the clone in a new temporary folder. The clone's
     /// own branch and files stay as they are, and every call gets its own worktree, so reviews can run side by side.
     /// Fetches the PR's head when the clone doesn't have `sha` yet. Remove it with `removeSnapshot`.

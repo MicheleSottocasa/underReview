@@ -208,3 +208,24 @@ private final class Box<T>: @unchecked Sendable {
     #expect(ReviewEvent.allowed(for: mine) == [.comment])
     #expect(ReviewEvent.allowed(for: pr) == [.comment, .approve, .requestChanges])
 }
+
+@Test func commentPostsToThePullRequestAndReconcilesAfterATimeout() async throws {
+    let runner = FakeRunner { _ in data(#"{"addComment":{"commentEdge":{"node":{"id":"IC_1"}}}}"#) }
+    try await ReviewSync(github: GitHub(runner: runner)).comment(prID: "PR_1", body: "> quote\n\nDone.", viewer: "me")
+    #expect(runner.calls.count == 1)
+    #expect(runner.calls[0].variables["subject"] as? String == "PR_1")
+    #expect(runner.calls[0].variables["body"] as? String == "> quote\n\nDone.")
+
+    let landed = Box(false)
+    let timing = FakeRunner { call in
+        if call.query.contains("addComment(") {
+            landed.value = true
+            throw CommandError.timedOut("gh")
+        }
+        let created = ISO8601DateFormatter().string(from: .now)
+        return data(#"{"node":{"comments":{"nodes":[{"id":"IC_2","author":{"login":"me"},"body":"Done.","createdAt":"\#(created)"}]}}}"#)
+    }
+    try await ReviewSync(github: GitHub(runner: timing)).comment(prID: "PR_1", body: "Done.", viewer: "me")
+    #expect(landed.value)
+    #expect(timing.calls.filter { $0.query.contains("addComment(") }.count == 1)
+}
