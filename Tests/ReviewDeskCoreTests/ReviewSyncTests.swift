@@ -152,6 +152,27 @@ private final class Box<T>: @unchecked Sendable {
     #expect(runner.calls.count == 1)
 }
 
+@Test func discardDeletesThePendingReview() async throws {
+    let runner = FakeRunner { call in
+        if call.query.contains("deletePullRequestReview(") { return data(#"{"deletePullRequestReview":{}}"#) }
+        return detail(pending: pendingWith(#"[{"id":"WEB","path":"z.swift","line":1,"body":"from web"}]"#))
+    }
+    try await ReviewSync(github: GitHub(runner: runner)).discard(pr: pr)
+
+    let delete = try #require(runner.calls.last)
+    #expect(delete.query.contains("deletePullRequestReview("))
+    #expect(delete.variables["id"] as? String == "REV")
+}
+
+@Test func discardWithoutPendingReviewMakesNoWrite() async throws {
+    let runner = FakeRunner { call in
+        if call.query.contains("mutation") { Issue.record("unexpected write: \(call.query)") }
+        return detail()
+    }
+    try await ReviewSync(github: GitHub(runner: runner)).discard(pr: pr)
+    #expect(runner.calls.count == 1)
+}
+
 @Test func multiLineDraftsSendWhereTheyStart() {
     let sync = ReviewSync(github: GitHub(runner: FakeRunner { _ in ok("") }))
     var draft = Draft(prID: "PR_1", anchor: Anchor(path: "a.swift", line: 12), body: "b", commitOID: "head")

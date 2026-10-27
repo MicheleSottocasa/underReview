@@ -208,6 +208,18 @@ extension AppModel {
         return true
     }
 
+    /// Deletes the pending review on GitHub, then every local draft and the summary. Like `deleteDraft`, the drafts
+    /// stay until the reload, so the pending comments don't show twice in the meantime; a failure keeps them.
+    func discardReview(_ pr: PullRequest) async {
+        let discarded = await commentWrite(pr, pending: Self.discardPendingID(pr)) { try await reviewSync.discard(pr: pr) }
+        guard discarded else { return }
+        reviewDrafts.drafts.removeAll { $0.prID == pr.id }
+        reviewDrafts.bodies[pr.id] = nil
+    }
+
+    /// Marks the review bar busy while a discard runs.
+    static func discardPendingID(_ pr: PullRequest) -> String { "discard:\(pr.id)" }
+
     func reply(to threadID: String, body: String, pr: PullRequest) async -> Bool {
         await commentWrite(pr, pending: threadID) { try await reviewSync.reply(threadID: threadID, body: body, viewer: viewer) }
     }
