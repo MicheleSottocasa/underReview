@@ -1,6 +1,7 @@
 name: Release
 
 # Push a version tag (git tag v0.2.0 && git push origin v0.2.0) to build the installer and publish it.
+# A tag with a suffix (v0.10.0-beta.1) is published as a pre-release, which the in-app updater never offers.
 on:
   push:
     tags: ["v*"]
@@ -40,10 +41,11 @@ jobs:
         run: |
           VERSION="${TAG#v}"
           DMG="dist/ReviewDesk-${VERSION}.dmg"
+          case "$VERSION" in *-*) PRERELEASE=true ;; *) PRERELEASE=false ;; esac
           sh scripts/release-notes.sh "$VERSION" > notes.md
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --notes-file notes.md
+            gh release edit "$TAG" --notes-file notes.md --prerelease="$PRERELEASE"
             gh release upload "$TAG" "$DMG" --clobber
           else
-            gh release create "$TAG" "$DMG" --title "ReviewDesk $VERSION" --notes-file notes.md --generate-notes
+            gh release create "$TAG" "$DMG" --title "ReviewDesk $VERSION" --notes-file notes.md --generate-notes --prerelease="$PRERELEASE"
           fi

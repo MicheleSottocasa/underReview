@@ -8,8 +8,14 @@ if [ -z "$changes" ]; then
     echo "CHANGELOG.md has no '## $version' section: describe the release there first." >&2
     exit 1
 fi
+case "$version" in
+    *-*) testing="> **Test build.** This pre-release is for testing before $(echo "$version" | sed 's/-.*//') ships: the in-app updater doesn't offer it, so install it from the disk image below.
+>
+" ;;
+    *) testing="" ;;
+esac
 cat <<NOTES
-> **Beta preview.** ReviewDesk has no stable release yet: every version is a preview build, so expect rough edges and please report problems in Issues.
+$testing> **Beta preview.** ReviewDesk has no stable release yet: every version is a preview build, so expect rough edges and please report problems in Issues.
 
 ## What's changed
 
