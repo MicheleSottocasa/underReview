@@ -249,6 +249,7 @@ struct ReviewBar: View {
         // Saved drafts are already among the pending review's comments.
         let toDiscard = pending + drafts.filter { $0.remoteID == nil }.count
         let discarding = model.pending.contains(AppModel.discardPendingID(pr))
+        let discardTitle = toDiscard == 0 ? "Discard this review?" : "Discard \(toDiscard) pending comment\(toDiscard == 1 ? "" : "s")?"
         HStack(spacing: 12) {
             Picker("", selection: $mode) {
                 Image(systemName: "rectangle.split.2x1").help("Side by side").tag(DiffMode.split)
@@ -296,8 +297,7 @@ struct ReviewBar: View {
             Button(discarding ? "Discarding…" : "Discard Review", role: .destructive) { confirmingDiscard = true }
                 .disabled((drafts.isEmpty && pendingReview == nil && (model.reviewDrafts.bodies[pr.id] ?? "").isEmpty) || discarding)
                 .help("Deletes your pending review on GitHub and all local drafts for this pull request")
-                .confirmationDialog(toDiscard == 0 ? "Discard this review?" : "Discard \(toDiscard) pending comment\(toDiscard == 1 ? "" : "s")?",
-                                    isPresented: $confirmingDiscard) {
+                .confirmationDialog(discardTitle, isPresented: $confirmingDiscard) {
                     Button("Discard Review", role: .destructive) { Task { await model.discardReview(pr) } }
                 } message: {
                     Text("This deletes your pending review on GitHub, including comments you added to it outside ReviewDesk, along with your local drafts and the review summary. It can't be undone.")

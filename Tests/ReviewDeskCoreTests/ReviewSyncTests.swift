@@ -173,6 +173,26 @@ private final class Box<T>: @unchecked Sendable {
     #expect(runner.calls.count == 1)
 }
 
+@Test func discardFailsWhenGitHubRefusesAndTheReviewStays() async throws {
+    let deleted = Box(false)
+    let runner = FakeRunner { call in
+        if call.query.contains("deletePullRequestReview(") {
+            return CommandResult(status: 1, stdout: Data(#"{"errors":[{"message":"Resource not accessible by integration"}]}"#.utf8))
+        }
+        return detail(pending: deleted.value ? "[]" : pendingWith("[]"))
+    }
+    await #expect(throws: GitHubError.self) { try await ReviewSync(github: GitHub(runner: runner)).discard(pr: pr) }
+    // Gone by the time GitHub answered: done, not an error.
+    let gone = FakeRunner { call in
+        if call.query.contains("deletePullRequestReview(") {
+            deleted.value = true
+            return CommandResult(status: 1, stdout: Data(#"{"errors":[{"message":"Could not resolve to a node"}]}"#.utf8))
+        }
+        return detail(pending: deleted.value ? "[]" : pendingWith("[]"))
+    }
+    try await ReviewSync(github: GitHub(runner: gone)).discard(pr: pr)
+}
+
 @Test func multiLineDraftsSendWhereTheyStart() {
     let sync = ReviewSync(github: GitHub(runner: FakeRunner { _ in ok("") }))
     var draft = Draft(prID: "PR_1", anchor: Anchor(path: "a.swift", line: 12), body: "b", commitOID: "head")
