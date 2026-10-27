@@ -30,7 +30,10 @@ extension AppModel {
     func rerun(_ run: AIRun, pr: PullRequest) {
         guard !blockDemo(pr) else { return }
         if reviewCommand(for: run.engine) == .codeReview {
-            startCodeReview(pr, engine: run.engine, options: run.options ?? aiOptions(for: run.engine, codeReview: true))
+            var options = run.options ?? aiOptions(for: run.engine, codeReview: true)
+            // A run on ReviewDesk's prompt kept no level: `/code-review` needs one, so it gets the current one.
+            if options.effort.isEmpty { options.effort = aiOptions(for: run.engine, codeReview: true).effort }
+            startCodeReview(pr, engine: run.engine, options: options)
             return
         }
         // The run's engine travels with the request: the AI tab's own engine choice stays as the user left it.
