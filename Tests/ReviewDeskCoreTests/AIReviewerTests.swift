@@ -492,3 +492,27 @@ private func codexRunner() -> FakeRunner {
     let empty = FakeRunner { call in call.args.first == "login" ? ok("Logged in using ChatGPT\n") : ok("") }
     await #expect(throws: AIError.invalidOutput("Codex wrote no answer")) { try await AIReviewer(runner: empty).ask(.codex, prompt: "p") }
 }
+
+@Test func providerStatusShowsVersionAndLogin() async {
+    let runner = FakeRunner { call in
+        switch (call.tool, call.args.first) {
+        case ("codex", "--version"): ok("codex-cli 0.46.0\n")
+        case ("codex", "login"): ok("Logged in using ChatGPT\n")
+        case ("claude", "--version"): ok("2.1.3 (Claude Code)\n")
+        case ("claude", "auth"): ok(#"{"loggedIn":true,"authMethod":"api_key"}"#)
+        case ("ollama", "--version"): CommandResult(status: 0, stdout: Data(), stderr: "Warning: could not connect to a running Ollama instance\nWarning: client version is 0.12.3\n")
+        default: CommandResult(status: 1, stdout: Data(), stderr: "connection refused")
+        }
+    }
+    let reviewer = AIReviewer(runner: runner)
+    #expect(await reviewer.status(.codex) == ProviderStatus(version: "0.46.0", detail: "Logged in with ChatGPT", isReady: true))
+    let claude = await reviewer.status(.claudeCode)
+    #expect(claude.version == "2.1.3" && !claude.isReady && claude.detail.contains("api_key"))
+    let ollama = await reviewer.status(.ollama(model: "m"))
+    #expect(ollama.version == "0.12.3" && !ollama.isReady)
+    // Only version and login checks: no model ever runs.
+    #expect(!runner.calls.contains { $0.args.contains("exec") || $0.args.contains("-p") || $0.args.first == "run" })
+
+    let missing = await AIReviewer(runner: FakeRunner { _ in throw CommandError.toolNotFound("codex") }).status(.codex)
+    #expect(missing.version == nil && !missing.isReady)
+}
