@@ -690,6 +690,7 @@ struct Fix {
 enum Prompts {
     static let reviewKey = "prompt.review", codeReviewKey = "prompt.codeReview", structureKey = "prompt.structure"
     static let explainKey = "prompt.explain", followUpKey = "prompt.followUp", fixKey = "prompt.fix", selectionKey = "prompt.selection"
+    static let fixPlanKey = "prompt.fixPlan"
     static var fix: String { value(fixKey, AIContext.defaultFixInstructions) }
 
     static var review: String { value(reviewKey, AIContext.defaultReviewInstructions) }
@@ -697,6 +698,7 @@ enum Prompts {
     static var structure: String { value(structureKey, AIContext.defaultStructureInstructions) }
     static var explain: String { value(explainKey, AIContext.defaultExplainInstructions) }
     static var followUp: String { value(followUpKey, FollowUp.defaultInstructions) }
+    static var fixPlan: String { value(fixPlanKey, FixPlan.defaultInstructions) }
     static var selection: String { value(selectionKey, AIContext.defaultSelectionInstructions) }
 
     private static func value(_ key: String, _ fallback: String) -> String {

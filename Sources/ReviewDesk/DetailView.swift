@@ -2,7 +2,7 @@ import ReviewDeskCore
 import SwiftUI
 
 enum DetailTab: String, CaseIterable {
-    case conversation = "Conversation", followUp = "Follow-up", risk = "Risk", changes = "Changes", ai = "AI Review", notes = "Notes"
+    case conversation = "Conversation", fixPlan = "Fix Plan", followUp = "Follow-up", risk = "Risk", changes = "Changes", ai = "AI Review", notes = "Notes"
 }
 
 struct DetailView: View {
@@ -11,8 +11,8 @@ struct DetailView: View {
 
     var body: some View {
         @Bindable var model = model
-        // Follow-up only shows when there's something to check or a past check to read.
-        let tabs = DetailTab.allCases.filter { $0 != .followUp || model.showsFollowUp(pr) }
+        // Follow-up only shows when there's something to check or a past check to read; Fix Plan only on your own PRs.
+        let tabs = DetailTab.allCases.filter { ($0 != .followUp || model.showsFollowUp(pr)) && ($0 != .fixPlan || pr.viewerIsAuthor) }
         let tab = tabs.contains(model.detailTab) ? model.detailTab : .conversation
         VStack(alignment: .leading, spacing: 0) {
             if pr.isDemo {
@@ -37,6 +37,7 @@ struct DetailView: View {
             Divider().padding(.top, 8)
             switch tab {
             case .conversation: ConversationView(pr: pr, detail: model.details[pr.id])
+            case .fixPlan: FixPlanView(pr: pr)
             case .followUp: FollowUpView(pr: pr)
             case .risk: RiskView(pr: pr)
             case .changes: ChangesView(pr: pr)

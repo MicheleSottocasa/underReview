@@ -232,6 +232,14 @@ public enum FixPlan {
         return inline.map(\.element) + items.filter { byID[$0.sourceID] == nil }
     }
 
+    /// The plan at a glance: "2 to change · 1 reply only · 0 push back · 1 already done", plus the unclear ones if any.
+    public static func tally(_ items: [FixPlanItem]) -> String {
+        let counts = Dictionary(grouping: items, by: \.action).mapValues(\.count)
+        let parts = [("change_code", "to change"), ("reply_only", "reply only"), ("push_back", "push back"), ("already_done", "already done")]
+            .map { "\(counts[$0.0] ?? 0) \($0.1)" }
+        return (parts + (counts["unclear"].map { ["\($0) unclear"] } ?? [])).joined(separator: " · ")
+    }
+
     /// One PR's choices (item key → choice) after `change` to `key` at the plan head `head`. Choices made on another
     /// head are dropped, like Focus read marks: a new plan starts fresh.
     public static func choices(_ choices: [String: FixPlanChoice], setting key: String, head: String,

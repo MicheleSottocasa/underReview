@@ -134,6 +134,10 @@ final class AppModel {
     var aiRuns: [AIRun] { didSet { save(aiRunsFile, aiRuns.filter { !Demo.owns($0.prID) }) } }
     /// Checks of whether the author handled the viewer's comments, newest last.
     var followUps: [FollowUpRun] { didSet { save(followUpsFile, followUps.filter { !Demo.owns($0.prID) }) } }
+    /// Fix plans for the viewer's own pull requests, newest last.
+    var fixPlans: [FixPlanRun] { didSet { save(fixPlansFile, fixPlans.filter { !Demo.owns($0.prID) }) } }
+    /// PR id → plan item (its feedback id) → what the viewer chose, at the plan's head. Kept locally, like `readAreas`.
+    var fixPlanChoices: [String: [String: FixPlanChoice]] { didSet { save(fixPlanChoicesFile, fixPlanChoices.filter { !Demo.owns($0.key) }) } }
     /// Project (top-level folder) id → extra AI context sent with its pull requests.
     var projectContext: [UUID: [ContextSource]] { didSet { save(projectContextFile, projectContext) } }
     /// Project id → the rule files read instead of `RepoRules.rootFiles` (AGENTS.md…), when the project sets some.
@@ -192,6 +196,8 @@ final class AppModel {
     private let riskChecksFile = JSONFile<[String: [String: String]]>.appSupport("risk-checks.json")
     private let readAreasFile = JSONFile<[String: [String: String]]>.appSupport("read-areas.json")
     private let followUpsFile = JSONFile<[FollowUpRun]>.appSupport("follow-ups.json")
+    private let fixPlansFile = JSONFile<[FixPlanRun]>.appSupport("fix-plans.json")
+    private let fixPlanChoicesFile = JSONFile<[String: [String: FixPlanChoice]]>.appSupport("fix-plan-choices.json")
     private let prsFile = JSONFile<PRCache>.appSupport("prs.json")
     private let localClonesFile = JSONFile<[String: String]>.appSupport("local-clones.json")
     private let projectContextFile = JSONFile<[UUID: [ContextSource]]>.appSupport("project-context.json")
@@ -230,6 +236,8 @@ final class AppModel {
         riskChecks = riskChecksFile.load(default: [:])
         readAreas = readAreasFile.load(default: [:])
         followUps = followUpsFile.load(default: [])
+        fixPlans = fixPlansFile.load(default: [])
+        fixPlanChoices = fixPlanChoicesFile.load(default: [:])
         localClones = localClonesFile.load(default: [:])
         projectContext = projectContextFile.load(default: [:])
         reviewTemplates = reviewTemplatesFile.load(default: [])
