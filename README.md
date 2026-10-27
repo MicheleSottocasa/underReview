@@ -47,7 +47,7 @@ Updates install from the app (*Install and Relaunch*), without that first-launch
 
 ## Releasing
 
-Every pull request and every push to `main` runs `.github/workflows/ci.yml`, which builds the app and runs the tests on macOS. To release, rename `## Unreleased` in `CHANGELOG.md` to the version (that section becomes the release's description), then push a version tag: `git tag v0.4.0 && git push origin v0.4.0`. The `Release` workflow in `.github/workflows/release.yml` runs the tests on macOS, builds the universal DMG with that version, and publishes a GitHub Release with the DMG attached. To rebuild an existing tag, run the workflow manually and enter the tag. Keep `CFBundleShortVersionString` in `assets/Info.plist` in step for local builds.
+Every pull request and every push to `main` runs `.github/workflows/ci.yml`, which builds the app and runs the tests on macOS. To release, rename `## Unreleased` in `CHANGELOG.md` to the version (that section becomes the release's description), then push a version tag: `git tag v0.4.0 && git push origin v0.4.0`. The `Release` workflow in `.github/workflows/release.yml` runs the tests on macOS, builds the universal DMG with that version, and publishes a GitHub Release with the DMG attached. To rebuild an existing tag, run the workflow manually and enter the tag. A tag with a suffix (`v0.10.0-beta.1`, its changelog section `## 0.10.0-beta.1`) is published as a pre-release: the in-app updater ignores it, so only those who download it get it. To promote it, add the release's own section and tag `v0.10.0`; testers on the beta are then offered it like everyone else. Keep `CFBundleShortVersionString` in `assets/Info.plist` in step for local builds.
 
 ## Layout
 
