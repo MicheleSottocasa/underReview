@@ -76,6 +76,9 @@ public struct PullRequest: Codable, Hashable, Identifiable, Sendable {
     public var pendingReviewComments: Int?
     /// Unresolved threads the viewer is part of (their PR, or a thread they started) where someone else spoke last.
     public var threadsAwaitingReply = 0
+    /// On the viewer's own PR: unresolved threads still to address (`FixPlan.feedback`'s rule: started by someone else,
+    /// or by the viewer with someone else writing last). Nil in lists cached before it was read.
+    public var threadsToAddress: Int?
     /// Lines added and removed across the whole PR, and how many files it touches.
     public var additions = 0
     public var deletions = 0
@@ -92,6 +95,14 @@ public struct PullRequest: Codable, Hashable, Identifiable, Sendable {
 
     public var ref: PRRef { PRRef(nameWithOwner: repo, number: number) }
     public var stackPosition: Int? { stack?.entries.first { $0.id == id }?.position }
+
+    /// On the viewer's own open PR, the feedback the polled list shows still to address: open threads, plus each
+    /// reviewer whose latest decision asks for changes. Review summaries that only comment come with the conversation
+    /// (`FixPlan.feedback`), so the count can grow once the PR is opened.
+    public var feedbackToAddress: Int {
+        guard viewerIsAuthor, state == "OPEN" else { return 0 }
+        return (threadsToAddress ?? 0) + reviewsByOthers.values.filter { $0 == "CHANGES_REQUESTED" }.count
+    }
 
     /// Open and can't be merged cleanly into its base.
     public var hasConflicts: Bool { state == "OPEN" && mergeable == "CONFLICTING" }
@@ -735,6 +746,7 @@ public struct GitHub: Sendable {
             viewerReviewedOid: ((node["viewerLatestReview"] as? [String: Any])?["commit"] as? [String: Any])?["oid"] as? String,
             pendingReviewComments: nodes(node["pendingReview"]).first.map { total($0["comments"]) },
             threadsAwaitingReply: awaitingReply(nodes(node["reviewThreads"]), viewerIsAuthor: node["viewerDidAuthor"] as? Bool ?? false),
+            threadsToAddress: node["viewerDidAuthor"] as? Bool == true ? toAddress(nodes(node["reviewThreads"])) : 0,
             additions: node["additions"] as? Int ?? 0,
             deletions: node["deletions"] as? Int ?? 0,
             changedFiles: node["changedFiles"] as? Int ?? 0,
@@ -754,6 +766,15 @@ public struct GitHub: Sendable {
             guard thread["isResolved"] as? Bool != true,
                   let last = nodes(thread["comments"]).last, last["viewerDidAuthor"] as? Bool == false else { return false }
             return viewerIsAuthor || nodes(thread["starter"]).first?["viewerDidAuthor"] as? Bool == true
+        }.count
+    }
+
+    /// Unresolved threads started by someone else, or started by the viewer with someone else writing last.
+    static func toAddress(_ threads: [[String: Any]]) -> Int {
+        threads.filter { thread in
+            guard thread["isResolved"] as? Bool != true, let starter = nodes(thread["starter"]).first,
+                  let last = nodes(thread["comments"]).last else { return false }
+            return starter["viewerDidAuthor"] as? Bool != true || last["viewerDidAuthor"] as? Bool != true
         }.count
     }
 

@@ -98,3 +98,25 @@ private func pr(head: String = "a", state: String = "OPEN", comments: Int = 0, r
     #expect(Updates.interval(foreground: false, failures: 0, backgroundSeconds: 5) == .seconds(60)) // floor protects the rate limit
     #expect(Updates.interval(foreground: false, failures: 9, backgroundSeconds: 3600) == .seconds(3600)) // cap never undercuts the base
 }
+
+@Test func notifiesNewChangeRequestsAndFeedbackOnMyPullRequests() {
+    func mine(threads: Int?, reviews: [String: String] = [:], author: Bool = true) -> PullRequest {
+        var pr = pr(mine: author)
+        (pr.threadsToAddress, pr.reviewsByOthers) = (threads, reviews)
+        return pr
+    }
+    var checkpoints: [String: Snapshot] = [:]
+    _ = Updates.advance(&checkpoints, with: [mine(threads: 1, reviews: ["eve": "COMMENTED"])], viewer: "me")
+    #expect(Updates.advance(&checkpoints, with: [mine(threads: 3, reviews: ["eve": "CHANGES_REQUESTED", "bob": "APPROVED"])], viewer: "me")
+            == ["PR_1": [.changesRequested(["eve"]), .toAddress(2)]])
+    // Still requesting, and fewer threads after replying: nothing new.
+    #expect(Updates.advance(&checkpoints, with: [mine(threads: 2, reviews: ["eve": "CHANGES_REQUESTED"])], viewer: "me").isEmpty)
+    #expect(UpdateKind.changesRequested(["eve", "bob"]).text == "eve, bob asked for changes")
+    // Someone else's PR, or a list cached before the count was read: no such event.
+    var others: [String: Snapshot] = [:]
+    _ = Updates.advance(&others, with: [mine(threads: 0, author: false)], viewer: "me")
+    #expect(Updates.advance(&others, with: [mine(threads: 0, reviews: ["eve": "CHANGES_REQUESTED"], author: false)], viewer: "me").isEmpty)
+    var cached: [String: Snapshot] = [:]
+    _ = Updates.advance(&cached, with: [mine(threads: nil)], viewer: "me")
+    #expect(Updates.advance(&cached, with: [mine(threads: 4)], viewer: "me").isEmpty)
+}

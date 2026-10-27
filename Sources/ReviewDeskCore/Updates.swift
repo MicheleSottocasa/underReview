@@ -10,6 +10,10 @@ public struct Snapshot: Codable, Hashable, Sendable {
     public var reviewRequested: Bool
     /// The viewer's own PR conflicts with its base. Nil in checkpoints saved before this was tracked.
     public var ownConflicts: Bool?
+    /// On the viewer's own PR: open threads still to address, and who asks for changes. Nil on others' PRs and in
+    /// checkpoints saved before this was tracked.
+    public var threadsToAddress: Int?
+    public var changesRequestedBy: [String]?
 
     /// `previous` keeps the conflict state while GitHub is still computing mergeability (UNKNOWN), so a
     /// conflict → unknown → conflict round trip isn't notified twice.
@@ -21,6 +25,8 @@ public struct Snapshot: Codable, Hashable, Sendable {
         threadCommentCount = pr.threadCommentCount
         reviewRequested = pr.requestedReviewers.contains(viewer)
         ownConflicts = pr.mergeabilityPending ? previous?.ownConflicts : pr.viewerIsAuthor && pr.hasConflicts
+        threadsToAddress = pr.viewerIsAuthor ? pr.threadsToAddress : nil
+        changesRequestedBy = pr.viewerIsAuthor ? pr.reviewsByOthers.filter { $0.value == "CHANGES_REQUESTED" }.keys.sorted() : nil
     }
 }
 
@@ -32,6 +38,10 @@ public enum UpdateKind: Hashable, Sendable {
     case newReplies(Int)
     case reviewRequested
     case conflicts
+    /// On the viewer's own PR: reviewers who now ask for changes.
+    case changesRequested([String])
+    /// On the viewer's own PR: more open threads waiting for a change or an answer.
+    case toAddress(Int)
 
     public var text: String {
         switch self {
@@ -42,6 +52,8 @@ public enum UpdateKind: Hashable, Sendable {
         case .newReplies(let n): n == 1 ? "1 new reply in threads" : "\(n) new replies in threads"
         case .reviewRequested: "Your review was requested"
         case .conflicts: "Now has merge conflicts"
+        case .changesRequested(let names): "\(names.joined(separator: ", ")) asked for changes"
+        case .toAddress(let n): n == 1 ? "1 new comment to address" : "\(n) new comments to address"
         }
     }
 }
@@ -58,6 +70,11 @@ public enum Updates {
         if new.threadCommentCount > old.threadCommentCount { kinds.append(.newReplies(new.threadCommentCount - old.threadCommentCount)) }
         if new.reviewRequested, !old.reviewRequested { kinds.append(.reviewRequested) }
         if new.ownConflicts == true, old.ownConflicts == false { kinds.append(.conflicts) }
+        if let names = new.changesRequestedBy, let before = old.changesRequestedBy {
+            let added = names.filter { !before.contains($0) }
+            if !added.isEmpty { kinds.append(.changesRequested(added)) }
+        }
+        if let count = new.threadsToAddress, let before = old.threadsToAddress, count > before { kinds.append(.toAddress(count - before)) }
         return kinds
     }
 

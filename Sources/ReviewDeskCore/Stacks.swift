@@ -57,6 +57,15 @@ extension Stacks {
     }
 }
 
+extension Stacks {
+    /// My PRs' order: items with feedback to address first (`count` per PR, any PR of a stack), otherwise as given,
+    /// like To Review lists first what waits for the viewer.
+    public static func addressFirst(_ items: [Item], count: (PullRequest) -> Int) -> [Item] {
+        let waiting = items.map { $0.pullRequests.contains { count($0) > 0 } }
+        return items.indices.sorted { (waiting[$0] ? 0 : 1, $0) < (waiting[$1] ? 0 : 1, $1) }.map { items[$0] }
+    }
+}
+
 extension PullRequest {
     /// Open, not the viewer's own, and waiting for them as a reviewer: their review is requested (again after
     /// reviewing, too), the author pushed since their review, or they haven't reviewed it yet.

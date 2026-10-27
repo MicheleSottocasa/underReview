@@ -117,3 +117,12 @@ private func pr(_ id: String, _ number: Int, stack: Int? = nil, entries: [String
     #expect(Stacks.agedItemKeys(prs, now: now, afterDays: 2) == ["pr:cached", "stack:o/r#3"])
     #expect(Stacks.agedItemKeys(prs, now: now, afterDays: 0).isEmpty)
 }
+
+@Test func myPRsWithFeedbackToAddressComeFirst() {
+    let items = Stacks.items([pr("A", 1, stack: 1, entries: ["A", "B"]), pr("B", 2, stack: 1, entries: ["A", "B"]),
+                              pr("x", 9), pr("y", 8), pr("z", 7)])
+    #expect(items.map(\.key) == ["pr:x", "pr:y", "pr:z", "stack:o/r#1"])
+    // z waits, and so does the stack through its top PR; the others keep their order.
+    let counts = ["z": 2, "B": 1]
+    #expect(Stacks.addressFirst(items) { counts[$0.id] ?? 0 }.map(\.key) == ["pr:z", "stack:o/r#1", "pr:x", "pr:y"])
+}

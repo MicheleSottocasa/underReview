@@ -27,9 +27,9 @@ struct SidebarView: View {
                          reviewed: active.filter { reviewed.contains($0.key) }, archived: others.filter { archived.contains($0.key) })
                 .help("Pull requests by others waiting for you: your review is requested, they changed since your review, or you haven't reviewed them yet")
             unfiledGroup("My PRs", systemImage: "person", key: AppModel.myPRsKey,
-                         items: unfiled.filter { mine.contains($0.key) && !archived.contains($0.key) },
+                         items: Stacks.addressFirst(unfiled.filter { mine.contains($0.key) && !archived.contains($0.key) }) { model.toAddress($0).count },
                          archived: unfiled.filter { mine.contains($0.key) && archived.contains($0.key) })
-                .help("Pull requests you opened, with the reviews others left on them")
+                .help("Pull requests you opened, with the reviews others left on them; those with feedback to address first")
 
             Section("Projects") {
                 ForEach(model.org.children(of: nil)) { FolderBranch(folder: $0, index: index, archived: archived) }
@@ -292,7 +292,7 @@ struct ItemRows: View {
                 StackGroup(item: item)
             } else if let pr = item.pullRequests.first {
                 PRRow(pr: pr, muted: model.org.muted.contains(item.key), requested: pr.requestedReviewers.contains(model.viewer),
-                      review: model.reviewStatus(pr))
+                      review: model.reviewStatus(pr), toAddress: model.toAddress(pr))
                     .tag(SidebarID.pr(pr.id))
                     .draggable(model.dragPayload(item.key))
             }
@@ -308,7 +308,7 @@ struct StackGroup: View {
     var body: some View {
         DisclosureGroup(isExpanded: model.expansion(item.key)) {
             ForEach(item.pullRequests.reversed()) { pr in
-                StackChildRow(pr: pr, review: model.reviewStatus(pr))
+                StackChildRow(pr: pr, review: model.reviewStatus(pr), toAddress: model.toAddress(pr))
                     .tag(SidebarID.pr(pr.id))
                     .draggable(model.dragPayload(item.key))
             }
@@ -372,6 +372,9 @@ enum Legend {
         if status.outdatedAnalysis {
             lines.append("✨ Orange sparkles: the author pushed after the latest AI analysis, so it may be out of date. Run it again from AI Review or Risk.")
         }
+        if status.outdatedFixPlan {
+            lines.append("✨ Orange sparkles: new commits or feedback since the latest fix plan, so it may be out of date. Plan again from Fix Plan.")
+        }
         if status.awaitingReply > 0 {
             let n = status.awaitingReply
             lines.append("↩ Purple arrow \(n): someone answered you in \(n == 1 ? "a conversation" : "\(n) conversations"), and it's your turn to reply.")
@@ -392,6 +395,14 @@ enum Legend {
 
     static let receivedStates = ["APPROVED", "CHANGES_REQUESTED", "COMMENTED"]
 
+    /// On the viewer's own PR: the feedback still to address, and who left it.
+    static func toAddress(_ toAddress: ToAddress) -> String? {
+        guard toAddress.count > 0 else { return nil }
+        let who = toAddress.reviewers.isEmpty ? "" : " from \(toAddress.reviewers.joined(separator: ", "))"
+        return "🔧 Wrench \(toAddress.count): \(toAddress.count) to address\(who), waiting for a change or an answer. Open Fix Plan to plan it."
+            + (toAddress.loaded ? "" : " Review summaries that only comment are counted once the pull request is opened.")
+    }
+
     /// On the viewer's own PR: who left a review in `state`, from each reviewer's latest one.
     static func received(_ pr: PullRequest, _ state: String) -> String? {
         let names = pr.reviewsByOthers.filter { $0.value == state }.keys.sorted()
@@ -406,10 +417,10 @@ enum Legend {
 
     /// `members`: a stack's pull requests, for its header.
     static func row(_ title: String, pr: PullRequest?, members: [PullRequest] = [], review: ReviewStatus,
-                    muted: Bool = false, requested: Bool = false) -> String {
+                    toAddress: ToAddress = ToAddress(), muted: Bool = false, requested: Bool = false) -> String {
         let received = pr.map { pr in receivedStates.compactMap { Legend.received(pr, $0) } } ?? []
         return ([title] + (pr.map { [Legend.state($0)] } ?? []) + conflicts(pr.map { [$0] } ?? members) + received
-            + Legend.review(review) + flags(muted: muted, requested: requested))
+            + (Legend.toAddress(toAddress).map { [$0] } ?? []) + Legend.review(review) + flags(muted: muted, requested: requested))
             .joined(separator: "\n")
     }
 }
@@ -420,6 +431,7 @@ struct PRRow: View {
     var muted = false
     var requested = false
     var review = ReviewStatus()
+    var toAddress = ToAddress()
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -435,10 +447,12 @@ struct PRRow: View {
             AgentSpinner(ids: [pr.id])
             ConflictIcon(prs: [pr])
             ReceivedReviews(pr: pr)
+            ToAddressCount(toAddress: toAddress)
             ReviewIndicator(status: review)
             Indicators(muted: muted, requested: requested)
         }
-        .help(Legend.row("\(pr.repo)#\(pr.number) · \(pr.headRefName) → \(pr.baseRefName)", pr: pr, review: review, muted: muted, requested: requested))
+        .help(Legend.row("\(pr.repo)#\(pr.number) · \(pr.headRefName) → \(pr.baseRefName)", pr: pr, review: review, toAddress: toAddress,
+                         muted: muted, requested: requested))
     }
 }
 
@@ -473,6 +487,7 @@ struct StackHeader: View {
 struct StackChildRow: View {
     let pr: PullRequest
     var review = ReviewStatus()
+    var toAddress = ToAddress()
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -486,9 +501,11 @@ struct StackChildRow: View {
             AgentSpinner(ids: [pr.id])
             ConflictIcon(prs: [pr])
             ReceivedReviews(pr: pr)
+            ToAddressCount(toAddress: toAddress)
             ReviewIndicator(status: review)
         }
-        .help(Legend.row("\(pr.repo)#\(pr.number) by \(pr.author) · number \(pr.stackPosition ?? 0) from the bottom of the stack", pr: pr, review: review))
+        .help(Legend.row("\(pr.repo)#\(pr.number) by \(pr.author) · number \(pr.stackPosition ?? 0) from the bottom of the stack", pr: pr,
+                         review: review, toAddress: toAddress))
     }
 }
 
@@ -535,9 +552,10 @@ struct ReviewIndicator: View {
             } else if let submitted = status.submitted, let (symbol, color) = Self.submitted(submitted) {
                 Image(systemName: symbol).foregroundStyle(color).help(Legend.review(ReviewStatus(submitted: submitted)).joined())
             }
-            if status.outdatedAnalysis {
+            if status.outdatedAnalysis || status.outdatedFixPlan {
                 Image(systemName: "sparkles").foregroundStyle(.orange)
-                    .help(Legend.review(ReviewStatus(outdatedAnalysis: true)).joined())
+                    .help(Legend.review(ReviewStatus(outdatedAnalysis: status.outdatedAnalysis, outdatedFixPlan: status.outdatedFixPlan))
+                        .joined(separator: "\n"))
             }
             if status.awaitingReply > 0 {
                 Label("\(status.awaitingReply)", systemImage: "arrowshape.turn.up.left.fill")
@@ -582,6 +600,21 @@ struct ReceivedReviews: View {
         }
         .labelStyle(CompactLabel())
         .font(.caption)
+    }
+}
+
+/// On the viewer's own PR: "N to address", the feedback the Fix Plan tab works on; who left it on hover.
+struct ToAddressCount: View {
+    let toAddress: ToAddress
+
+    var body: some View {
+        if let help = Legend.toAddress(toAddress) {
+            Label("\(toAddress.count) to address", systemImage: "wrench.and.screwdriver")
+                .foregroundStyle(.orange)
+                .labelStyle(CompactLabel())
+                .font(.caption)
+                .help(help)
+        }
     }
 }
 

@@ -20,15 +20,23 @@ struct RecentEvent: Identifiable {
 
 /// Sidebar state filter; Draft is an open PR marked as draft.
 enum PRStateFilter: String, CaseIterable {
-    case open, changed, draft, merged, closed
+    case open, changed, feedback, draft, merged, closed
 
-    var title: String { self == .changed ? "Changed Since Review" : rawValue.capitalized }
+    var title: String {
+        switch self {
+        case .changed: "Changed Since Review"
+        case .feedback: "Feedback to Address"
+        default: rawValue.capitalized
+        }
+    }
 
-    /// One category per PR: an open PR with new commits since the viewer's review is "changed", not "open".
+    /// One category per PR: an open PR with new commits since the viewer's review is "changed", and one of the
+    /// viewer's own with feedback to address (as the polled list shows it) is "feedback", not "open".
     func matches(_ pr: PullRequest) -> Bool {
         switch self {
-        case .open: pr.state == "OPEN" && !pr.isDraft && !pr.needsReReview
+        case .open: pr.state == "OPEN" && !pr.isDraft && !pr.needsReReview && pr.feedbackToAddress == 0
         case .changed: pr.needsReReview && !pr.isDraft
+        case .feedback: pr.feedbackToAddress > 0 && !pr.isDraft
         case .draft: pr.state == "OPEN" && pr.isDraft
         case .merged: pr.state == "MERGED"
         case .closed: pr.state == "CLOSED"
@@ -250,15 +258,16 @@ final class AppModel {
 
     // MARK: Lifecycle
 
-    /// The saved filter, upgraded once for "changed since review": those PRs used to count as open, so a filter
-    /// showing open PRs keeps showing them.
+    /// The saved filter, upgraded once for "changed since review" and once for "feedback to address": those PRs used
+    /// to count as open, so a filter showing open PRs keeps showing them.
     static func savedStateFilter() -> Set<PRStateFilter> {
         let defaults = UserDefaults.standard
         guard var saved = defaults.stringArray(forKey: "stateFilter") else { return Set(PRStateFilter.allCases) }
-        if !defaults.bool(forKey: "stateFilter.hasChanged") {
-            if saved.contains(PRStateFilter.open.rawValue) { saved.append(PRStateFilter.changed.rawValue) }
+        for (state, key) in [(PRStateFilter.changed, "stateFilter.hasChanged"), (PRStateFilter.feedback, "stateFilter.hasFeedback")]
+            where !defaults.bool(forKey: key) {
+            if saved.contains(PRStateFilter.open.rawValue) { saved.append(state.rawValue) }
             defaults.set(saved, forKey: "stateFilter")
-            defaults.set(true, forKey: "stateFilter.hasChanged")
+            defaults.set(true, forKey: key)
         }
         return Set(saved.compactMap(PRStateFilter.init))
     }
