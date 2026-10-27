@@ -36,4 +36,4 @@ Use one scope per commit, with a concise imperative subject (`Add diff parser an
 
 ## Security & Configuration
 
-Never commit credentials. `.envrc` and `.env` are ignored. GitHub auth belongs to `gh`. The AI CLIs must use their subscription login: never pass API keys to them, and keep `ProcessRunner.strippedEnvironment` up to date. Only `/code-review` gets tools, and only read-only ones (`AIReviewer.codeReviewAllowed`); never add write-capable tools or commands to that list.
+Never commit credentials. `.envrc` and `.env` are ignored. GitHub auth belongs to `gh`. The AI CLIs must use their subscription login, with one opt-in exception: Claude Code may sign in with Anthropic Workload Identity Federation (Settings › AI), where only the `ClaudeSignIn.variables` (profile, federation ids and the identity token file's path, never the token itself) are passed, and only to `claude`. Never pass API keys or auth tokens to any CLI, and keep `ProcessRunner.strippedEnvironment` up to date. Only `/code-review` gets tools, and only read-only ones (`AIReviewer.codeReviewAllowed`); never add write-capable tools or commands to that list.

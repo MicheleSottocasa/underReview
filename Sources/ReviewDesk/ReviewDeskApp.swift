@@ -365,6 +365,13 @@ struct AISettings: View {
     @AppStorage(AppModel.reviewCommandKey(.ollama(model: ""))) private var ollamaCommand = ReviewCommand.generic.stored
     /// The saved review prompt being added or edited.
     @ViewState private var editingTemplate: ReviewTemplate?
+    @AppStorage(ClaudeSignIn.Key.method) private var signIn = ClaudeSignIn.Method.subscription.rawValue
+    @AppStorage(ClaudeSignIn.Key.profile) private var federationProfile = ""
+    @AppStorage(ClaudeSignIn.Key.ruleID) private var federationRule = ""
+    @AppStorage(ClaudeSignIn.Key.organizationID) private var federationOrganization = ""
+    @AppStorage(ClaudeSignIn.Key.serviceAccountID) private var federationAccount = ""
+    @AppStorage(ClaudeSignIn.Key.workspaceID) private var federationWorkspace = ""
+    @AppStorage(ClaudeSignIn.Key.tokenFile) private var federationTokenFile = ""
 
     var body: some View {
         Form {
@@ -380,6 +387,11 @@ struct AISettings: View {
             }
             Section {
                 ProviderStatusRow(engine: .claudeCode)
+                Picker("Sign-in", selection: $signIn) {
+                    Text("Subscription").tag(ClaudeSignIn.Method.subscription.rawValue)
+                    Text("Workload identity federation").tag(ClaudeSignIn.Method.federation.rawValue)
+                }
+                if signIn == ClaudeSignIn.Method.federation.rawValue { federation }
                 ReviewCommandPicker(engine: .claudeCode, selection: $claudeCommand)
                 ModelPicker(choices: AIOptions.models(for: .claudeCode), selection: $claudeModel, defaultLabel: "CLI default")
                 ContextPicker(model: claudeModel, selection: $claudeContext)
@@ -452,9 +464,46 @@ struct AISettings: View {
         .formStyle(.grouped)
         .task { await model.loadOllamaModels() }
         .task(id: ollamaModel) { await model.loadOllamaThinks(ollamaModel) }
+        .onChange(of: signIn) { Task { await model.loadProviderStatus(.claudeCode) } }
         .sheet(item: $editingTemplate) { template in
             ReviewTemplateEditor(template: template) { model.saveReviewTemplate($0) }
         }
+    }
+
+    /// Workload Identity Federation's settings: a profile, or the ids and the token file's path. Never a token or a key.
+    @ViewBuilder
+    private var federation: some View {
+        TextField("Anthropic profile", text: $federationProfile, prompt: Text("optional: a name in ~/.config/anthropic/configs"))
+        if federationProfile.trimmingCharacters(in: .whitespaces).isEmpty {
+            TextField("Federation rule", text: $federationRule, prompt: Text("fdrl_…"))
+            TextField("Organization", text: $federationOrganization, prompt: Text("organization UUID"))
+            TextField("Service account", text: $federationAccount, prompt: Text("svac_…"))
+            TextField("Workspace", text: $federationWorkspace, prompt: Text("optional"))
+            LabeledContent("Identity token file") {
+                HStack {
+                    TextField("", text: $federationTokenFile, prompt: Text("path to the OIDC token"))
+                    Button("Choose…") { chooseTokenFile() }
+                }
+            }
+        }
+        if let problem = ClaudeSignIn(defaults: .standard).problem() {
+            Label(problem.prefix(1).uppercased() + problem.dropFirst(), systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .font(.callout)
+        }
+        Text("Claude Code exchanges the OIDC token in the file (read again on every run) for a short-lived Anthropic token: no API key is used, and any key or token in ReviewDesk's environment is still removed. The ids aren't secrets and are kept with these settings; the token stays in its file.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+    }
+
+    private func chooseTokenFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.message = "Choose the file your identity provider writes the OIDC token to"
+        panel.prompt = "Choose"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        federationTokenFile = (url.path as NSString).abbreviatingWithTildeInPath
     }
 }
 

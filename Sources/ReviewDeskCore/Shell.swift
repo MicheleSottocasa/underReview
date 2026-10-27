@@ -60,16 +60,23 @@ extension CommandRunner {
 }
 
 public struct ProcessRunner: CommandRunner {
-    /// API keys would make the AI CLIs bill the API instead of the user's subscription. The CLAUDE.md switch would
-    /// load instructions from the project folders `/code-review` reads through `--add-dir`.
+    /// API keys would make the AI CLIs bill the API instead of the user's subscription, and any key or auth token
+    /// would shadow the sign-in the user chose (a literal identity token included: federation only reads it from its
+    /// file). The CLAUDE.md switch would load instructions from the project folders `/code-review` reads through `--add-dir`.
     public static let strippedEnvironment: Set<String> = [
-        "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX",
+        "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_IDENTITY_TOKEN",
+        "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX",
         "OPENAI_API_KEY", "CODEX_API_KEY", "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD",
     ]
 
     public var paths: [String: String]
+    /// Claude Code's sign-in, read for every `claude` it starts so a change in Settings applies to the next run.
+    public var claudeSignIn: @Sendable () -> ClaudeSignIn
 
-    public init(paths: [String: String]) { self.paths = paths }
+    public init(paths: [String: String], claudeSignIn: @escaping @Sendable () -> ClaudeSignIn = { ClaudeSignIn() }) {
+        self.paths = paths
+        self.claudeSignIn = claudeSignIn
+    }
 
     /// Where installers commonly put CLIs, checked when the shell doesn't know a tool.
     public static let fallbackDirectories = ["~/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", "~/.bun/bin", "~/.npm-global/bin"]
@@ -135,12 +142,15 @@ public struct ProcessRunner: CommandRunner {
         if !buffer.isEmpty { onLine(String(decoding: buffer, as: UTF8.self)) }
     }
 
-    /// The environment for a tool: API keys removed, and `PATH` extended with the folders of the tools we found plus
-    /// the usual install folders. An app opened from Finder gets launchd's minimal `PATH`, so without this a CLI we
-    /// start couldn't run the others itself (e.g. `/code-review` running `gh pr diff` found no `gh`).
+    /// The environment for a tool: API keys and federation settings removed, and `PATH` extended with the folders of
+    /// the tools we found plus the usual install folders. An app opened from Finder gets launchd's minimal `PATH`, so
+    /// without this a CLI we start couldn't run the others itself (e.g. `/code-review` running `gh pr diff` found no `gh`).
+    /// `signIn` is the federation settings to add (`ClaudeSignIn.environment`, for `claude` only): nothing but those
+    /// variables is taken from it.
     public static func childEnvironment(_ base: [String: String] = ProcessInfo.processInfo.environment,
-                                        toolPaths: [String: String] = [:]) -> [String: String] {
-        var env = base.filter { !strippedEnvironment.contains($0.key) }
+                                        toolPaths: [String: String] = [:], signIn: [String: String] = [:]) -> [String: String] {
+        var env = base.filter { !strippedEnvironment.contains($0.key) && !ClaudeSignIn.variables.contains($0.key) }
+        for (key, value) in signIn where ClaudeSignIn.variables.contains(key) { env[key] = value }
         let current = (env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin").split(separator: ":").map(String.init)
         let extra = toolPaths.values.sorted().map { ($0 as NSString).deletingLastPathComponent }
             + fallbackDirectories.map { ($0 as NSString).expandingTildeInPath }
@@ -174,7 +184,7 @@ public struct ProcessRunner: CommandRunner {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = args
-        process.environment = Self.childEnvironment(toolPaths: paths)
+        process.environment = Self.childEnvironment(toolPaths: paths, signIn: tool == "claude" ? claudeSignIn().environment : [:])
         if let cwd { process.currentDirectoryURL = cwd }
         process.standardInput = try FileHandle(forReadingFrom: inURL)
         process.standardOutput = try FileHandle(forWritingTo: outURL)
