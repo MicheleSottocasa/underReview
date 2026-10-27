@@ -234,7 +234,7 @@ struct ArchiveGroup: View {
         if !items.isEmpty {
             let key = AppModel.archiveKey(scope)
             DisclosureGroup(isExpanded: model.expansion(key)) {
-                RepoGroups(items: items, scope: key, folder: folder)
+                RepoGroups(items: items, scope: key, folder: folder, archives: true)
             } label: {
                 Label("Archive", systemImage: "archivebox")
                     .foregroundStyle(.secondary)
@@ -257,6 +257,8 @@ struct RepoGroups: View {
     let items: [Item]
     let scope: String
     let folder: UUID?
+    /// Inside an Archive group: items dropped on a repo are archived too.
+    var archives = false
 
     var body: some View {
         // Keyed by scope too: a repo can be in To Review, My PRs and folders at once, and outline rows need unique ids.
@@ -272,6 +274,7 @@ struct RepoGroups: View {
                     .dropDestination(for: String.self) { payload, _ in
                         let keys = Set(payload.flatMap { $0.split(separator: "\n").map(String.init) })
                         model.move(keys, to: folder)
+                        if archives { model.setArchived(keys, true) }
                         return !keys.isEmpty
                     }
             }
