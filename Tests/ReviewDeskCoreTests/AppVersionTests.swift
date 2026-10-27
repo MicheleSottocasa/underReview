@@ -12,6 +12,15 @@ import Testing
     #expect(!AppVersion.isNewer("0.2.0-beta", than: "0.2.0"))
 }
 
+@Test func aReleaseIsNewerThanItsPreReleases() {
+    #expect(AppVersion.isNewer("0.10.0", than: "0.10.0-beta.1"))
+    #expect(AppVersion.isNewer("0.10.0-beta.2", than: "0.10.0-beta.1"))
+    #expect(AppVersion.isNewer("0.10.0-beta.10", than: "0.10.0-beta.9"))
+    #expect(AppVersion.isNewer("0.10.0-beta.1", than: "0.9.7"))
+    #expect(!AppVersion.isNewer("0.10.0-beta.1", than: "0.10.0-beta.1"))
+    #expect(!AppVersion.isNewer("0.9.8", than: "0.10.0-beta.1"))
+}
+
 @Test func readsTheLatestRelease() async throws {
     let runner = FakeRunner { _ in
         ok(#"{"tag_name":"v0.3.0","html_url":"https://github.com/o/r/releases/tag/v0.3.0","published_at":"2026-10-20T09:00:00Z","body":"Notes"}"#)
