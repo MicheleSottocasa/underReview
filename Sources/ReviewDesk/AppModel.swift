@@ -202,7 +202,10 @@ final class AppModel {
         // osascript opens background agents in Terminal; it's part of macOS.
         // osascript and the updater's tools ship with macOS, at fixed paths.
         let system = Updater.systemTools.merging(["osascript": "/usr/bin/osascript"]) { a, _ in a }
-        let runner = ProcessRunner(paths: ProcessRunner.discover(Self.tools, overrides: overrides).merging(system) { a, _ in a })
+        // Read for every run, so a sign-in changed in Settings › AI applies to the next one.
+        let signIn: @Sendable () -> ClaudeSignIn = { ClaudeSignIn(defaults: .standard) }
+        let runner = ProcessRunner(paths: ProcessRunner.discover(Self.tools, overrides: overrides).merging(system) { a, _ in a },
+                                   claudeSignIn: signIn)
         toolPaths = runner.paths
         github = GitHub(runner: runner)
         let org = orgFile.load(default: Organization())
@@ -217,7 +220,7 @@ final class AppModel {
         checkpoints = checkpointFile.load(default: [:])
         reviewDrafts = draftsFile.load(default: ReviewDrafts())
         aiRuns = aiRunsFile.load(default: [])
-        reviewer = AIReviewer(runner: runner)
+        reviewer = AIReviewer(runner: runner, claudeSignIn: signIn)
         agents = ClaudeAgents(runner: runner)
         clones = LocalClone(runner: runner)
         agentLinks = agentLinksFile.load(default: [:])

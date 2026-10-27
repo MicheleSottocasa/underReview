@@ -22,7 +22,7 @@ Taken from the built-in demo pull request (a fictional repository), with `make s
 
 - macOS 14 or later, with Swift 6 (the Command Line Tools are enough; Xcode is not required).
 - [`gh`](https://cli.github.com), logged in (`gh auth login`). The active `gh` account is the one ReviewDesk uses.
-- Optional, for AI review: `claude` (Claude Code) and/or `codex`, logged in with a subscription, or [`ollama`](https://ollama.com) with a local model. If a CLI is logged in with an API key, ReviewDesk refuses to run it, and it strips API-key environment variables from every child process.
+- Optional, for AI review: `claude` (Claude Code) and/or `codex`, logged in with a subscription, or [`ollama`](https://ollama.com) with a local model. Claude Code can instead sign in with Anthropic Workload Identity Federation (Settings › AI › Claude Code › *Sign-in*): an Anthropic profile, or the federation rule, organization, service account and optional workspace ids plus the path of the OIDC token file, which must exist and be readable before each run. Those settings are passed to `claude` only; the token is never typed into ReviewDesk. If a CLI is logged in with an API key, ReviewDesk refuses to run it, and it strips API-key and auth-token environment variables from every child process.
 
 ## Install
 

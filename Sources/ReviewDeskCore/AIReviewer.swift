@@ -37,7 +37,8 @@ public enum AIError: Error, LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .notLoggedIn(let detail): "Not logged in: \(detail)"
-        case .notSubscription(let detail): "Refusing to run: \(detail). Log in with your subscription so no API billing is used."
+        case .notSubscription(let detail):
+            "Refusing to run: \(detail). Log in with your subscription, or use workload identity federation for Claude Code, so no API key is used."
         case .invalidOutput(let detail): "The model returned output that isn't a valid review: \(detail)"
         case .failed(let detail): detail
         }
@@ -198,20 +199,32 @@ public struct AIReviewer: Sendable {
     public let runner: any CommandRunner
     /// Where Claude Code keeps sessions: read to follow `/code-review` live, cleaned after each run.
     public let claudeConfigDirectory: URL
+    /// How Claude Code signs in (Settings › AI), the same the runner passes to it.
+    public let claudeSignIn: @Sendable () -> ClaudeSignIn
 
-    public init(runner: any CommandRunner, claudeConfigDirectory: URL = ClaudeSessionFiles.defaultConfigDirectory) {
+    public init(runner: any CommandRunner, claudeConfigDirectory: URL = ClaudeSessionFiles.defaultConfigDirectory,
+                claudeSignIn: @escaping @Sendable () -> ClaudeSignIn = { ClaudeSignIn() }) {
         self.runner = runner
         self.claudeConfigDirectory = claudeConfigDirectory
+        self.claudeSignIn = claudeSignIn
     }
 
     public func checkAuth(_ engine: AIEngine) async throws {
         switch engine {
         case .claudeCode, .claudeSession:
+            let signIn = claudeSignIn()
+            if let problem = signIn.problem() { throw AIError.notLoggedIn(problem) }
             let status = try await runner.run("claude", ["auth", "status", "--json"])
             let json = (try? JSONSerialization.jsonObject(with: status.stdout)) as? [String: Any]
-            guard json?["loggedIn"] as? Bool == true else { throw AIError.notLoggedIn("run `claude auth login`") }
             let method = json?["authMethod"] as? String ?? "unknown"
-            guard method == "claude.ai" else { throw AIError.notSubscription("Claude Code is authenticated via \(method)") }
+            switch signIn.method {
+            case .subscription:
+                guard json?["loggedIn"] as? Bool == true else { throw AIError.notLoggedIn("run `claude auth login`") }
+                guard method == "claude.ai" else { throw AIError.notSubscription("Claude Code is authenticated via \(method)") }
+            case .federation:
+                // The token is exchanged on each run, so there may be no stored login to report: only a key is refused.
+                guard !ClaudeSignIn.isAPIKey(method) else { throw AIError.notSubscription("Claude Code is authenticated via \(method)") }
+            }
         case .codex:
             let status = try await runner.run("codex", ["login", "status"])
             let text = status.text + status.stderr
@@ -232,6 +245,11 @@ public struct AIReviewer: Sendable {
             try await checkAuth(engine)
             switch engine {
             case .claudeCode, .claudeSession:
+                let signIn = claudeSignIn()
+                guard signIn.method == .subscription else {
+                    let profile = signIn.profile.isEmpty ? "" : " (profile \(signIn.profile))"
+                    return ProviderStatus(version: version, detail: "Signs in with workload identity federation\(profile)", isReady: true)
+                }
                 return ProviderStatus(version: version, detail: "Logged in with your Claude subscription", isReady: true)
             case .codex:
                 return ProviderStatus(version: version, detail: "Logged in with ChatGPT", isReady: true)
