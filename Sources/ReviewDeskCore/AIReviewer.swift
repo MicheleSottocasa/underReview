@@ -66,11 +66,14 @@ public struct AIOptions: Codable, Hashable, Sendable {
     }
 
     /// The models offered for `engine` besides Default and *Other…*. Ollama's come from `ollama list` instead.
-    // ponytail: Codex has no command that lists its models, so these are the ones its docs name; Other… takes any id.
+    /// For Claude Code: the family aliases, which follow each new version, then pinned versions.
+    // ponytail: neither CLI has a command that lists its models, so these are a short curated list; Other… takes any id.
     public static func models(for engine: AIEngine) -> [ModelChoice] {
         switch engine {
         case .claudeCode, .claudeSession:
-            [ModelChoice("fable", "Fable"), ModelChoice("opus", "Opus"), ModelChoice("sonnet", "Sonnet"), ModelChoice("haiku", "Haiku")]
+            [ModelChoice("fable", "Fable"), ModelChoice("opus", "Opus"), ModelChoice("sonnet", "Sonnet"), ModelChoice("haiku", "Haiku"),
+             ModelChoice("claude-opus-5-5", "Opus 5.5"), ModelChoice("claude-sonnet-5-5", "Sonnet 5.5"),
+             ModelChoice("claude-haiku-5-5", "Haiku 5.5"), ModelChoice("claude-fable-5-1", "Fable 5.1")]
         case .codex: [ModelChoice("gpt-5-codex", "GPT-5 Codex"), ModelChoice("gpt-5", "GPT-5")]
         case .ollama: []
         }
@@ -92,12 +95,26 @@ public struct AIOptions: Codable, Hashable, Sendable {
         }
     }
 
-    /// How a run used them, for its card and Re-run: "Opus · high", "GPT-5 Codex · default effort", "low thinking".
+    /// Claude Code's suffix on a model for its 1M-token context window (`opus[1m]`).
+    public static let longContextSuffix = "[1m]"
+
+    /// `model` with the 1M-token context window when `longContext` is on. Default stays "", since the suffix needs a
+    /// model to go on, and an id typed with the suffix under *Other…* keeps it.
+    public static func claudeModel(_ model: String, longContext: Bool) -> String {
+        guard longContext, !model.isEmpty, !model.hasSuffix(longContextSuffix) else { return model }
+        return model + longContextSuffix
+    }
+
+    /// How a run used them, for its card and Re-run: "Opus · high", "Opus 5.5 · 1M context · max",
+    /// "GPT-5 Codex · default effort", "low thinking".
     public func label(for engine: AIEngine) -> String {
         if case .ollama = engine {
             return effort.isEmpty ? "default thinking" : effort == "off" ? "no thinking" : "\(effort) thinking"
         }
-        let name = model.isEmpty ? "default model" : Self.models(for: engine).first { $0.id == model }?.label ?? model
+        let long = engine.tool == "claude" && model.hasSuffix(Self.longContextSuffix)
+        let base = long ? String(model.dropLast(Self.longContextSuffix.count)) : model
+        let name = (base.isEmpty ? "default model" : Self.models(for: engine).first { $0.id == base }?.label ?? base)
+            + (long ? " · 1M context" : "")
         if engine.tool == "claude" { return "\(name) · \(effort)" }
         return "\(name) · \(effort.isEmpty ? "default" : effort) effort"
     }
