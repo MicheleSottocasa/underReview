@@ -122,6 +122,8 @@ final class AppModel {
 
     // The tour's demo lives in these in memory only: every save drops it.
     var org: Organization { didSet { save(orgFile, org.removingDemo()) } }
+    /// Items moved to the sidebar's Archive by hand, or taken out of it.
+    var archive: PRArchive { didSet { save(archiveFile, archive.removingDemo()) } }
     var checkpoints: [String: Snapshot]
     var reviewDrafts: ReviewDrafts { didSet { save(draftsFile, reviewDrafts.removingDemo()) } }
     var recentEvents: [RecentEvent] = []
@@ -171,6 +173,7 @@ final class AppModel {
     let agents: ClaudeAgents
     let clones: LocalClone
     private let orgFile = JSONFile<Organization>.appSupport("organization.json")
+    private let archiveFile = JSONFile<PRArchive>.appSupport("archive.json")
     private let checkpointFile = JSONFile<[String: Snapshot]>.appSupport("checkpoints.json")
     private let draftsFile = JSONFile<ReviewDrafts>.appSupport("drafts.json")
     private let aiRunsFile = JSONFile<[AIRun]>.appSupport("ai-runs.json")
@@ -194,6 +197,7 @@ final class AppModel {
         github = GitHub(runner: runner)
         let org = orgFile.load(default: Organization())
         self.org = org
+        archive = archiveFile.load(default: PRArchive())
         // The last list shows right away, marked by its age in the footer, until the first refresh replaces it.
         // A screenshot run must never show the user's own pull requests.
         let cache = Screenshots.isRequested ? PRCache() : prsFile.load(default: PRCache())
@@ -306,6 +310,10 @@ final class AppModel {
         if updated != org { org = updated }
         // The tour's demo PRs aren't on GitHub: keep them through refreshes instead of dropping them.
         prs = fresh.filter { !org.unfollowed.contains($0.key) }.merging(prs.filter { $0.value.isDemo }) { real, _ in real }
+        // A push or a new review request brings a hand-archived item back.
+        var archived = archive
+        archived.update(Array(prs.values)) { self.viewer(for: $0) }
+        if archived != archive { archive = archived }
         lastError = nil
         lastRefresh = .now
         refreshError = nil

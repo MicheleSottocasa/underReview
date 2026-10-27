@@ -21,9 +21,9 @@ extension AppModel {
         Stacks.reviewedItemKeys(Array(prs.values)) { self.viewer(for: $0) }
     }
 
-    /// Items the sidebar shows in an Archive group, across every PR like `reviewedItemKeys`.
+    /// Items the sidebar shows in an Archive group (aged in or moved there), across every PR like `reviewedItemKeys`.
     func archivedItemKeys(afterDays days: Int = AppModel.archiveAfterDays) -> Set<String> {
-        Stacks.agedItemKeys(Array(prs.values), now: .now, afterDays: days)
+        archive.itemKeys(Array(prs.values), now: .now, afterDays: days) { self.viewer(for: $0) }
     }
 
     /// Items per folder (nil = unfiled: To Review and My PRs), filtered by state and the sidebar search. Build once per render.
@@ -107,6 +107,20 @@ extension AppModel {
         if muted { org.muted.formUnion(keys) } else { org.muted.subtract(keys) }
     }
 
+    /// Move to Archive, or Unarchive. Archived items stay monitored; a hand-archived one comes back on a push or a
+    /// new review request.
+    func setArchived(_ keys: Set<String>, _ archived: Bool) {
+        var updated = archive
+        for item in allItems where keys.contains(item.key) {
+            if archived {
+                updated.archive(item) { self.viewer(for: $0) }
+            } else {
+                updated.unarchive(item, now: .now, afterDays: Self.archiveAfterDays)
+            }
+        }
+        archive = updated
+    }
+
     func openOnGitHub(_ ids: Set<SidebarID>) {
         for id in ids {
             switch id {
@@ -125,6 +139,7 @@ extension AppModel {
             if pr.id == selectedPRID { selectedPRID = nil }
         }
         org = updated
+        archive.forget(keys)
         selection = []
     }
 
