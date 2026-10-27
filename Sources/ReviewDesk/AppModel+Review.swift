@@ -318,12 +318,15 @@ struct ReviewStatus: Equatable {
     var changedSinceReview = false
     /// The latest AI analysis predates the author's latest push.
     var outdatedAnalysis = false
+    /// On the viewer's own PR: a push or new feedback since the latest fix plan.
+    var outdatedFixPlan = false
 
     static func + (a: ReviewStatus, b: ReviewStatus) -> ReviewStatus {
         ReviewStatus(toSend: a.toSend + b.toSend, hasPendingReview: a.hasPendingReview || b.hasPendingReview,
                      submitted: nil, awaitingReply: a.awaitingReply + b.awaitingReply,
                      changedSinceReview: a.changedSinceReview || b.changedSinceReview,
-                     outdatedAnalysis: a.outdatedAnalysis || b.outdatedAnalysis)
+                     outdatedAnalysis: a.outdatedAnalysis || b.outdatedAnalysis,
+                     outdatedFixPlan: a.outdatedFixPlan || b.outdatedFixPlan)
     }
 }
 
@@ -338,7 +341,8 @@ extension AppModel {
             submitted: pr.viewerIsAuthor ? nil : pr.viewerReviewState,
             awaitingReply: pr.threadsAwaitingReply,
             changedSinceReview: pr.needsReReview,
-            outdatedAnalysis: hasOutdatedAnalysis(pr)
+            outdatedAnalysis: hasOutdatedAnalysis(pr),
+            outdatedFixPlan: hasOutdatedFixPlan(pr)
         )
     }
 }

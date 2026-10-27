@@ -1,16 +1,48 @@
 import Foundation
 import ReviewDeskCore
 
+/// The feedback still to address on one of the viewer's open PRs, as the sidebar shows it.
+struct ToAddress: Equatable {
+    var count = 0
+    /// Who left it.
+    var reviewers: [String] = []
+    /// The conversation is loaded, so review summaries that only comment are counted too.
+    var loaded = false
+}
+
 extension AppModel {
     func fixPlanRuns(for prID: String) -> [FixPlanRun] {
         fixPlans.filter { $0.prID == prID }.sorted { $0.date > $1.date }
     }
 
     /// The tab `pr` opens on when the chosen one isn't in `tabs`: Fix Plan on the viewer's own open PR while it has
-    /// feedback to address (the polled replies owed stand in until the conversation loads), else the first tab.
+    /// feedback to address, else the first tab.
     func defaultTab(_ pr: PullRequest, tabs: [DetailTab]) -> DetailTab {
-        let open = fixPlanFeedback(pr).map { !$0.isEmpty } ?? (pr.threadsAwaitingReply > 0)
-        return tabs.contains(.fixPlan) && pr.state == "OPEN" && open ? .fixPlan : tabs.first ?? .conversation
+        tabs.contains(.fixPlan) && toAddress(pr).count > 0 ? .fixPlan : tabs.first ?? .conversation
+    }
+
+    /// Feedback still to address on the viewer's own open PR. Threads come from the polled list, which is always
+    /// current; review summaries from the conversation once it's loaded (it isn't reloaded for PRs not on screen),
+    /// and until then each reviewer asking for changes counts.
+    func toAddress(_ pr: PullRequest) -> ToAddress {
+        guard pr.viewerIsAuthor, pr.state == "OPEN" else { return ToAddress() }
+        guard let feedback = fixPlanFeedback(pr) else {
+            let names = pr.reviewsByOthers.filter { $0.value == "CHANGES_REQUESTED" || $0.value == "COMMENTED" }.keys.sorted()
+            return ToAddress(count: pr.feedbackToAddress, reviewers: names)
+        }
+        let me = viewer(for: pr)
+        let threads = pr.threadsToAddress ?? feedback.threads.count
+        let names = feedback.threads.flatMap { $0.comments.map(\.author) } + feedback.reviews.map(\.author)
+        let reviewers = names.filter { $0 != me }.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+        return ToAddress(count: threads + feedback.reviews.count, reviewers: reviewers, loaded: true)
+    }
+
+    /// The latest fix plan of the viewer's open PR no longer matches it: a push, or new feedback once the conversation
+    /// is loaded. ponytail: before that, only a push shows; the polled list doesn't say which threads got comments.
+    func hasOutdatedFixPlan(_ pr: PullRequest) -> Bool {
+        // Every sidebar row asks on every redraw: one pass for the latest plan, no sort.
+        guard pr.viewerIsAuthor, pr.state == "OPEN", let run = fixPlans.filter({ $0.prID == pr.id }).max(by: { $0.date < $1.date }) else { return false }
+        return FixPlan.outdatedReason(run, pr: pr, feedback: fixPlanFeedback(pr), viewer: viewer(for: pr)) != nil
     }
 
     /// What reviewers left on the viewer's pull request that still needs an answer; nil until its detail is loaded.

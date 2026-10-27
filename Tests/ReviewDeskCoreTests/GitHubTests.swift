@@ -439,3 +439,23 @@ import Testing
     let left = try FileManager.default.contentsOfDirectory(atPath: FileManager.default.temporaryDirectory.path)
     #expect(!left.contains { $0.hasPrefix("reviewdesk-r-7-") })
 }
+
+@Test func decodesTheFeedbackToAddressOnMyPullRequests() async throws {
+    let nodes = [
+        // Others' open thread (answered by me or not), my thread with a reply, my unanswered note, a resolved one.
+        prNode(id: "MINE", author: true, threads: [(2, false, true, false), (1, false, false, false), (2, false, false, true),
+                                                   (1, false, true, true), (3, true, false, false)]),
+        prNode(id: "THEIRS", threads: [(1, false, false, false)]),
+        prNode(id: "MERGED", state: "MERGED", author: true, threads: [(1, false, false, false)]),
+    ]
+    let runner = FakeRunner { _ in data(#"{"nodes":[\#(nodes.joined(separator: ","))]}"#) }
+    var prs = try await GitHub(runner: runner).pullRequests(ids: ["x"])
+
+    #expect(prs[0].threadsToAddress == 3 && prs[0].feedbackToAddress == 3)
+    // A change request counts as soon as the list shows it; an approval or a plain comment doesn't.
+    prs[0].reviewsByOthers = ["bob": "CHANGES_REQUESTED", "eve": "COMMENTED", "zoe": "APPROVED"]
+    #expect(prs[0].feedbackToAddress == 4)
+    // Nothing to address on someone else's PR, or on a merged one.
+    #expect(prs[1].threadsToAddress == 0 && prs[1].feedbackToAddress == 0)
+    #expect(prs[2].feedbackToAddress == 0)
+}
