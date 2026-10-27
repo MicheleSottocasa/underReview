@@ -31,6 +31,23 @@ import Testing
     #expect(loaded.refreshed == refreshed && loaded.fullRefresh == refreshed)
 }
 
+@Test func pullRequestCacheSavedBeforeClosedAtStillLoads() async throws {
+    let file = JSONFile<PRCache>(FileManager.default.temporaryDirectory.appendingPathComponent("prs-\(UUID()).json"))
+    defer { try? FileManager.default.removeItem(at: file.url) }
+    let runner = FakeRunner { _ in data(#"{"nodes":[\#(prNode(state: "MERGED", closedAt: "2026-10-13T09:00:00Z"))]}"#) }
+    var pr = try #require(try await GitHub(runner: runner).pullRequests(ids: ["PR_1"]).first)
+    try file.save(PRCache(prs: [pr.id: pr]))
+    // An older version wrote no closedAt key.
+    var json = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: file.url)) as? [String: Any])
+    var prs = try #require(json["prs"] as? [String: [String: Any]])
+    prs[pr.id]?["closedAt"] = nil
+    json["prs"] = prs
+    try JSONSerialization.data(withJSONObject: json).write(to: file.url)
+
+    pr.closedAt = nil
+    #expect(file.load(default: PRCache()).prs == [pr.id: pr])
+}
+
 @Test func deletingFolderRemovesSubfoldersAndUnfilesItems() {
     var org = Organization()
     let project = org.addFolder("P")
