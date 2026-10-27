@@ -238,12 +238,17 @@ struct ReviewBar: View {
     @AppStorage("focusedDiff") private var focusedDiff = false
     @ViewState private var finishing = false
     @ViewState private var saving = false
+    @ViewState private var confirmingDiscard = false
 
     var body: some View {
         let drafts = model.drafts(for: pr.id)
         let unsaved = drafts.filter { $0.needsSync && !$0.isStale }
         let stale = drafts.filter(\.isStale).count
-        let pending = model.details[pr.id]?.pendingReview?.comments.count ?? 0
+        let pendingReview = model.details[pr.id]?.pendingReview
+        let pending = pendingReview?.comments.count ?? 0
+        // Saved drafts are already among the pending review's comments.
+        let toDiscard = pending + drafts.filter { $0.remoteID == nil }.count
+        let discarding = model.pending.contains(AppModel.discardPendingID(pr))
         HStack(spacing: 12) {
             Picker("", selection: $mode) {
                 Image(systemName: "rectangle.split.2x1").help("Side by side").tag(DiffMode.split)
@@ -288,6 +293,15 @@ struct ReviewBar: View {
             }
             .disabled(unsaved.isEmpty || saving)
             .help("Adds local drafts to your pending review on GitHub (visible only to you)")
+            Button(discarding ? "Discarding…" : "Discard Review", role: .destructive) { confirmingDiscard = true }
+                .disabled((drafts.isEmpty && pendingReview == nil && (model.reviewDrafts.bodies[pr.id] ?? "").isEmpty) || discarding)
+                .help("Deletes your pending review on GitHub and all local drafts for this pull request")
+                .confirmationDialog(toDiscard == 0 ? "Discard this review?" : "Discard \(toDiscard) pending comment\(toDiscard == 1 ? "" : "s")?",
+                                    isPresented: $confirmingDiscard) {
+                    Button("Discard Review", role: .destructive) { Task { await model.discardReview(pr) } }
+                } message: {
+                    Text("This deletes your pending review on GitHub, including comments you added to it outside ReviewDesk, along with your local drafts and the review summary. It can't be undone.")
+                }
             Button("Finish Review") { finishing = true }
                 .buttonStyle(.borderedProminent)
                 .popover(isPresented: $finishing, arrowEdge: .bottom) { SubmitReviewPopover(pr: pr) { finishing = false } }

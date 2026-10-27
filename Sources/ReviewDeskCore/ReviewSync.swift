@@ -131,6 +131,18 @@ public struct ReviewSync: Sendable {
         }
     }
 
+    /// Deletes the viewer's whole pending review, like GitHub's Cancel review: comments added to it outside the app
+    /// go too. No pending review needs no call.
+    public func discard(pr: PullRequest) async throws {
+        guard let pending = try await pendingReview(prID: pr.id) else { return }
+        do {
+            try await github.graphql("mutation($id: ID!) { deletePullRequestReview(input: {pullRequestReviewId: $id}) { clientMutationId } }",
+                                     ["id": pending.id])
+        } catch GitHubError.graphQL {
+            // Already gone (submitted or deleted on github.com meanwhile): nothing to discard.
+        }
+    }
+
     /// Submits the pending review, or creates a body-only review when none is pending.
     public func publish(pr: PullRequest, event: ReviewEvent, body: String, viewer: String) async throws {
         if let pending = try await pendingReview(prID: pr.id) {
