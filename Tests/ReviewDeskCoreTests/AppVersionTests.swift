@@ -113,3 +113,21 @@ Intro text.
         try await GitHub(runner: runner).releaseNotes(repo: "o/r", after: "0.3.0", through: "0.6.0")
     }
 }
+
+@Test func feedbackOpensAPrefilledIssueOnTheAppsRepository() throws {
+    let url = try #require(Feedback.problem.issueURL(version: "0.9.8", macOS: "14.5.0", providers: ["Claude Code", "Ollama"]))
+    let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+    #expect(components.host == "github.com" && components.path == "/MicheleSottocasa/underReview/issues/new")
+    let items = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+    #expect(items["title"] == "Problem: ")
+    #expect(items["body"]?.hasPrefix("**What happened?**") == true)
+    #expect(items["body"]?.hasSuffix("---\nReviewDesk 0.9.8 · macOS 14.5.0 · AI: Claude Code, Ollama\n") == true)
+    #expect(Feedback.feature.issueURL(version: "dev", macOS: "15.0.0", providers: [])?.absoluteString.contains("title=Feature%3A%20") == true)
+}
+
+@Test func feedbackEncodesEverythingAQueryWouldMisread() throws {
+    let url = try #require(Feedback.feature.issueURL(version: "1+1&x=y#z", macOS: "14", providers: ["C++"]))
+    let query = try #require(url.query)
+    #expect(!query.contains("+") && !query.contains("#") && query.components(separatedBy: "&").count == 2)
+    #expect(query.contains("1%2B1%26x%3Dy%23z") && query.contains("%0A") && query.contains("C%2B%2B"))
+}

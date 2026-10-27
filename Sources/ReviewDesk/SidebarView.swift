@@ -807,6 +807,17 @@ struct RefreshFooter: View {
                         .foregroundStyle(.orange)
                         .overlay(Capsule().stroke(Color.orange.opacity(0.6)))
                         .help("\(AppModel.betaNotice) Version \(model.currentVersion).")
+                    Menu {
+                        ForEach(Feedback.allCases, id: \.self) { kind in
+                            Button(kind.menuTitle) { model.openFeedback(kind) }
+                        }
+                    } label: {
+                        Image(systemName: "exclamationmark.bubble")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("Suggest a feature or report a problem: opens a new GitHub issue in your browser")
                     Button { model.refreshNow() } label: { Image(systemName: "arrow.clockwise") }
                         .buttonStyle(.borderless)
                         .disabled(model.isLoading)
