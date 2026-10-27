@@ -365,6 +365,7 @@ struct AISettings: View {
     @AppStorage("aiEngine") private var engine = "claude"
     @AppStorage("claudeModel") private var claudeModel = ""
     @AppStorage("reviewEffort") private var effort = "high"
+    @AppStorage(AppModel.claudeContextKey) private var claudeContext = ""
     @AppStorage("codexModel") private var codexModel = ""
     @AppStorage("codexEffort") private var codexEffort = ""
     @AppStorage("ollamaThink") private var ollamaThink = ""
@@ -387,6 +388,7 @@ struct AISettings: View {
             }
             Section {
                 ModelPicker(choices: AIOptions.models(for: .claudeCode), selection: $claudeModel, defaultLabel: "CLI default")
+                ContextPicker(model: claudeModel, selection: $claudeContext)
                 EffortPicker(engine: .claudeCode, selection: $effort)
                 Picker("Pull request files", selection: $codeReviewFiles) {
                     Text("Worktree of the linked clone").tag("clone")
@@ -395,7 +397,7 @@ struct AISettings: View {
             } header: {
                 Text("Claude Code")
             } footer: {
-                Text("The model is used by every Claude Code action; the effort is /code-review's level. Each review reads the pull request's files at its head commit, in a folder of its own that is removed afterwards. A worktree is quick and leaves the clone's branch alone, but needs a clone linked in Repositories; a download needs nothing, but fetches the whole repository every time. Without either, /code-review reads only the diff.")
+                Text("The model is used by every Claude Code action: a family follows its newest version, a version stays pinned. 1M tokens of context needs a model, and a plan that offers it. The effort is /code-review's level. Each review reads the pull request's files at its head commit, in a folder of its own that is removed afterwards. A worktree is quick and leaves the clone's branch alone, but needs a clone linked in Repositories; a download needs nothing, but fetches the whole repository every time. Without either, /code-review reads only the diff.")
             }
             Section {
                 ModelPicker(choices: AIOptions.models(for: .codex), selection: $codexModel, defaultLabel: "CLI default")

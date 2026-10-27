@@ -37,6 +37,9 @@ extension AppModel {
         contextRequest = ContextRequest(prID: pr.id, engine: run.engine, options: run.options)
     }
 
+    /// Claude Code's context window: "" for the model's default, "1m" for 1M tokens.
+    static let claudeContextKey = "claudeContext"
+
     /// Where each provider's model and effort are kept; Settings › AI and the AI tab change the same values.
     /// Ollama's model is its engine's (`ollamaModel`), so it has no model key here.
     static func optionKeys(_ engine: AIEngine) -> (model: String?, effort: String) {
@@ -55,7 +58,8 @@ extension AppModel {
         let keys = Self.optionKeys(engine)
         let model = keys.model.flatMap { defaults.string(forKey: $0) } ?? ""
         if engine.tool == "claude" {
-            return AIOptions(model: model, effort: codeReview ? defaults.string(forKey: keys.effort) ?? "high" : "")
+            return AIOptions(model: AIOptions.claudeModel(model, longContext: defaults.string(forKey: Self.claudeContextKey) == "1m"),
+                             effort: codeReview ? defaults.string(forKey: keys.effort) ?? "high" : "")
         }
         // A thinking level makes Ollama refuse a model that can't think: it goes only to one known to.
         if case .ollama(let name) = engine, ollamaThinks[name] != true { return AIOptions(model: "", effort: "") }

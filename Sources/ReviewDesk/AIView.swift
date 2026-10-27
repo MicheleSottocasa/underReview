@@ -10,6 +10,7 @@ struct AIView: View {
     /// Each provider's last used model and effort (Settings › AI shows the same); "" keeps the CLI's default.
     @AppStorage("claudeModel") private var claudeModel = ""
     @AppStorage("reviewEffort") private var effort = "high"
+    @AppStorage(AppModel.claudeContextKey) private var claudeContext = ""
     @AppStorage("codexModel") private var codexModel = ""
     @AppStorage("codexEffort") private var codexEffort = ""
     @AppStorage("ollamaThink") private var ollamaThink = ""
@@ -97,6 +98,7 @@ struct AIView: View {
             switch engine {
             case .claudeCode, .claudeSession:
                 ModelPicker(choices: AIOptions.models(for: engine), selection: $claudeModel).fixedSize()
+                if !claudeModel.isEmpty { ContextPicker(model: claudeModel, selection: $claudeContext).fixedSize() }
                 EffortPicker(engine: engine, selection: $effort).fixedSize()
             case .codex:
                 ModelPicker(choices: AIOptions.models(for: engine), selection: $codexModel).fixedSize()
@@ -975,5 +977,22 @@ struct EffortPicker: View {
             if engine.tool != "claude" { Text("Default").tag("") }
             ForEach(AIOptions.efforts(for: engine), id: \.self) { Text($0.capitalized).tag($0) }
         }
+    }
+}
+
+/// Claude Code's context window: the model's default, or 1M tokens (a `[1m]` suffix on the model). Default has no
+/// model to put the suffix on, so the picker waits for one.
+struct ContextPicker: View {
+    let model: String
+    @Binding var selection: String
+
+    var body: some View {
+        Picker("Context", selection: $selection) {
+            Text("Default").tag("")
+            Text("1M tokens").tag("1m")
+        }
+        .disabled(model.isEmpty)
+        .help(model.isEmpty ? "Pick a model to choose its context window"
+                            : "1M tokens lets the model hold more of a large pull request at once, where your plan and the model offer it")
     }
 }

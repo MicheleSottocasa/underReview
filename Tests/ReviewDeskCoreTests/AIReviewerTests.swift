@@ -458,3 +458,21 @@ private func codexRunner() -> FakeRunner {
     #expect(AIReviewer.ollamaThinks(show: "  Model\n    architecture  llama\n") == false) // older Ollama: no section
     #expect(await AIReviewer(runner: FakeRunner { _ in throw CommandError.toolNotFound("ollama") }).ollamaModels() == [])
 }
+
+@Test func claudeTakesPinnedVersionsAndTheLongContextWindow() async throws {
+    #expect(AIOptions.claudeModel("opus", longContext: true) == "opus[1m]")
+    #expect(AIOptions.claudeModel("claude-opus-5-5", longContext: true) == "claude-opus-5-5[1m]")
+    #expect(AIOptions.claudeModel("opus[1m]", longContext: true) == "opus[1m]") // typed with it: not twice
+    #expect(AIOptions.claudeModel("opus", longContext: false) == "opus")
+    #expect(AIOptions.claudeModel("", longContext: true) == "") // Default passes nothing
+    #expect(AIOptions.models(for: .claudeCode).contains(ModelChoice("claude-sonnet-5-5", "Sonnet 5.5")))
+    #expect(AIOptions(model: "claude-opus-5-5[1m]", effort: "max").label(for: .claudeCode) == "Opus 5.5 · 1M context · max")
+    #expect(AIOptions(model: "my-model[1m]", effort: "low").label(for: .claudeCode) == "my-model · 1M context · low")
+
+    let runner = codeReviewRunner()
+    _ = try await AIReviewer(runner: runner).codeReview(.claudeCode, prURL: "u", context: context,
+                                                        options: AIOptions(model: "claude-opus-5-5[1m]", effort: "high"))
+    for call in runner.calls.filter({ $0.args.first == "-p" }) {
+        #expect(call.args[call.args.firstIndex(of: "--model")! + 1] == "claude-opus-5-5[1m]")
+    }
+}
