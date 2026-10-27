@@ -14,6 +14,10 @@ struct AIView: View {
     @AppStorage("codexModel") private var codexModel = ""
     @AppStorage("codexEffort") private var codexEffort = ""
     @AppStorage("ollamaThink") private var ollamaThink = ""
+    /// Each provider's review command (`ReviewCommand.stored`), shared with Settings › AI.
+    @AppStorage(AppModel.reviewCommandKey(.claudeCode)) private var claudeCommand = ReviewCommand.codeReview.stored
+    @AppStorage(AppModel.reviewCommandKey(.codex)) private var codexCommand = ReviewCommand.generic.stored
+    @AppStorage(AppModel.reviewCommandKey(.ollama(model: ""))) private var ollamaCommand = ReviewCommand.generic.stored
     @ViewState private var context: ReviewContext?
     @ViewState private var preparing = false
     /// The engine a Re-run asked for, when it differs from the toolbar's; nil runs with the toolbar's engine.
@@ -22,7 +26,16 @@ struct AIView: View {
     @ViewState private var contextOptions: AIOptions?
 
     private var engine: AIEngine { model.engine(named: engineName, ollamaModel: ollamaModel, for: pr) }
-    private var usesCodeReview: Bool { engine.tool == "claude" }
+    private var usesCodeReview: Bool { model.reviewCommand(for: engine) == .codeReview }
+
+    /// The setting the toolbar's review command picker changes: the current provider's.
+    private var command: Binding<String> {
+        switch engine {
+        case .claudeCode, .claudeSession: $claudeCommand
+        case .codex: $codexCommand
+        case .ollama: $ollamaCommand
+        }
+    }
     private var options: AIOptions { model.aiOptions(for: engine, codeReview: usesCodeReview) }
 
     var body: some View {
@@ -56,7 +69,7 @@ struct AIView: View {
                         } description: {
                             Text(usesCodeReview
                                  ? "Run Claude Code's /code-review on this PR. Findings stay here until you add them to your review."
-                                 : "Prepare the context to see exactly what will be sent, then run the review. Findings stay here until you add them to your review.")
+                                 : "Prepare the context to see exactly what will be sent, then run \(model.reviewCommand(for: engine).label(saved: model.reviewTemplates)). Findings stay here until you add them to your review.")
                         }
                         .padding(.top, 40)
                     }
@@ -95,11 +108,12 @@ struct AIView: View {
                 Text("Ollama (local) · alpha").tag("ollama")
             }
             .fixedSize()
+            ReviewCommandPicker(engine: engine, selection: command).fixedSize()
             switch engine {
             case .claudeCode, .claudeSession:
                 ModelPicker(choices: AIOptions.models(for: engine), selection: $claudeModel).fixedSize()
                 if !claudeModel.isEmpty { ContextPicker(model: claudeModel, selection: $claudeContext).fixedSize() }
-                EffortPicker(engine: engine, selection: $effort).fixedSize()
+                if usesCodeReview { EffortPicker(engine: engine, selection: $effort).fixedSize() }
             case .codex:
                 ModelPicker(choices: AIOptions.models(for: engine), selection: $codexModel).fixedSize()
                 EffortPicker(engine: engine, selection: $codexEffort).fixedSize()
@@ -146,7 +160,7 @@ struct AIView: View {
         .padding(.vertical, 6)
     }
 
-    /// Claude engines run `/code-review` straight away; the others show the context first.
+    /// `/code-review` runs straight away; every other review command shows the context first.
     private func start() {
         if usesCodeReview {
             context = nil
@@ -265,7 +279,7 @@ struct RunView: View {
                 Image(systemName: "sparkles").foregroundStyle(.purple)
                 Text(run.engine.name).bold()
                 if let options = run.options {
-                    Text((run.engine.tool == "claude" ? "/code-review · " : "") + options.label(for: run.engine))
+                    Text((run.commandLabel.map { "\($0) · " } ?? "") + options.label(for: run.engine))
                         .font(.caption.monospaced()).foregroundStyle(.secondary)
                 }
                 Text(run.date.formatted(.relative(presentation: .named))).foregroundStyle(.secondary)
@@ -985,6 +999,36 @@ struct EffortPicker: View {
         case .claudeCode, .claudeSession: "/code-review's level: higher reads more of the code and uses more of your plan"
         case .codex: "Codex's reasoning effort: higher thinks longer and uses more of your plan. Default keeps the CLI's own."
         case .ollama: "How much the model thinks before it answers; its thinking isn't shown. Default keeps the model's own."
+        }
+    }
+}
+
+/// What *Review* runs for a provider: its own review command, ReviewDesk's prompt, or (Ollama) a saved prompt.
+/// A stale value (a deleted saved prompt, say) shows as the command it falls back to.
+struct ReviewCommandPicker: View {
+    @Environment(AppModel.self) private var model
+    let engine: AIEngine
+    @Binding var selection: String
+
+    var body: some View {
+        let saved = model.reviewTemplates
+        Picker("Review", selection: Binding(
+            get: { ReviewCommand.resolve(selection, for: engine, saved: saved).stored },
+            set: { selection = $0 })) {
+            ForEach(ReviewCommand.builtIn(for: engine), id: \.self) { Text($0.label(saved: saved)).tag($0.stored) }
+            if engine.isLocal, !saved.isEmpty { // saved prompts are Ollama's
+                Divider()
+                ForEach(saved) { Text($0.name).tag(ReviewCommand.saved($0.id).stored) }
+            }
+        }
+        .help(help)
+    }
+
+    private var help: String {
+        switch engine {
+        case .claudeCode, .claudeSession: "/code-review runs Claude Code's own review with read-only tools; ReviewDesk's prompt sends the context you approve in Prepare Context, without tools"
+        case .codex: "Codex review runs Codex's own review flow, read-only, on the context you approve; ReviewDesk's prompt asks for the findings directly"
+        case .ollama: "ReviewDesk's prompt, or a review prompt you saved in Settings › AI, filled with the context you approve"
         }
     }
 }

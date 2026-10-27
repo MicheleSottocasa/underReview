@@ -49,6 +49,7 @@ struct RiskView: View {
     private func intro(run: AIRun?) -> some View {
         let checked = RiskQuestion.allCases.filter { model.riskCheck($0, pr: pr) == pr.headRefOid }.count
         let engine = model.preferredEngine(for: pr)
+        let codeReview = model.reviewCommand(for: engine) == .codeReview
         let busy = model.isAIBusy(pr)
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 4) {
@@ -64,17 +65,17 @@ struct RiskView: View {
             }
             Spacer()
             Text("\(checked)/\(RiskQuestion.allCases.count) checked").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
-            if engine.tool == "claude" {
+            if codeReview {
                 let effort = UserDefaults.standard.string(forKey: "reviewEffort") ?? "high"
                 let estimate = model.reviewEstimate(pr, engine: engine, effort: effort)
                 EstimateLabel(estimate: estimate, help: model.codeReviewEstimateHelp(estimate, effort: effort))
             }
-            Button(engine.tool == "claude" ? (run == nil ? "Run Risk Analysis" : "Run Again") : "Prepare in AI Tab…") {
+            Button(codeReview ? (run == nil ? "Run Risk Analysis" : "Run Again") : "Prepare in AI Tab…") {
                 model.runRiskAnalysis(pr)
             }
             .buttonStyle(.borderedProminent)
             .disabled(busy)
-            .help(engine.tool == "claude"
+            .help(codeReview
                   ? "Runs /code-review with \(engine.name) and the last used model and effort"
                   : "\(engine.name) needs its context approved in the AI tab first")
         }

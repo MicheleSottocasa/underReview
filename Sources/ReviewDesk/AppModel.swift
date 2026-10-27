@@ -161,6 +161,8 @@ final class AppModel {
     var ollamaThinks: [String: Bool] = [:]
     /// Each AI CLI's version and login (by tool), as Settings › AI last checked them.
     var providerStatus: [String: ProviderStatus] = [:]
+    /// Review prompts the user saved for Ollama (Settings › AI), in the order they were added.
+    var reviewTemplates: [ReviewTemplate] { didSet { save(reviewTemplatesFile, reviewTemplates) } }
     /// Repository (`owner/repo`) → the folder of its clone on this Mac.
     var localClones: [String: String] { didSet { save(localClonesFile, localClones) } }
     /// Clone folders a checkout is running in, so a second one can't start there at the same time.
@@ -191,6 +193,7 @@ final class AppModel {
     private let prsFile = JSONFile<PRCache>.appSupport("prs.json")
     private let localClonesFile = JSONFile<[String: String]>.appSupport("local-clones.json")
     private let projectContextFile = JSONFile<[UUID: [ContextSource]]>.appSupport("project-context.json")
+    private let reviewTemplatesFile = JSONFile<[ReviewTemplate]>.appSupport("review-commands.json")
     private var pollTask: Task<Void, Never>?
     private var lastFullRefresh = Date.distantPast
 
@@ -223,6 +226,7 @@ final class AppModel {
         followUps = followUpsFile.load(default: [])
         localClones = localClonesFile.load(default: [:])
         projectContext = projectContextFile.load(default: [:])
+        reviewTemplates = reviewTemplatesFile.load(default: [])
     }
 
     var selectedPR: PullRequest? { selectedPRID.flatMap { prs[$0] } }

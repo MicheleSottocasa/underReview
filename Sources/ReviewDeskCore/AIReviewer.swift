@@ -161,6 +161,9 @@ public struct AIRun: Codable, Hashable, Identifiable, Sendable {
     public var usage: TokenUsage?
     /// The estimate shown before running (the input the app sent), kept to calibrate later estimates against `usage`.
     public var estimatedTokens: Int?
+    /// The review command it ran (`ReviewCommand.label`); nil for runs saved before there was a choice, which were
+    /// `/code-review` with Claude Code and ReviewDesk's prompt otherwise.
+    public var command: String?
     /// Indexes of findings already turned into drafts or dismissed.
     public var handled: Set<Int> = []
 
@@ -171,6 +174,16 @@ public struct AIRun: Codable, Hashable, Identifiable, Sendable {
     /// The author pushed since this run: its findings, key areas and line numbers may no longer match the code.
     /// An unknown head (GitHub returned none) isn't a push.
     public func isOutdated(for pr: PullRequest) -> Bool { !pr.headRefOid.isEmpty && headRefOid != pr.headRefOid }
+
+    /// The command's name for the run's card; nil for ReviewDesk's own prompt.
+    public var commandLabel: String? {
+        let generic = ReviewCommand.generic.label(saved: [])
+        let name = command ?? (engine.tool == "claude" ? ReviewCommand.codeReview.label(saved: []) : generic)
+        return name == generic ? nil : name
+    }
+
+    /// A Claude Code `/code-review`, whose usage calibrates the next one's estimate.
+    public var ranCodeReview: Bool { engine.tool == "claude" && commandLabel == ReviewCommand.codeReview.label(saved: []) }
 
     /// What the stale-analysis banner says; `commits` is nil when GitHub couldn't count them (e.g. after a force-push).
     public func outdatedMessage(for pr: PullRequest, commits: Int?) -> String {
@@ -386,6 +399,22 @@ public struct AIReviewer: Sendable {
                                              options: AIOptions(model: options.model, effort: ""), timeout: .seconds(300), usage: usage))
     }
 
+    /// Codex's own review flow (`codex exec review`) on `prompt` (`AIContext.codexReviewPrompt`), then the same
+    /// tool-less pass that turns `/code-review`'s report into findings and key areas. Both calls run like every Codex
+    /// call: read-only sandbox, an empty folder, and the user's config, rules, hooks and plugins off.
+    public func codexReview(prompt: String, context: ReviewContext, options: AIOptions? = nil,
+                            structureInstructions: String = AIContext.defaultStructureInstructions,
+                            timeout: Duration = .seconds(1200), usage: UsageMeter? = nil) async throws -> ReviewResult {
+        let report = String(decoding: try await run(.codex, prompt: prompt, schema: nil, options: options, timeout: timeout,
+                                                    usage: usage, codexReview: true), as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !report.isEmpty else { throw AIError.invalidOutput("Codex's review returned no report") }
+        let structure = AIContext.structurePrompt(report: report, context: context.fittingBudget(), instructions: structureInstructions,
+                                                  source: "Codex's review")
+        return try Self.decode(try await run(.codex, prompt: structure, schema: AIContext.schema,
+                                             options: AIOptions(model: options?.model ?? "", effort: ""), timeout: .seconds(300), usage: usage))
+    }
+
     /// Permission rules denying hidden files and everything under hidden folders inside `folder` (an absolute path).
     static func hiddenFileRules(_ folder: String) -> [String] {
         ["Read(/\(folder)/**/.*)", "Read(/\(folder)/**/.*/**)"]
@@ -415,8 +444,9 @@ public struct AIReviewer: Sendable {
     }
 
     /// Runs the CLI and returns its answer: JSON matching `schema` when one is given, otherwise text.
+    /// `codexReview` runs Codex's `review` subcommand instead of a plain prompt, with the same flags.
     private func run(_ engine: AIEngine, prompt: String, schema: String?, options: AIOptions? = nil, timeout: Duration,
-                     usage: UsageMeter? = nil) async throws -> Data {
+                     usage: UsageMeter? = nil, codexReview: Bool = false) async throws -> Data {
         let chosen = options?.arguments(for: engine) ?? []
         try await checkAuth(engine)
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("reviewdesk-ai-\(UUID().uuidString)")
@@ -458,10 +488,17 @@ public struct AIReviewer: Sendable {
                 schemaArgs = ["--output-schema", file.path]
             }
             // --json prints events on stdout, the last one carrying the usage; the answer still goes to `output`.
-            let result = try await runner.run("codex", [
+            // ponytail: `review` goes after exec's own flags, so the sandbox and every override apply to it too. Not
+            // checked against each Codex version: one that refuses it fails with its message, and ReviewDesk's prompt
+            // (Settings › AI) still works.
+            var args = [
                 "exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral",
                 "--ignore-user-config", "--ignore-rules", "--disable", "hooks", "--disable", "plugins",
-            ] + schemaArgs + chosen + ["-o", output.path, "-C", workdir.path, "-"], stdin: input, cwd: workdir, timeout: timeout)
+            ]
+            args += schemaArgs + chosen + ["-o", output.path, "-C", workdir.path]
+            if codexReview { args.append("review") }
+            args.append("-")
+            let result = try await runner.run("codex", args, stdin: input, cwd: workdir, timeout: timeout)
             // With --json, Codex reports a failed turn (expired login, usage limit, unknown model) as an event on
             // stdout, often with nothing on stderr.
             let error = Self.codexError(events: result.text)
