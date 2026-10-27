@@ -159,6 +159,8 @@ public struct AIRun: Codable, Hashable, Identifiable, Sendable {
     public var result: ReviewResult
     /// The model and effort it ran with; nil for Codex and Ollama runs saved before they had a choice.
     public var options: AIOptions?
+    /// A self-review: the focuses of the agents whose findings were merged into this run (`SelfReview`).
+    public var agents: [String]?
     /// What the run used, when its CLI reported it; nil for runs saved before ReviewDesk recorded usage.
     public var usage: TokenUsage?
     /// The estimate shown before running (the input the app sent), kept to calibrate later estimates against `usage`.

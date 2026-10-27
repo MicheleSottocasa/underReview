@@ -148,6 +148,16 @@ struct AIView: View {
                                        : "One agent per open PR you haven't approved, several at once (Settings › AI)."
                                          + (stackEstimate.map { " Estimated \($0.label) in all." } ?? ""))
             }
+            if pr.viewerIsAuthor {
+                let names = SelfReview.focuses.map { $0.title.lowercased() }.joined(separator: ", ")
+                Button("Self Review (\(SelfReview.focuses.count))") {
+                    model.startSelfReview(pr, engine: engine, budget: budget, options: model.aiOptions(for: engine))
+                }
+                .disabled(busy)
+                .help("Before asking for review: one agent per concern (\(names)) reads the diff, the full files and the repository's rules, "
+                      + "several at once (Settings › AI), without tools, and their findings are merged into one review here. Nothing is posted."
+                      + (model.selfReviewEstimate(pr, engine: engine).map { " Estimated \($0.label) in all, plus the full files." } ?? ""))
+            }
             if usesCodeReview {
                 let estimate = model.reviewEstimate(pr, engine: engine, effort: effort)
                 EstimateLabel(estimate: estimate, help: model.codeReviewEstimateHelp(estimate, effort: effort))
@@ -280,7 +290,12 @@ struct RunView: View {
             HStack(spacing: 8) {
                 Image(systemName: "sparkles").foregroundStyle(.purple)
                 Text(run.engine.name).bold()
-                if let options = run.options {
+                if let agents = run.agents {
+                    let setup = run.options.map { " · " + $0.label(for: run.engine) } ?? ""
+                    Text(verbatim: "Self review · \(agents.count) agent\(agents.count == 1 ? "" : "s")" + setup)
+                        .font(.caption.monospaced()).foregroundStyle(.secondary)
+                        .help("Merged from agents reviewing: " + agents.joined(separator: ", "))
+                } else if let options = run.options {
                     Text((run.commandLabel.map { "\($0) · " } ?? "") + options.label(for: run.engine))
                         .font(.caption.monospaced()).foregroundStyle(.secondary)
                 }
@@ -844,7 +859,9 @@ struct StackRunBox: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 if !run.isFinished { ProgressView().controlSize(.small) }
-                Text(run.isFinished ? "Stack reviewed: \(done) of \(run.members.count) done" : "Reviewing the stack: one agent per pull request")
+                Text(run.labels.isEmpty
+                     ? (run.isFinished ? "Stack reviewed: \(done) of \(run.members.count) done" : "Reviewing the stack: one agent per pull request")
+                     : (run.isFinished ? "Self review: \(done) of \(run.members.count) agents done" : "Self review: one agent per concern"))
                     .font(.callout.bold())
                 Spacer()
                 Button(run.isFinished ? "Dismiss" : "Cancel All") { model.cancelStackRun(root) }
@@ -866,15 +883,19 @@ struct StackRunBox: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 icon(state).frame(width: 16)
-                Button {
-                    model.selection = [.pr(id)]
-                } label: {
-                    Text(verbatim: pr.map { "#\($0.number) \($0.title)" } ?? id)
-                        .lineLimit(1)
-                        .fontWeight(id == current ? .semibold : .regular)
+                if let label = run.labels[id] {
+                    Text(label).lineLimit(1)
+                } else {
+                    Button {
+                        model.selection = [.pr(id)]
+                    } label: {
+                        Text(verbatim: pr.map { "#\($0.number) \($0.title)" } ?? id)
+                            .lineLimit(1)
+                            .fontWeight(id == current ? .semibold : .regular)
+                    }
+                    .buttonStyle(.link)
+                    .help("Open this pull request's AI Review")
                 }
-                .buttonStyle(.link)
-                .help("Open this pull request's AI Review")
                 Spacer()
                 Text(detail(state, pr: id)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 if state == .running || state == .waiting {

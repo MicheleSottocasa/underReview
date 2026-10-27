@@ -31,6 +31,11 @@ extension AppModel {
         TokenEstimate.sum(prs.map { reviewEstimate($0, engine: engine, effort: effort) })
     }
 
+    /// A self-review: every agent gets the same prompt, here estimated from the diff (the full files come on top).
+    func selfReviewEstimate(_ pr: PullRequest, engine: AIEngine) -> TokenEstimate? {
+        TokenEstimate.sum(SelfReview.focuses.map { _ in TokenEstimator.prompt(tokens: reviewInput(pr), engine: engine, answer: .review) })
+    }
+
     /// A follow-up check's ceiling: the viewer's open threads and review summary, plus the whole PR diff (only the part
     /// changed since their review is sent, so the real input is usually smaller). Nil until the PR's detail is loaded.
     func followUpEstimate(_ pr: PullRequest, engine: AIEngine) -> TokenEstimate? {
