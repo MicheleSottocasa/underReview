@@ -32,9 +32,7 @@ extension AppModel {
             detailTab = .ai
             return
         }
-        let defaults = UserDefaults.standard
-        startCodeReview(pr, engine: engine, options: CodeReviewOptions(model: defaults.string(forKey: "claudeModel") ?? "",
-                                                                      effort: defaults.string(forKey: "reviewEffort") ?? "high"))
+        startCodeReview(pr, engine: engine, options: aiOptions(for: engine, codeReview: true))
     }
 
     /// What to read before submitting: the AI's key areas, then files with comments not submitted yet.

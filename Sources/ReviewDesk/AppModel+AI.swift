@@ -24,19 +24,53 @@ extension AppModel {
     /// The key of `commitsSince`: the analysed head and the current one.
     static func headPair(_ run: AIRun, _ pr: PullRequest) -> String { "\(run.headRefOid)..\(pr.headRefOid)" }
 
-    /// Runs `run`'s analysis again on the current head, with the same engine (and model and effort, for /code-review).
-    /// Codex and Ollama show their context in the AI tab first, as always.
+    /// Runs `run`'s analysis again on the current head, with the same engine, model and effort (the provider's current
+    /// ones for runs saved without them). Codex and Ollama show their context in the AI tab first, as always.
     func rerun(_ run: AIRun, pr: PullRequest) {
         guard !blockDemo(pr) else { return }
         if run.engine.tool == "claude" {
-            let defaults = UserDefaults.standard
-            startCodeReview(pr, engine: run.engine, options: run.options ?? CodeReviewOptions(
-                model: defaults.string(forKey: "claudeModel") ?? "", effort: defaults.string(forKey: "reviewEffort") ?? "high"))
+            startCodeReview(pr, engine: run.engine, options: run.options ?? aiOptions(for: run.engine, codeReview: true))
             return
         }
         // The run's engine travels with the request: the AI tab's own engine choice stays as the user left it.
         detailTab = .ai
-        contextRequest = ContextRequest(prID: pr.id, engine: run.engine)
+        contextRequest = ContextRequest(prID: pr.id, engine: run.engine, options: run.options)
+    }
+
+    /// Where each provider's model and effort are kept; Settings › AI and the AI tab change the same values.
+    /// Ollama's model is its engine's (`ollamaModel`), so it has no model key here.
+    static func optionKeys(_ engine: AIEngine) -> (model: String?, effort: String) {
+        switch engine {
+        case .claudeCode, .claudeSession: ("claudeModel", "reviewEffort")
+        case .codex: ("codexModel", "codexEffort")
+        case .ollama: (nil, "ollamaThink")
+        }
+    }
+
+    /// The provider's model and effort. Claude Code's effort is `/code-review`'s level, so its other calls (Explain,
+    /// Ask, fixes, follow-up checks) keep the CLI's default effort; Codex and Ollama use theirs everywhere.
+    /// Ollama's thinking level waits until `loadOllamaThinks` found that the model can think.
+    func aiOptions(for engine: AIEngine, codeReview: Bool = false) -> AIOptions {
+        let defaults = UserDefaults.standard
+        let keys = Self.optionKeys(engine)
+        let model = keys.model.flatMap { defaults.string(forKey: $0) } ?? ""
+        if engine.tool == "claude" {
+            return AIOptions(model: model, effort: codeReview ? defaults.string(forKey: keys.effort) ?? "high" : "")
+        }
+        // A thinking level makes Ollama refuse a model that can't think: it goes only to one known to.
+        if case .ollama(let name) = engine, ollamaThinks[name] != true { return AIOptions(model: "", effort: "") }
+        return AIOptions(model: model, effort: defaults.string(forKey: keys.effort) ?? "")
+    }
+
+    /// Fills the Ollama model picker from `ollama list`.
+    func loadOllamaModels() async {
+        ollamaModels = await reviewer.ollamaModels()
+    }
+
+    /// Asks Ollama once per model whether it can think, so the AI tab and Settings show the thinking picker only then.
+    func loadOllamaThinks(_ name: String) async {
+        guard !name.isEmpty, ollamaThinks[name] == nil else { return }
+        ollamaThinks[name] = await reviewer.ollamaThinks(name)
     }
 
     /// GitHub's compare view between the analysed commit and the current head.
@@ -86,18 +120,17 @@ extension AppModel {
         (try? await github.fileContents(repo: pr.repo, paths: RepoRules.candidates(changed: changed.map(\.filename)), ref: pr.baseRefName)) ?? [:]
     }
 
-    func startReview(_ pr: PullRequest, engine: AIEngine, context: ReviewContext) {
+    func startReview(_ pr: PullRequest, engine: AIEngine, context: ReviewContext, options: AIOptions) {
         guard !blockDemo(pr) else { return }
         aiTasks[pr.id]?.cancel()
         aiTasks[pr.id] = Task {
-            await review(pr, engine: engine, context: context)
+            await review(pr, engine: engine, context: context, options: options)
             aiTasks[pr.id] = nil
         }
     }
 
     /// Claude Code's `/code-review` on the PR, with the chosen model and effort.
-    /// Claude Code's `/code-review` on the PR, with the chosen model and effort.
-    func startCodeReview(_ pr: PullRequest, engine: AIEngine, options: CodeReviewOptions) {
+    func startCodeReview(_ pr: PullRequest, engine: AIEngine, options: AIOptions) {
         guard !blockDemo(pr) else { return }
         aiTasks[pr.id]?.cancel()
         aiTasks[pr.id] = Task {
@@ -111,7 +144,7 @@ extension AppModel {
 
     /// Reviews every PR of the stack with its own agent, several at once (Settings › AI), bottom of the stack first.
     /// Each PR's status and live steps stay on that PR; `current`, where it started, shows them all.
-    func startStackReview(_ prs: [PullRequest], engine: AIEngine, budget: Int, options: CodeReviewOptions, from current: String) {
+    func startStackReview(_ prs: [PullRequest], engine: AIEngine, budget: Int, options: AIOptions, from current: String) {
         if let demo = prs.first(where: \.isDemo) { _ = blockDemo(demo); return }
         guard !prs.isEmpty else { return }
         cancelStackRun(current)
@@ -139,7 +172,7 @@ extension AppModel {
     }
 
     /// One PR of a stack review, with its own agent; its state and log stay on the PR.
-    private func reviewStackMember(_ pr: PullRequest, engine: AIEngine, budget: Int, options: CodeReviewOptions, run: String) async {
+    private func reviewStackMember(_ pr: PullRequest, engine: AIEngine, budget: Int, options: AIOptions, run: String) async {
         guard !Task.isCancelled, stackRuns[run]?.states[pr.id] == .waiting else { return } // stopped before its turn
         stackRuns[run]?.states[pr.id] = .running
         let before = aiRuns.count, errorBefore = lastError
@@ -155,7 +188,7 @@ extension AppModel {
                 let context = try await prepareContext(pr, budget: budget, projectContext: false)
                 if context.fitsBudget {
                     aiStatus[pr.id] = "Reviewing with \(engine.name)…"
-                    await review(pr, engine: engine, context: context)
+                    await review(pr, engine: engine, context: context, options: options)
                 } else {
                     stackRuns[run]?.states[pr.id] = .failed("Over the token budget: review it on its own and deselect files")
                 }
@@ -224,7 +257,7 @@ extension AppModel {
 
     /// One PR's `/code-review`. Status and steps go to `key`, the PR whose progress box shows them (the one a
     /// stack review started from); the caller starts and clears that box. `label` names the PR in a stack run.
-    private func codeReview(_ pr: PullRequest, engine: AIEngine, options: CodeReviewOptions, key: String, label: String? = nil) async {
+    private func codeReview(_ pr: PullRequest, engine: AIEngine, options: AIOptions, key: String, label: String? = nil) async {
         let on = label.map { " on \($0)" } ?? ""
         aiStatus[key] = "Running /code-review (\(options.effort))\(on) with \(engine.name)…"
         // `clone` is nil for a downloaded snapshot, which is only a folder.
@@ -314,14 +347,15 @@ extension AppModel {
     /// Where `/code-review` gets the pull request's files: "clone" (a worktree of the linked clone) or "download".
     static let codeReviewFilesKey = "codeReviewFiles"
 
-    private func review(_ pr: PullRequest, engine: AIEngine, context: ReviewContext) async {
+    private func review(_ pr: PullRequest, engine: AIEngine, context: ReviewContext, options: AIOptions) async {
         aiStatus[pr.id] = "Reviewing with \(engine.name)…"
         defer { aiStatus[pr.id] = nil }
         do {
             let meter = UsageMeter()
             let prompt = AIContext.prompt(context, instructions: Prompts.review)
-            let result = try await reviewer.review(engine, prompt: prompt, usage: meter)
+            let result = try await reviewer.review(engine, prompt: prompt, options: options, usage: meter)
             var run = AIRun(prID: pr.id, engine: engine, headRefOid: pr.headRefOid, result: result)
+            run.options = options
             run.usage = meter.usage
             run.estimatedTokens = AIContext.estimateTokens(prompt)
             aiRuns.append(run)
@@ -376,7 +410,8 @@ extension AppModel {
                 }
                 let prompt = AIContext.fixPrompt(title: pr.title, body: details[pr.id]?.body ?? "", path: path, patch: patch,
                                                  problem: problem, instructions: Prompts.fix)
-                let proposal = try await reviewer.structured(engine, prompt: prompt, schema: AIContext.fixSchema, as: FixProposal.self)
+                let proposal = try await reviewer.structured(engine, prompt: prompt, schema: AIContext.fixSchema, as: FixProposal.self,
+                                                             options: aiOptions(for: engine))
                     .validated(patch: patch)
                 guard isThisFix() else { return }
                 fixes[key]?.patch = patch
@@ -427,7 +462,7 @@ extension AppModel {
         do {
             let prompt = AIContext.followUpPrompt(explainPrompt: chat.prompt, chat: chat.messages, question: question)
             let meter = UsageMeter()
-            let answer = try await reviewer.ask(chat.engine, prompt: prompt, usage: meter)
+            let answer = try await reviewer.ask(chat.engine, prompt: prompt, options: aiOptions(for: chat.engine), usage: meter)
             explanations[commentID]?.messages.append(ChatMessage(.assistant, answer))
             explanations[commentID]?.add(meter.usage)
             return true
@@ -509,7 +544,7 @@ extension AppModel {
                 explanations[key]?.prompt = prompt
                 if answerFirst {
                     let meter = UsageMeter()
-                    let answer = try await reviewer.ask(engine, prompt: prompt, usage: meter)
+                    let answer = try await reviewer.ask(engine, prompt: prompt, options: aiOptions(for: engine), usage: meter)
                     explanations[key]?.messages.append(ChatMessage(.assistant, answer))
                     explanations[key]?.add(meter.usage)
                 }

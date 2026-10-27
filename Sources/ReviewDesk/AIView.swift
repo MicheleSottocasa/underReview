@@ -7,17 +7,22 @@ struct AIView: View {
     @AppStorage("aiEngine") private var engineName = "claude"
     @AppStorage("ollamaModel") private var ollamaModel = "qwen2.5-coder"
     @AppStorage("aiBudget") private var budget = 150_000
-    /// Last used model and effort for `/code-review`; "" keeps the CLI's default model.
+    /// Each provider's last used model and effort (Settings › AI shows the same); "" keeps the CLI's default.
     @AppStorage("claudeModel") private var claudeModel = ""
     @AppStorage("reviewEffort") private var effort = "high"
+    @AppStorage("codexModel") private var codexModel = ""
+    @AppStorage("codexEffort") private var codexEffort = ""
+    @AppStorage("ollamaThink") private var ollamaThink = ""
     @ViewState private var context: ReviewContext?
     @ViewState private var preparing = false
     /// The engine a Re-run asked for, when it differs from the toolbar's; nil runs with the toolbar's engine.
     @ViewState private var contextEngine: AIEngine?
+    /// The model and effort a Re-run asked for; nil runs with the provider's current ones.
+    @ViewState private var contextOptions: AIOptions?
 
     private var engine: AIEngine { model.engine(named: engineName, ollamaModel: ollamaModel, for: pr) }
     private var usesCodeReview: Bool { engine.tool == "claude" }
-    private var options: CodeReviewOptions { CodeReviewOptions(model: claudeModel, effort: effort) }
+    private var options: AIOptions { model.aiOptions(for: engine, codeReview: usesCodeReview) }
 
     var body: some View {
         let busy = model.isAIBusy(pr)
@@ -36,9 +41,11 @@ struct AIView: View {
                     if let context {
                         let runEngine = contextEngine ?? engine
                         ContextPanel(context: Binding(get: { context }, set: { self.context = $0 }), engine: runEngine) {
-                            model.startReview(pr, engine: runEngine, context: context)
+                            model.startReview(pr, engine: runEngine, context: context,
+                                              options: contextOptions ?? model.aiOptions(for: runEngine))
                             self.context = nil
                             contextEngine = nil
+                            contextOptions = nil
                         }
                     }
                     ForEach(runs) { RunView(pr: pr, run: $0) }
@@ -63,10 +70,19 @@ struct AIView: View {
             // Re-run from a stale-analysis banner, with Codex or Ollama: show what will be sent, for the run's engine.
             guard let request, request.prID == pr.id else { return }
             model.contextRequest = nil
-            prepare(for: request.engine)
+            prepare(for: request.engine, options: request.options)
         }
-        .onChange(of: engineName) { contextEngine = nil }
+        .onChange(of: engineName) {
+            contextEngine = nil
+            contextOptions = nil
+        }
         .task { await model.refreshAgents() }
+        .task(id: engineName) {
+            guard engineName == "ollama" else { return }
+            await model.loadOllamaModels()
+            await model.loadOllamaThinks(ollamaModel)
+        }
+        .task(id: ollamaModel) { if engineName == "ollama" { await model.loadOllamaThinks(ollamaModel) } }
     }
 
     private func toolbar(busy: Bool) -> some View {
@@ -78,23 +94,20 @@ struct AIView: View {
                 Text("Ollama (local) · alpha").tag("ollama")
             }
             .fixedSize()
-            if engineName == "ollama" {
-                TextField("Model", text: $ollamaModel).frame(width: 140)
+            switch engine {
+            case .claudeCode, .claudeSession:
+                ModelPicker(choices: AIOptions.models(for: engine), selection: $claudeModel).fixedSize()
+                EffortPicker(engine: engine, selection: $effort).fixedSize()
+            case .codex:
+                ModelPicker(choices: AIOptions.models(for: engine), selection: $codexModel).fixedSize()
+                EffortPicker(engine: engine, selection: $codexEffort).fixedSize()
+            case .ollama:
+                ModelPicker(choices: model.ollamaModels.map { ModelChoice($0, $0) }, selection: $ollamaModel, defaultLabel: nil).fixedSize()
+                if model.ollamaThinks[ollamaModel] == true {
+                    EffortPicker(engine: engine, selection: $ollamaThink).fixedSize()
+                }
             }
-            if usesCodeReview {
-                Picker("Model", selection: $claudeModel) {
-                    Text("Default").tag("")
-                    Text("Fable").tag("fable")
-                    Text("Opus").tag("opus")
-                    Text("Sonnet").tag("sonnet")
-                    Text("Haiku").tag("haiku")
-                }
-                .fixedSize()
-                Picker("Effort", selection: $effort) {
-                    ForEach(CodeReviewOptions.efforts, id: \.self) { Text($0.capitalized).tag($0) }
-                }
-                .fixedSize()
-            } else {
+            if !usesCodeReview {
                 LabeledContent("Budget") {
                     TextField("", value: $budget, format: .number).frame(width: 80).multilineTextAlignment(.trailing)
                 }
@@ -141,9 +154,10 @@ struct AIView: View {
         }
     }
 
-    /// `override` is a Re-run's engine; nil means the toolbar's.
-    private func prepare(for override: AIEngine? = nil) {
+    /// `override` is a Re-run's engine and `options` its model and effort; nil means the toolbar's.
+    private func prepare(for override: AIEngine? = nil, options: AIOptions? = nil) {
         contextEngine = override == engine ? nil : override
+        contextOptions = options
         preparing = true
         Task {
             do { context = try await model.prepareContext(pr, budget: budget) } catch { model.report(error) }
@@ -249,7 +263,7 @@ struct RunView: View {
                 Image(systemName: "sparkles").foregroundStyle(.purple)
                 Text(run.engine.name).bold()
                 if let options = run.options {
-                    Text("/code-review · \(options.model.isEmpty ? "default model" : options.model.capitalized) · \(options.effort)")
+                    Text((run.engine.tool == "claude" ? "/code-review · " : "") + options.label(for: run.engine))
                         .font(.caption.monospaced()).foregroundStyle(.secondary)
                 }
                 Text(run.date.formatted(.relative(presentation: .named))).foregroundStyle(.secondary)
@@ -423,7 +437,7 @@ struct OutdatedAnalysisBanner: View {
                 Button("Re-run") { model.rerun(run, pr: pr) }
                     .buttonStyle(.borderedProminent)
                     .disabled(model.isAIBusy(pr))
-                    .help("Runs the analysis again with \(run.engine.name)\(run.options.map { ", \($0.model.isEmpty ? "default model" : $0.model.capitalized), \($0.effort) effort" } ?? "")")
+                    .help("Runs the analysis again with \(run.engine.name)\(run.options.map { ", \($0.label(for: run.engine))" } ?? "")")
             }
             .padding(10)
             .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
@@ -917,6 +931,49 @@ struct EstimateLabel: View {
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .help(help)
+        }
+    }
+}
+
+/// A provider's model: Default (the CLI's own, passing nothing), the listed models, and *Other…* for any id typed in.
+struct ModelPicker: View {
+    var title = "Model"
+    let choices: [ModelChoice]
+    @Binding var selection: String
+    /// The choice that passes no model; nil when a model must be named (Ollama).
+    var defaultLabel: String? = "Default"
+    @ViewState private var typing = false
+
+    private static let other = "\u{1}other"
+
+    var body: some View {
+        let listed = choices.contains { $0.id == selection } || (selection.isEmpty && defaultLabel != nil)
+        Picker(title, selection: Binding(
+            get: { typing || !listed ? Self.other : selection },
+            set: { value in
+                typing = value == Self.other
+                if !typing { selection = value }
+            })) {
+            if let defaultLabel { Text(defaultLabel).tag("") }
+            ForEach(choices) { Text($0.label).tag($0.id) }
+            Text("Other…").tag(Self.other)
+        }
+        if typing || !listed {
+            TextField("Model id", text: $selection).frame(width: 160)
+        }
+    }
+}
+
+/// A provider's effort (Ollama: how much the model thinks). Claude Code always runs at a level; Codex and Ollama may
+/// keep their default, which passes nothing.
+struct EffortPicker: View {
+    let engine: AIEngine
+    @Binding var selection: String
+
+    var body: some View {
+        Picker(engine.isLocal ? "Thinking" : "Effort", selection: $selection) {
+            if engine.tool != "claude" { Text("Default").tag("") }
+            ForEach(AIOptions.efforts(for: engine), id: \.self) { Text($0.capitalized).tag($0) }
         }
     }
 }

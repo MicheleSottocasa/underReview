@@ -115,7 +115,7 @@ public enum TokenEstimator {
 extension AIRun {
     /// This run as a calibration sample, when it was a `/code-review` that recorded both its estimate and its usage.
     public var sample: TokenEstimator.Sample? {
-        guard let options, let input = estimatedTokens, let usage else { return nil }
+        guard engine.tool == "claude", let options, let input = estimatedTokens, let usage else { return nil }
         return TokenEstimator.Sample(effort: options.effort, input: input, actual: usage.total)
     }
 }

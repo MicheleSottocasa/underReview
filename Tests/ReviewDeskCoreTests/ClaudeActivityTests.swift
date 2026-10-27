@@ -92,7 +92,7 @@ let streamedReview = [
     let steps = StepLog()
     let context = ReviewContext(title: "T", body: "", files: [], budget: 1000)
     _ = try await AIReviewer(runner: runner, claudeConfigDirectory: config)
-        .codeReview(.claudeCode, prURL: "u", context: context, options: CodeReviewOptions()) { steps.append($0) }
+        .codeReview(.claudeCode, prURL: "u", context: context, options: AIOptions()) { steps.append($0) }
 
     #expect(steps.value.filter { $0 == "Running `gh pr diff 1 -R o/r`" }.count == 1)
     let projects = (try? FileManager.default.contentsOfDirectory(atPath: config.appendingPathComponent("projects").path)) ?? []

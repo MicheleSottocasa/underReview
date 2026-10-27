@@ -348,9 +348,13 @@ struct GeneralSettings: View {
 }
 
 struct AISettings: View {
+    @Environment(AppModel.self) private var model
     @AppStorage("aiEngine") private var engine = "claude"
     @AppStorage("claudeModel") private var claudeModel = ""
     @AppStorage("reviewEffort") private var effort = "high"
+    @AppStorage("codexModel") private var codexModel = ""
+    @AppStorage("codexEffort") private var codexEffort = ""
+    @AppStorage("ollamaThink") private var ollamaThink = ""
     @AppStorage(AppModel.codeReviewFilesKey) private var codeReviewFiles = "clone"
     @AppStorage("ollamaModel") private var ollamaModel = "qwen2.5-coder"
     @AppStorage("aiBudget") private var budget = 150_000
@@ -369,24 +373,36 @@ struct AISettings: View {
                 Text("Also used by Explain on comments. The AI tab changes the same setting. Claude Code support is in beta; Codex and Ollama are alpha, so expect rough edges with them.")
             }
             Section {
-                Picker("Model", selection: $claudeModel) {
-                    Text("CLI default").tag("")
-                    Text("Fable").tag("fable")
-                    Text("Opus").tag("opus")
-                    Text("Sonnet").tag("sonnet")
-                    Text("Haiku").tag("haiku")
-                }
-                Picker("Effort", selection: $effort) {
-                    ForEach(CodeReviewOptions.efforts, id: \.self) { Text($0.capitalized).tag($0) }
-                }
+                ModelPicker(choices: AIOptions.models(for: .claudeCode), selection: $claudeModel, defaultLabel: "CLI default")
+                EffortPicker(engine: .claudeCode, selection: $effort)
                 Picker("Pull request files", selection: $codeReviewFiles) {
                     Text("Worktree of the linked clone").tag("clone")
                     Text("Download from GitHub").tag("download")
                 }
             } header: {
-                Text("Claude Code /code-review")
+                Text("Claude Code")
             } footer: {
-                Text("Each review reads the pull request's files at its head commit, in a folder of its own that is removed afterwards. A worktree is quick and leaves the clone's branch alone, but needs a clone linked in Repositories; a download needs nothing, but fetches the whole repository every time. Without either, /code-review reads only the diff.")
+                Text("The model is used by every Claude Code action; the effort is /code-review's level. Each review reads the pull request's files at its head commit, in a folder of its own that is removed afterwards. A worktree is quick and leaves the clone's branch alone, but needs a clone linked in Repositories; a download needs nothing, but fetches the whole repository every time. Without either, /code-review reads only the diff.")
+            }
+            Section {
+                ModelPicker(choices: AIOptions.models(for: .codex), selection: $codexModel, defaultLabel: "CLI default")
+                EffortPicker(engine: .codex, selection: $codexEffort)
+            } header: {
+                Text("Codex")
+            } footer: {
+                Text("Used by every Codex action. Your config.toml is ignored, so these choices are the only ones applied; Default keeps the CLI's own model and reasoning effort.")
+            }
+            Section {
+                ModelPicker(choices: model.ollamaModels.map { ModelChoice($0, $0) }, selection: $ollamaModel, defaultLabel: nil)
+                if model.ollamaThinks[ollamaModel] == true {
+                    EffortPicker(engine: .ollama(model: ollamaModel), selection: $ollamaThink)
+                }
+            } header: {
+                Text("Ollama")
+            } footer: {
+                Text(model.ollamaModels.isEmpty
+                     ? "No pulled models found: start Ollama, or pick Other… and type a model's name."
+                     : "The models you have pulled. Other… takes a name that isn't pulled yet. Thinking shows for models that support it.")
             }
             Section {
                 Stepper("Agents at once in a stack review: \(parallelAgents)", value: $parallelAgents, in: 1...8)
@@ -394,7 +410,6 @@ struct AISettings: View {
                 Text("Review Stack gives every pull request its own agent. More at once is faster but uses more of your plan at the same time; Ollama always runs one at a time.")
             }
             Section {
-                TextField("Ollama model", text: $ollamaModel)
                 LabeledContent("Token budget") {
                     TextField("", value: $budget, format: .number).frame(width: 100).multilineTextAlignment(.trailing)
                 }
@@ -405,6 +420,8 @@ struct AISettings: View {
             }
         }
         .formStyle(.grouped)
+        .task { await model.loadOllamaModels() }
+        .task(id: ollamaModel) { await model.loadOllamaThinks(ollamaModel) }
     }
 }
 

@@ -102,7 +102,8 @@ extension AppModel {
             let prompt = FollowUp.prompt(title: pr.title, viewer: viewer, threads: threads, reviewBodies: bodies, changes: changes,
                                          sinceReview: sinceReview, instructions: Prompts.followUp)
             let meter = UsageMeter()
-            let result = try await reviewer.structured(engine, prompt: prompt, schema: FollowUp.schema, as: FollowUpResult.self, usage: meter)
+            let result = try await reviewer.structured(engine, prompt: prompt, schema: FollowUp.schema, as: FollowUpResult.self,
+                                                   options: aiOptions(for: engine), usage: meter)
             var run = FollowUpRun(prID: pr.id, engine: engine, headRefOid: pr.headRefOid,
                                   reviewedOid: sinceReview ? pr.viewerReviewedOid : nil, result: result)
             run.usage = meter.usage
