@@ -3,6 +3,14 @@ import SwiftUI
 
 enum DetailTab: String, CaseIterable {
     case conversation = "Conversation", fixPlan = "Fix Plan", followUp = "Follow-up", risk = "Risk", changes = "Changes", ai = "AI Review", notes = "Notes"
+
+    /// The tabs of `pr`. Your own pull request gets Fix Plan instead of Follow-up and Risk, which ask a reviewer's
+    /// questions; AI Review stays as a self-review. Follow-up only shows when there's something to check or a past
+    /// check to read. In a stack, each member gets its own set.
+    static func tabs(for pr: PullRequest, showsFollowUp: Bool) -> [DetailTab] {
+        pr.viewerIsAuthor ? [.conversation, .fixPlan, .changes, .ai, .notes]
+            : allCases.filter { $0 != .fixPlan && ($0 != .followUp || showsFollowUp) }
+    }
 }
 
 struct DetailView: View {
@@ -11,9 +19,8 @@ struct DetailView: View {
 
     var body: some View {
         @Bindable var model = model
-        // Follow-up only shows when there's something to check or a past check to read; Fix Plan only on your own PRs.
-        let tabs = DetailTab.allCases.filter { ($0 != .followUp || model.showsFollowUp(pr)) && ($0 != .fixPlan || pr.viewerIsAuthor) }
-        let tab = tabs.contains(model.detailTab) ? model.detailTab : .conversation
+        let tabs = DetailTab.tabs(for: pr, showsFollowUp: !pr.viewerIsAuthor && model.showsFollowUp(pr))
+        let tab = tabs.contains(model.detailTab) ? model.detailTab : model.defaultTab(pr, tabs: tabs)
         VStack(alignment: .leading, spacing: 0) {
             if pr.isDemo {
                 Label("Demo pull request for the tour: fictional, read-only, never saved or sent anywhere.", systemImage: "graduationcap")
@@ -24,7 +31,7 @@ struct DetailView: View {
                     .background(Color.purple.opacity(0.1))
             }
             header.padding().tourAnchor([.header], edge: .bottom)
-            if model.isFollowUpDue(pr), tab != .followUp, model.followUpRuns(for: pr.id).first?.headRefOid != pr.headRefOid {
+            if tabs.contains(.followUp), model.isFollowUpDue(pr), tab != .followUp, model.followUpRuns(for: pr.id).first?.headRefOid != pr.headRefOid {
                 FollowUpNotice(pr: pr).padding(.horizontal).padding(.bottom, 8)
             }
             Picker("", selection: Binding(get: { tab }, set: { model.detailTab = $0 })) {
@@ -46,6 +53,10 @@ struct DetailView: View {
             }
         }
         .modifier(LinkHandler(pr: pr))
+        // Opening your own PR with feedback to address lands on Fix Plan, unless another tab was picked on purpose.
+        .onChange(of: pr.id, initial: true) {
+            if model.detailTab == .conversation, model.defaultTab(pr, tabs: tabs) == .fixPlan { model.detailTab = .fixPlan }
+        }
         // Changes takes the whole window, like a diff editor; only restore a sidebar the app hid itself.
         .onChange(of: tab, initial: true) { _, tab in
             if tab == .changes, model.columns != .detailOnly {
