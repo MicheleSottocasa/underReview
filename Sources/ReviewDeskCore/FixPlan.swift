@@ -1,17 +1,18 @@
 import Foundation
 
-/// What reviewers left on the viewer's own pull request that still needs an answer: open review threads and the
-/// summaries of reviews that asked for changes or commented.
+/// What reviewers left on the viewer's own pull request that still needs an answer: open review threads, the
+/// summaries of reviews that asked for changes or commented, and the findings of ReviewDesk's own AI review.
 public struct FixPlanFeedback: Hashable, Sendable {
     public var threads: [ReviewThread]
     public var reviews: [Review]
+    public var findings: [FixPlanAIFinding]
 
-    public init(threads: [ReviewThread], reviews: [Review]) {
-        (self.threads, self.reviews) = (threads, reviews)
+    public init(threads: [ReviewThread], reviews: [Review], findings: [FixPlanAIFinding] = []) {
+        (self.threads, self.reviews, self.findings) = (threads, reviews, findings)
     }
 
-    public var isEmpty: Bool { threads.isEmpty && reviews.isEmpty }
-    public var count: Int { threads.count + reviews.count }
+    public var isEmpty: Bool { threads.isEmpty && reviews.isEmpty && findings.isEmpty }
+    public var count: Int { threads.count + reviews.count + findings.count }
 
     /// Feedback id (thread or review) → what a new comment changes: the latest comment someone else wrote in the
     /// thread, or the review itself (a newer review from the same reviewer has a new id). The viewer's own replies
@@ -22,12 +23,39 @@ public struct FixPlanFeedback: Hashable, Sendable {
             markers[thread.id] = thread.comments.last { $0.author != viewer && !$0.isPending }?.id ?? ""
         }
         for review in reviews { markers[review.id] = review.id }
+        for finding in findings { markers[finding.id] = finding.id }
         return markers
     }
 
-    /// The files the threads point at, in order of first mention.
+    /// The files the threads and findings point at, in order of first mention.
     public var paths: [String] {
-        threads.map(\.path).reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
+        (threads.map(\.path) + findings.compactMap(\.finding.path)).reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
+    }
+}
+
+/// A finding of an AI review run on the pull request (`AIRun`), whether it's only shown in AI Review or was added to
+/// the pending review: the author addresses it like a reviewer's comment.
+public struct FixPlanAIFinding: Hashable, Sendable {
+    /// `ai:<run id>:<finding index>`, the plan item's `sourceID`.
+    public var id: String
+    public var finding: Finding
+    /// Who reviewed: the engine's name, e.g. "Claude Code".
+    public var reviewer: String
+    /// The commit the review ran on.
+    public var head: String
+
+    public init(id: String, finding: Finding, reviewer: String, head: String) {
+        (self.id, self.finding, self.reviewer, self.head) = (id, finding, reviewer, head)
+    }
+
+    /// "a.py:12" or "a.py", or nil for a general remark.
+    public var location: String? { finding.path.map { path in finding.line.map { "\(path):\($0)" } ?? path } }
+
+    /// Every finding of `run`, dismissed or not: what a stored plan's items point back at.
+    public static func all(in run: AIRun) -> [FixPlanAIFinding] {
+        run.result.findings.enumerated().map {
+            FixPlanAIFinding(id: "ai:\(run.id.uuidString):\($0.offset)", finding: $0.element, reviewer: run.engine.name, head: run.headRefOid)
+        }
     }
 }
 
@@ -175,12 +203,26 @@ public struct FixPlanReply: Hashable, Sendable {
 }
 
 public enum FixPlan {
+    /// How many of the pull request's latest commits an AI review may have run on for its findings to be planned.
+    public static let recentCommits = 3
+
+    /// The findings of the newest AI review run on one of the pull request's last `recentCommits` commits (`commits`
+    /// oldest first, as `PRDetail` lists them), but the dismissed ones. Findings added to the pending review stay:
+    /// they still need addressing in the code.
+    public static func aiFindings(_ runs: [AIRun], prID: String, commits: [String]) -> [FixPlanAIFinding] {
+        let recent = Set(commits.suffix(recentCommits))
+        guard let run = runs.filter({ $0.prID == prID && recent.contains($0.headRefOid) }).max(by: { $0.date < $1.date }) else { return [] }
+        let dismissed = run.dismissed ?? []
+        return FixPlanAIFinding.all(in: run).enumerated().filter { !dismissed.contains($0.offset) }.map(\.element)
+    }
+
     /// The feedback on the viewer's pull request still to address. Threads: unresolved, started by someone else, or
     /// started by the viewer with someone else writing last (the `threadsAwaitingReply` rule); outdated ones stay,
     /// since the comment may still apply. Reviews: each other reviewer's latest decision (an approval or change
     /// request wins over later comments, as in the sidebar counts); a change request's summary, or for a reviewer
     /// who only commented, their latest summary with text. Pending (unsubmitted) comments don't count.
-    public static func feedback(in detail: PRDetail, viewer: String) -> FixPlanFeedback {
+    /// `findings` are the AI review's to add (`aiFindings`).
+    public static func feedback(in detail: PRDetail, viewer: String, findings: [FixPlanAIFinding] = []) -> FixPlanFeedback {
         let threads = detail.threads.filter { thread in
             let sent = thread.comments.filter { !$0.isPending }
             guard !thread.isResolved, let first = sent.first, let last = sent.last else { return false }
@@ -198,7 +240,7 @@ public enum FixPlan {
             default: return nil
             }
         }
-        return FixPlanFeedback(threads: threads, reviews: reviews)
+        return FixPlanFeedback(threads: threads, reviews: reviews, findings: findings)
     }
 
     /// The diffs to send: the whole PR's when they fit the budget, otherwise only the files the feedback points at,
@@ -246,15 +288,19 @@ public enum FixPlan {
         return result
     }
 
-    /// Items in the order the tab shows them: those about a review thread by file and line, then the rest (review
-    /// summaries, or a source no longer on the pull request) in the plan's order. `threads` are all the PR's threads.
-    public static func ordered(_ items: [FixPlanItem], threads: [ReviewThread]) -> [FixPlanItem] {
-        let byID = Dictionary(threads.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        let inline = items.enumerated().filter { byID[$0.element.sourceID] != nil }.sorted { a, b in
-            let (x, y) = (byID[a.element.sourceID]!, byID[b.element.sourceID]!)
-            return (x.path, x.line ?? 0, a.offset) < (y.path, y.line ?? 0, b.offset)
+    /// Items in the order the tab shows them: those about a review thread or an AI finding on a file, by file and
+    /// line, then the rest (review summaries, general findings, or a source no longer there) in the plan's order.
+    /// `threads` are all the PR's threads.
+    public static func ordered(_ items: [FixPlanItem], threads: [ReviewThread], findings: [FixPlanAIFinding] = []) -> [FixPlanItem] {
+        var places = Dictionary(threads.map { ($0.id, ($0.path, $0.line ?? 0)) }, uniquingKeysWith: { a, _ in a })
+        for finding in findings {
+            if let path = finding.finding.path { places[finding.id] = places[finding.id] ?? (path, finding.finding.line ?? 0) }
         }
-        return inline.map(\.element) + items.filter { byID[$0.sourceID] == nil }
+        let inline = items.enumerated().filter { places[$0.element.sourceID] != nil }.sorted { a, b in
+            let (x, y) = (places[a.element.sourceID]!, places[b.element.sourceID]!)
+            return (x.0, x.1, a.offset) < (y.0, y.1, b.offset)
+        }
+        return inline.map(\.element) + items.filter { places[$0.sourceID] == nil }
     }
 
     /// The plan at a glance: "2 to change · 1 reply only · 0 push back · 1 already done", plus the unclear ones if any.
@@ -277,7 +323,8 @@ public enum FixPlan {
     }
 
     /// The reply to post for `item` (with the viewer's edits), or nil when there's none or its feedback is gone. A
-    /// thread gets the reply as is; a review summary has no thread, so the reply quotes its first line.
+    /// thread gets the reply as is; a review summary has no thread, so the reply quotes its first line. An AI finding
+    /// has nobody to answer, so it gets none.
     public static func reply(_ item: FixPlanItem, threads: [ReviewThread], reviews: [Review]) -> FixPlanReply? {
         let body = item.reply.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty else { return nil }
@@ -306,8 +353,8 @@ public enum FixPlan {
     /// request, then each item with the reviewer's comment, where to change and the steps. It asks for the changes
     /// only: no commit, no push, no replies. `head` is the commit the plan's line numbers are from.
     public static func agentPrompt(pr: PullRequest, head: String, items: [FixPlanItem], choices: [String: FixPlanChoice],
-                                   threads: [ReviewThread], reviews: [Review]) -> String {
-        let accepted = ordered(items, threads: threads).filter { choices[$0.sourceID]?.decision == .accepted && $0.action == "change_code" }
+                                   threads: [ReviewThread], reviews: [Review], findings: [FixPlanAIFinding] = []) -> String {
+        let accepted = ordered(items, threads: threads, findings: findings).filter { choices[$0.sourceID]?.decision == .accepted && $0.action == "change_code" }
         var text = """
         Address review feedback on pull request \(pr.repo)#\(pr.number), "\(pr.title)" (branch \(pr.headRefName), \
         into \(pr.baseRefName)). You are in a local clone of the repository: check that \(pr.headRefName) is checked out \
@@ -323,6 +370,9 @@ public enum FixPlan {
             } else if let review = reviews.first(where: { $0.id == item.sourceID }) {
                 text += "\nFrom \(review.author)'s review:\n"
                 text += review.body.split(separator: "\n", omittingEmptySubsequences: false).map { "> \($0)" }.joined(separator: "\n") + "\n"
+            } else if let finding = findings.first(where: { $0.id == item.sourceID }) {
+                text += "\nAI review finding (\(finding.finding.severity))\(finding.location.map { " on \($0)" } ?? ""):\n"
+                text += finding.finding.comment.split(separator: "\n", omittingEmptySubsequences: false).map { "> \($0)" }.joined(separator: "\n") + "\n"
             }
             if !item.locations.isEmpty { text += "\nWhere: " + item.locations.map(\.label).joined(separator: ", ") + "\n" }
             if !item.steps.isEmpty {
@@ -385,8 +435,8 @@ public enum FixPlan {
     /// Editable in Settings. The schema and the material are always appended.
     public static let defaultInstructions = """
     You are helping the author of a GitHub pull request address the feedback reviewers left on it. Below are the open
-    review threads (with every reply) and the reviews' summaries, then the code. Return exactly one item per thread
-    and per review summary, with `sourceID` set to its id exactly as given. Pick the `action`: `change_code` when the
+    review threads (with every reply), the reviews' summaries and an AI review's findings, then the code. Return
+    exactly one item per thread, per review summary and per finding, with `sourceID` set to its id exactly as given. Pick the `action`: `change_code` when the
     code should change, `reply_only` when a question or remark only needs an answer, `push_back` when the request is
     wrong or not worth doing (say why, politely, in the reply), `already_done` when the code below already handles
     it, or `unclear`. For `change_code`, list the concrete `steps` in order and the `locations` to change: files and
@@ -419,8 +469,19 @@ public enum FixPlan {
             let state = review.state == "CHANGES_REQUESTED" ? "requested changes" : "commented"
             text += "\n### Review \(review.id): \(review.author) \(state)\n\n\(review.body)\n"
         }
+        // Explained here, not in the editable instructions, so a custom prompt still plans the findings.
+        if !feedback.findings.isEmpty {
+            text += "\n## AI review findings\n\nAn automated review found these: plan one item each like a reviewer's comment, "
+                + "judged on the code. Nobody waits for an answer, so leave `reply` empty.\n"
+        }
+        for finding in feedback.findings {
+            let item = finding.finding
+            text += "\n### Finding \(finding.id): \(finding.location ?? "general") (\(item.severity))\n\n**\(item.title)**\n\n\(item.rationale)\n"
+            if item.comment != item.rationale, !item.comment.isEmpty { text += "\n\(item.comment)\n" }
+            if let suggestion = item.suggestion, !suggestion.isEmpty { text += "\nProposed code:\n" + AIContext.fenced(suggestion, info: "") + "\n" }
+        }
         text += partial
-            ? "\n## Diff of the files the threads point at\n\nThe whole diff is over the budget, so only these files are shown.\n"
+            ? "\n## Diff of the files the feedback points at\n\nThe whole diff is over the budget, so only these files are shown.\n"
             : "\n## The pull request's diff\n"
         text += "\nEach line starts with its NEW-side number (none for removed lines), then +, - or a space as in the diff.\n"
         for file in changes.files where file.included {

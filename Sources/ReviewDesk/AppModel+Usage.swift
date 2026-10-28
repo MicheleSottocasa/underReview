@@ -56,6 +56,7 @@ extension AppModel {
     func fixPlanEstimate(_ pr: PullRequest, engine: AIEngine) -> TokenEstimate? {
         guard let feedback = fixPlanFeedback(pr) else { return nil }
         let text = feedback.threads.flatMap(\.comments).map(\.body) + feedback.reviews.map(\.body)
+            + feedback.findings.map { [$0.finding.title, $0.finding.rationale, $0.finding.comment, $0.finding.suggestion ?? ""].joined(separator: "\n") }
         let input = AIContext.estimateTokens(text.joined(separator: "\n")) + reviewInput(pr)
         return TokenEstimator.prompt(tokens: input, engine: engine, answer: .fixPlan)
     }

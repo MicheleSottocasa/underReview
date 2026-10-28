@@ -235,3 +235,63 @@ private func pr(head: String = "h1") -> PullRequest {
     #expect(FixPlan.maybeDone(items, changes: changes) == ["A", "C", "F"])
     #expect(FixPlan.changedOldLines("@@ -5,2 +5,3 @@\n+top\n e\n f") == [5])
 }
+
+private func aiRun(head: String, date: TimeInterval, findings: [Finding], dismissed: Set<Int>? = nil, handled: Set<Int> = []) -> AIRun {
+    var run = AIRun(prID: "PR_1", engine: .claudeCode, headRefOid: head, result: ReviewResult(summary: "", findings: findings))
+    (run.date, run.dismissed, run.handled) = (Date(timeIntervalSince1970: date), dismissed, handled)
+    return run
+}
+
+private let nilCheck = Finding(severity: "high", title: "Missing nil check", rationale: "user can be nil", path: "a.py", line: 2, comment: "Check user first.")
+private let naming = Finding(severity: "low", title: "Naming", rationale: "unclear", path: nil, line: nil, comment: "Rename the flag.")
+private let leak = Finding(severity: "medium", title: "Token in logs", rationale: "logged", path: "b.py", line: 5, comment: "Drop the log line.")
+
+@Test func fixPlanTakesTheNewestAIReviewOnTheLastThreeCommitsButNotItsDismissedFindings() {
+    let commits = ["c1", "c2", "c3", "c4"]
+    let old = aiRun(head: "c1", date: 9, findings: [leak])                                    // too old a commit
+    let earlier = aiRun(head: "c2", date: 1, findings: [leak])
+    // Dismissed is left out; added to the pending review (handled, not dismissed) stays.
+    let latest = aiRun(head: "c3", date: 2, findings: [nilCheck, naming, leak], dismissed: [2], handled: [0, 2])
+    let other = { var run = aiRun(head: "c4", date: 5, findings: [leak]); run.prID = "PR_2"; return run }()
+    let findings = FixPlan.aiFindings([old, earlier, latest, other], prID: "PR_1", commits: commits)
+    #expect(findings.map(\.finding.title) == ["Missing nil check", "Naming"])
+    #expect(findings.map(\.id) == ["ai:\(latest.id.uuidString):0", "ai:\(latest.id.uuidString):1"])
+    #expect(findings[0].location == "a.py:2" && findings[1].location == nil && findings[0].reviewer == "Claude Code")
+    #expect(FixPlan.aiFindings([old], prID: "PR_1", commits: commits).isEmpty)
+    // Runs saved before dismissals were told apart: every finding counts.
+    #expect(FixPlan.aiFindings([aiRun(head: "c4", date: 3, findings: [leak], handled: [0])], prID: "PR_1", commits: commits).count == 1)
+
+    // AI findings alone are feedback to plan: the tab has something to do with no comment on GitHub.
+    let quiet = PRDetail(body: "", comments: [], reviews: [], threads: [myNote], pendingReview: nil)
+    let feedback = FixPlan.feedback(in: quiet, viewer: "me", findings: findings)
+    #expect(!feedback.isEmpty && feedback.count == 2 && feedback.paths == ["a.py"])
+    #expect(feedback.markers(viewer: "me") == [findings[0].id: findings[0].id, findings[1].id: findings[1].id])
+}
+
+@Test func fixPlanPromptOrderAndAgentPromptCarryAIFindings() {
+    let findings = FixPlan.aiFindings([aiRun(head: "h1", date: 1, findings: [nilCheck, naming])], prID: "PR_1", commits: ["h1"])
+    let feedback = FixPlan.feedback(in: detail, viewer: "me", findings: findings)
+    let context = FixPlan.changes(pr: pr(), body: "", files: [], feedback: feedback, budget: 10_000).context
+    let prompt = FixPlan.prompt(title: "Invites", body: "", author: "me", feedback: feedback, changes: context, partial: false,
+                                instructions: "Custom.")
+    // A custom prompt still gets the findings explained, with their id, place and severity.
+    #expect(prompt.contains("## AI review findings") && prompt.contains("leave `reply` empty"))
+    #expect(prompt.contains("### Finding \(findings[0].id): a.py:2 (high)") && prompt.contains("Check user first."))
+    #expect(prompt.contains("### Finding \(findings[1].id): general (low)"))
+
+    let items = [FixPlanItem(sourceID: findings[1].id, request: "Rename", action: "change_code"),
+                 FixPlanItem(sourceID: "T1", request: "Scope", action: "change_code"),
+                 FixPlanItem(sourceID: findings[0].id, request: "Nil check", action: "change_code")]
+    // The finding on a.py:2 sorts with the threads (a.py before b.py); the general one goes last.
+    #expect(FixPlan.ordered(items, threads: detail.threads, findings: findings).map(\.request) == ["Nil check", "Scope", "Rename"])
+    // Nobody to answer: no reply is posted for a finding.
+    var withReply = items[2]
+    withReply.reply = "Done."
+    #expect(FixPlan.reply(withReply, threads: detail.threads, reviews: detail.reviews) == nil)
+    let choices = Dictionary(uniqueKeysWithValues: items.map { item in
+        (item.sourceID, { var choice = FixPlanChoice(head: "h1"); choice.decision = .accepted; return choice }())
+    })
+    let agent = FixPlan.agentPrompt(pr: pr(), head: "h1", items: items, choices: choices, threads: detail.threads,
+                                    reviews: detail.reviews, findings: findings)
+    #expect(agent.contains("AI review finding (high) on a.py:2:\n> Check user first."))
+}

@@ -33,8 +33,9 @@ extension AppModel {
         let me = viewer(for: pr)
         let threads = pr.threadsToAddress ?? feedback.threads.count
         let names = feedback.threads.flatMap { $0.comments.map(\.author) } + feedback.reviews.map(\.author)
+            + feedback.findings.map { "AI review (\($0.reviewer))" }
         let reviewers = names.filter { $0 != me }.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
-        return ToAddress(count: threads + feedback.reviews.count, reviewers: reviewers, loaded: true)
+        return ToAddress(count: threads + feedback.reviews.count + feedback.findings.count, reviewers: reviewers, loaded: true)
     }
 
     /// The latest fix plan of the viewer's open PR no longer matches it: a push, or new feedback once the conversation
@@ -45,9 +46,18 @@ extension AppModel {
         return FixPlan.outdatedReason(run, pr: pr, feedback: fixPlanFeedback(pr), viewer: viewer(for: pr)) != nil
     }
 
-    /// What reviewers left on the viewer's pull request that still needs an answer; nil until its detail is loaded.
+    /// What reviewers left on the viewer's pull request that still needs an answer, plus the findings of the AI review
+    /// run on one of its last commits; nil until its detail is loaded.
     func fixPlanFeedback(_ pr: PullRequest) -> FixPlanFeedback? {
-        details[pr.id].map { FixPlan.feedback(in: $0, viewer: viewer(for: pr)) }
+        details[pr.id].map { detail in
+            let commits = detail.commits.isEmpty ? [(prs[pr.id] ?? pr).headRefOid] : detail.commits.map(\.oid)
+            return FixPlan.feedback(in: detail, viewer: viewer(for: pr), findings: FixPlan.aiFindings(aiRuns, prID: pr.id, commits: commits))
+        }
+    }
+
+    /// Every AI finding a plan of `pr` may point at, dismissed or from an older review too, to show its items.
+    func fixPlanFindings(_ pr: PullRequest) -> [FixPlanAIFinding] {
+        aiRuns.filter { $0.prID == pr.id }.flatMap(FixPlanAIFinding.all(in:))
     }
 
     /// Why the plan no longer matches the pull request (a push, new feedback), or nil when it's current.
@@ -91,8 +101,9 @@ extension AppModel {
                 lastError = "No open feedback to plan for"
                 return
             }
-            let threads = feedback.threads.count, reviews = feedback.reviews.count
-            logStep("\(threads) open thread\(threads == 1 ? "" : "s") and \(reviews) review summar\(reviews == 1 ? "y" : "ies") to address", pr: pr.id)
+            let threads = feedback.threads.count, reviews = feedback.reviews.count, findings = feedback.findings.count
+            logStep("\(threads) open thread\(threads == 1 ? "" : "s"), \(reviews) review summar\(reviews == 1 ? "y" : "ies") and "
+                    + "\(findings) AI review finding\(findings == 1 ? "" : "s") to address", pr: pr.id)
             let changes: (context: ReviewContext, partial: Bool)
             if let prepared {
                 changes = prepared
