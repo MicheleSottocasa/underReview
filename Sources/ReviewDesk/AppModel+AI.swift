@@ -524,9 +524,11 @@ extension AppModel {
         Task { await post(proposal.finding(path: fix.path), pr: pr) }
     }
 
+    /// Hides a finding; unlike one added to the pending review, a fix plan leaves it out too.
     func dismiss(_ runID: UUID, finding index: Int) {
         guard let runIndex = aiRuns.firstIndex(where: { $0.id == runID }) else { return }
         aiRuns[runIndex].handled.insert(index)
+        aiRuns[runIndex].dismissed = (aiRuns[runIndex].dismissed ?? []).union([index])
     }
 
     func deleteRun(_ runID: UUID) {
