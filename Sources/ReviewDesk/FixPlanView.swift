@@ -52,7 +52,7 @@ struct FixPlanView: View {
                         ContentUnavailableView {
                             Label("No open feedback", systemImage: "checkmark.bubble")
                         } description: {
-                            Text("No open feedback. Reviewers' comments show here.")
+                            Text("No open feedback. Reviewers' comments, and the findings of an AI review on one of the last \(FixPlan.recentCommits) commits, show here.")
                         }
                         .padding(.top, runs.isEmpty ? 40 : 0)
                     }
@@ -208,6 +208,7 @@ private struct FixPlanRunView: View {
         let detail = model.details[pr.id]
         let threads = detail?.threads ?? []
         let reviews = (detail?.reviews ?? []) + (detail?.latestReviews ?? [])
+        let findings = model.fixPlanFindings(pr)
         let choices = model.fixPlanChoices(for: run)
         let replies = FixPlan.acceptedReplies(run.result.items, choices: choices, threads: threads, reviews: reviews)
         let changes = run.result.items.filter { $0.action == "change_code" && choices[$0.sourceID]?.decision == .accepted }.count
@@ -257,7 +258,7 @@ private struct FixPlanRunView: View {
                                           : "Post the accepted items' replies: in their conversation, or as a comment for a review summary")
                 Button(copied ? "Copied" : "Copy as Agent Prompt (\(changes))") {
                     let prompt = FixPlan.agentPrompt(pr: model.prs[pr.id] ?? pr, head: run.headRefOid, items: run.result.items,
-                                                     choices: choices, threads: threads, reviews: reviews)
+                                                     choices: choices, threads: threads, reviews: reviews, findings: findings)
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(prompt, forType: .string)
                     copied = true
@@ -277,10 +278,10 @@ private struct FixPlanRunView: View {
             } message: {
                 Text(replies.map { "• \($0.label): \($0.body.prefix(80))" }.joined(separator: "\n"))
             }
-            ForEach(Array(FixPlan.ordered(run.result.items, threads: threads).enumerated()), id: \.offset) { _, item in
+            ForEach(Array(FixPlan.ordered(run.result.items, threads: threads, findings: findings).enumerated()), id: \.offset) { _, item in
                 FixPlanItemView(pr: pr, run: run, item: item, thread: threads.first { $0.id == item.sourceID },
-                                review: reviews.first { $0.id == item.sourceID }, choice: choices[item.sourceID],
-                                maybeDone: maybeDone.contains(item.sourceID))
+                                review: reviews.first { $0.id == item.sourceID }, finding: findings.first { $0.id == item.sourceID },
+                                choice: choices[item.sourceID], maybeDone: maybeDone.contains(item.sourceID))
             }
         }
         .task(id: "\(run.id)|\(model.prs[pr.id]?.headRefOid ?? pr.headRefOid)") { await model.loadFixPlanChanges(run, pr: pr) }
@@ -299,6 +300,7 @@ private struct FixPlanItemView: View {
     let item: FixPlanItem
     let thread: ReviewThread?
     let review: Review?
+    let finding: FixPlanAIFinding?
     let choice: FixPlanChoice?
     /// Its lines changed in a push since the plan.
     let maybeDone: Bool
@@ -405,6 +407,8 @@ private struct FixPlanItemView: View {
                 }
                 if let thread {
                     Button("Open in Changes") { model.openInChanges(thread.path, line: thread.line, side: thread.side, pr: pr) }
+                } else if let finding, let path = finding.finding.path {
+                    Button("Open in Changes") { model.openInChanges(path, line: finding.finding.line, pr: pr) }
                 }
                 if let location = item.locations.first, let file = model.files[pr.id]?.first(where: { $0.filename == location.path }) {
                     Button("Open in Editor") { Task { await model.openInEditor(pr, file: file, line: location.startLine) } }
@@ -431,6 +435,7 @@ private struct FixPlanItemView: View {
     private var sourceLabel: String {
         if let thread { return thread.line.map { "\(thread.path):\($0)" } ?? thread.path }
         if let review { return "Review by \(review.author)" }
+        if let finding { return finding.location.map { "AI review · \($0)" } ?? "AI review" }
         return "General"
     }
 
@@ -454,6 +459,8 @@ private struct FixPlanItemView: View {
             }
         } else if let review {
             quoted(review.author, review.body)
+        } else if let finding {
+            quoted("AI review (\(finding.reviewer)) · \(finding.finding.severity)", "**\(finding.finding.title)**\n\n\(finding.finding.comment)")
         }
     }
 
