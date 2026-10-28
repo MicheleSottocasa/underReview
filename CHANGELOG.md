@@ -5,6 +5,10 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+## 0.10.0-beta.2
+
+- **Fix Plan includes the AI review:** the findings of ReviewDesk's newest AI review run on one of the pull request's last 3 commits are planned like reviewers' comments, whether they're only shown in AI Review or were added to your pending review. Only the ones you dismissed are left out. They alone enable the tab and count in *N to address*; they get no reply to post, since nobody waits for one.
+
 ## 0.10.0-beta.1
 
 - **Model and effort for every provider:** Codex takes a model and a reasoning effort (minimal to high), Ollama a pulled model (or any name under *Other…*) and, for models that can think, a thinking level. Pick them in the AI tab or Settings › AI; *Default* passes nothing, so the CLI's own default applies. Run cards show what a run used, and *Re-run* reuses it.
