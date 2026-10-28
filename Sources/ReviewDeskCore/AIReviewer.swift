@@ -170,6 +170,9 @@ public struct AIRun: Codable, Hashable, Identifiable, Sendable {
     public var command: String?
     /// Indexes of findings already turned into drafts or dismissed.
     public var handled: Set<Int> = []
+    /// The dismissed ones among `handled`, which a fix plan leaves out; nil in runs saved before dismissals were told
+    /// apart from drafts, whose handled findings all count as still to address.
+    public var dismissed: Set<Int>?
 
     public init(prID: String, engine: AIEngine, headRefOid: String, result: ReviewResult) {
         (self.prID, self.engine, self.headRefOid, self.result) = (prID, engine, headRefOid, result)
