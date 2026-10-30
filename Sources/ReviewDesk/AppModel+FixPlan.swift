@@ -172,24 +172,41 @@ extension AppModel {
         return await clones.currentBranch(in: URL(fileURLWithPath: path))
     }
 
-    /// Starts `tool` (`claude` or `codex`) on `prompt` in a new Terminal window in the repo's clone, asking for the
-    /// clone first when none is linked. The agent runs as the viewer's own interactive session, with its own
-    /// permission prompts: ReviewDesk gives no tools to an agent it runs (AGENTS.md) and still changes no code itself.
-    func startFixAgent(_ pr: PullRequest, tool: String, prompt: String) async {
+    /// Has `engine` make the plan's accepted code changes (`prompt`) in the repo's clone, in the background like a
+    /// review: progress in the tab, Cancel stops it. Asks for the clone first when none is linked, and refuses a clone
+    /// that isn't on the pull request's branch. Nothing is committed, pushed or posted.
+    func startFix(_ pr: PullRequest, engine: AIEngine, options: AIOptions, prompt: String) {
         guard !blockDemo(pr) else { return }
+        aiTasks[pr.id]?.cancel()
+        aiTasks[pr.id] = Task {
+            aiStatus[pr.id] = "Fixing with \(engine.name)…"
+            aiActivity[pr.id] = []
+            await fix(pr, engine: engine, options: options, prompt: prompt)
+            aiStatus[pr.id] = nil
+            aiActivity[pr.id] = nil
+            aiTasks[pr.id] = nil
+        }
+    }
+
+    private func fix(_ pr: PullRequest, engine: AIEngine, options: AIOptions, prompt: String) async {
         if localClones[pr.repo] == nil, await !chooseClone(for: pr.repo) { return }
-        guard let clone = localClones[pr.repo] else { return }
-        let file = FileManager.default.temporaryDirectory.appendingPathComponent("ReviewDesk-fix-\(UUID().uuidString).md")
+        guard let path = localClones[pr.repo] else { return }
+        let branch = await cloneBranch(pr)
+        guard branch == pr.headRefName else {
+            lastError = "The local clone is on \(branch.map { $0.isEmpty ? "a detached HEAD" : $0 } ?? "an unknown branch"), "
+                + "not \(pr.headRefName): check it out before fixing"
+            return
+        }
+        logStep("Working in \(path)", pr: pr.id)
         do {
-            try prompt.write(to: file, atomically: true, encoding: .utf8)
-            let command = FixPlan.agentCommand(tool: tool, clone: clone, promptFile: file.path)
-            // The command goes in as an argument, so it needs no AppleScript escaping.
-            _ = try await github.runner.output("osascript", ["-e", "on run argv", "-e", "tell application \"Terminal\"",
-                                                            "-e", "activate", "-e", "do script (item 1 of argv)",
-                                                            "-e", "end tell", "-e", "end run", command])
+            let id = pr.id
+            let summary = try await reviewer.fix(engine, prompt: prompt, clone: URL(fileURLWithPath: path), options: options) { step in
+                Task { @MainActor in self.logStep(step, pr: id) }
+            }
+            fixRuns[pr.id] = summary.isEmpty ? "\(engine.name) finished without a summary." : summary
+        } catch is CancellationError {
         } catch {
-            try? FileManager.default.removeItem(at: file)
-            report(error, "Couldn't start \(tool)")
+            if !Task.isCancelled { report(error, engine.name) }
         }
     }
 

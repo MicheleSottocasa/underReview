@@ -221,11 +221,6 @@ private func pr(head: String = "h1") -> PullRequest {
     #expect(noted.hasSuffix("\n## Additional instructions from the author\n\nRun make test after.\n"))
 }
 
-@Test func fixPlanAgentCommandStartsTheAgentInTheCloneOnThePromptFile() {
-    let command = FixPlan.agentCommand(tool: "claude", clone: "/Users/me/it's here", promptFile: "/tmp/fix.md")
-    #expect(command == #"cd '/Users/me/it'\''s here' && claude "$(cat '/tmp/fix.md'; rm -f '/tmp/fix.md')""#)
-}
-
 @Test func fixPlanMaybeDoneFlagsCodeChangesWhoseLinesChangedSincePlanning() {
     let items = [
         FixPlanItem(sourceID: "A", request: "", action: "change_code", locations: [FixPlanLocation(path: "a.py", startLine: 2, endLine: 3)]),

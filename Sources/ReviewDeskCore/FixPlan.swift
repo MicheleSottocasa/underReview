@@ -386,13 +386,6 @@ public enum FixPlan {
         return text
     }
 
-    /// The shell line Fix types in a new Terminal window: the agent (`claude` or `codex`) in the clone, started on the
-    /// prompt saved at `promptFile`, which it reads and deletes. A file, so review text never meets shell quoting.
-    public static func agentCommand(tool: String, clone: String, promptFile: String) -> String {
-        let file = Updater.shellQuoted(promptFile)
-        return "cd \(Updater.shellQuoted(clone)) && \(tool) \"$(cat \(file); rm -f \(file))\""
-    }
-
     /// Ids of the "change code" items of a plan made at an older head whose code changed since: `changes` are the
     /// files changed from the plan's head to the current one (GitHub's compare), so their OLD side is the code the plan
     /// read. A location with lines counts when a changed line falls in them, one without when its file changed.

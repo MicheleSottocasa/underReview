@@ -534,3 +534,36 @@ private func codexRunner() -> FakeRunner {
     let missing = await AIReviewer(runner: FakeRunner { _ in throw CommandError.toolNotFound("codex") }).status(.codex)
     #expect(missing.version == nil && !missing.isReady)
 }
+
+@Test func fixEditsTheCloneWithFileToolsOnlyAndReturnsWhatTheAgentDid() async throws {
+    let runner = FakeRunner { call in
+        if call.args.first == "auth" { return subscribed }
+        return ok(#"{"type":"system","subtype":"init","model":"opus"}"# + "\n" + #"{"type":"result","is_error":false,"result":"Scoped the query."}"#)
+    }
+    let steps = Steps()
+    let clone = URL(fileURLWithPath: "/src/r")
+    let summary = try await AIReviewer(runner: runner).fix(.claudeCode, prompt: "Fix it", clone: clone,
+                                                           options: AIOptions(model: "opus", effort: "")) { steps.append($0) }
+    #expect(summary == "Scoped the query.")
+    #expect(steps.value == ["Claude Code started (opus)"])
+    let call = try #require(runner.calls.last)
+    #expect(call.cwd == clone && String(decoding: call.stdin ?? Data(), as: UTF8.self) == "Fix it")
+    func value(_ flag: String) -> String? { call.args.firstIndex(of: flag).map { call.args[$0 + 1] } }
+    // No shell: no git, no gh, no network. Only file tools, confined to the clone, without its hidden files.
+    #expect(value("--tools") == "Read,Grep,Glob,Edit,Write" && value("--allowedTools") == "Read,Grep,Glob,Edit,Write")
+    #expect(value("--permission-prompts") == "none" && value("--model") == "opus")
+    for flag in ["--restricted", "--strict-mcp-config", "--no-session-persistence"] { #expect(call.args.contains(flag)) }
+    let deny = try #require(call.args.firstIndex(of: "--disallowedTools"))
+    #expect(Array(call.args[(deny + 1)...(deny + 4)]) == ["Read(//src/r/**/.*)", "Read(//src/r/**/.*/**)", "Edit(//src/r/**/.*)", "Edit(//src/r/**/.*/**)"])
+}
+
+@Test func fixWithCodexWritesOnlyInTheCloneSandbox() async throws {
+    let runner = codexRunner()
+    let summary = try await AIReviewer(runner: runner).fix(.codex, prompt: "Fix it", clone: URL(fileURLWithPath: "/src/r"))
+    #expect(summary == review.trimmingCharacters(in: .whitespacesAndNewlines))
+    let args = try #require(runner.calls.last?.args)
+    #expect(args[args.firstIndex(of: "--sandbox")! + 1] == "workspace-write")
+    #expect(args[args.firstIndex(of: "-C")! + 1] == "/src/r")
+    #expect(args.contains("--ignore-user-config") && args.last == "-")
+    await #expect(throws: AIError.self) { try await AIReviewer(runner: runner).fix(.ollama(model: "m"), prompt: "", clone: URL(fileURLWithPath: "/")) }
+}

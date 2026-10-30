@@ -216,6 +216,19 @@ private struct FixPlanRunView: View {
         let posting = replies.contains { model.pending.contains($0.sourceID) }
         let maybeDone = model.fixPlanMaybeDone(run, pr: pr)
         VStack(alignment: .leading, spacing: 10) {
+            if let summary = model.fixRuns[pr.id] {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Label("Fix finished: review the changes in your clone, then commit and push", systemImage: "checkmark.circle.fill")
+                            .font(.callout.bold()).foregroundStyle(.green)
+                        Spacer()
+                        Button("Dismiss") { model.fixRuns[pr.id] = nil }.buttonStyle(.link)
+                    }
+                    MarkdownText(summary)
+                }
+                .padding(10)
+                .background(Color.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+            }
             if let reason = model.fixPlanOutdatedReason(run, pr: pr) {
                 HStack(spacing: 10) {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
@@ -262,9 +275,9 @@ private struct FixPlanRunView: View {
                                         threads: threads, reviews: reviews, findings: findings, notes: notes)
                 }
                 Button("Fix (\(changes))…") { fixing = true }
-                    .disabled(changes == 0)
+                    .disabled(changes == 0 || model.isAIBusy(pr))
                     .help(changes == 0 ? "Accept items that change the code to fix them with an agent"
-                                       : "Start Claude Code or Codex in a Terminal window in your local clone on the accepted code changes, with your own instructions added")
+                                       : "Have Claude Code or Codex make the accepted code changes in your local clone, in the background, with your own instructions added")
                     .sheet(isPresented: $fixing) { FixAgentSheet(pr: pr, prompt: prompt) }
                 Button(copied ? "Copied" : "Copy as Agent Prompt (\(changes))") {
                     NSPasteboard.general.clearContents()
@@ -300,7 +313,7 @@ private struct FixPlanRunView: View {
 }
 
 /// What Fix sends: the accepted code changes as a prompt, with the author's own instructions added, to Claude Code
-/// or Codex started in a Terminal window in the local clone.
+/// or Codex, run in the background in the local clone.
 private struct FixAgentSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -329,8 +342,9 @@ private struct FixAgentSheet: View {
                 }
                 .frame(height: 220)
             }
-            Text(model.localClones[pr.repo].map { "Opens a Terminal window in \($0). The agent asks before it changes anything; review its changes before you commit." }
-                 ?? "Asks for the local clone first, then opens a Terminal window in it.")
+            Text((model.localClones[pr.repo].map { "Runs in the background in \($0), on \(pr.headRefName)." }
+                  ?? "Asks for the local clone first, then runs in the background in it.")
+                 + " The agent can read and edit the clone's files, but can't run commands, so it doesn't build, test, commit or push. Review its changes before you commit.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .formStyle(.grouped)
@@ -339,9 +353,9 @@ private struct FixAgentSheet: View {
             ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Start") {
-                    let text = prompt(notes)
+                    let engine: AIEngine = tool == "codex" ? .codex : .claudeCode
+                    model.startFix(pr, engine: engine, options: model.aiOptions(for: engine), prompt: prompt(notes))
                     dismiss()
-                    Task { await model.startFixAgent(pr, tool: tool, prompt: text) }
                 }
             }
         }

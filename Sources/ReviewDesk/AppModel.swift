@@ -160,6 +160,8 @@ final class AppModel {
     var explanations: [String: Explanation] = [:]
     /// Finding ("run#index") or comment id → the AI's proposed fix, waiting for the reviewer. In memory only.
     var fixes: [String: Fix] = [:]
+    /// PR id → what the last Fix run's agent says it changed in the clone, until dismissed. In memory only.
+    var fixRuns: [String: String] = [:]
     /// PR id → its files at the head commit, read for ⌘-click definitions. Replaced when the head moves.
     var headFiles: [String: HeadFiles] = [:]
     var aiTasks: [String: Task<Void, Never>] = [:]

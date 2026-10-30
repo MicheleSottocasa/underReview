@@ -439,6 +439,53 @@ public struct AIReviewer: Sendable {
                                              options: AIOptions(model: options?.model ?? "", effort: ""), timeout: .seconds(300), usage: usage))
     }
 
+    /// Fix's run: the agent makes the code changes `prompt` asks for (`FixPlan.agentPrompt`) in `clone`, and returns
+    /// what it says it did. The one run that can write, and only there. Claude Code gets the file tools only
+    /// (`fixTools`: no shell, so no git, no gh, no network), confined to the clone by restricted mode, with hidden files
+    /// and folders (.env, .git…) unreadable and unwritable. Codex runs in its workspace-write sandbox, which keeps
+    /// writes in the clone and the network off. Either way the user's own config, hooks and plugins stay off.
+    public func fix(_ engine: AIEngine, prompt: String, clone: URL, options: AIOptions? = nil, timeout: Duration = .seconds(1800),
+                    usage: UsageMeter? = nil, progress: @escaping @Sendable (String) -> Void = { _ in }) async throws -> String {
+        try await checkAuth(engine)
+        let chosen = options?.arguments(for: engine) ?? []
+        switch engine {
+        case .claudeCode:
+            // ponytail: hidden files are off-limits whole, so config like .github/ or .swiftlint.yml can't be fixed either.
+            let hidden = Self.hiddenFileRules(clone.path) + Self.hiddenFileRules(clone.path).map { "Edit" + $0.dropFirst(4) }
+            let args = ["-p", "--output-format", "stream-json", "--verbose", "--restricted", "--strict-mcp-config",
+                        "--setting-sources", "", "--disable-slash-commands", "--no-session-persistence",
+                        "--permission-prompts", "none", "--tools", Self.fixTools, "--allowedTools", Self.fixTools,
+                        "--disallowedTools"] + hidden + chosen
+            var result = try await runner.stream("claude", args, stdin: Data(prompt.utf8), cwd: clone, timeout: timeout) { line in
+                ClaudeActivity.describe(line).forEach(progress)
+            }
+            if let final = ClaudeActivity.result(in: result.stdout) { result.stdout = final }
+            usage?.add(Self.claudeUsage(result.stdout))
+            return String(decoding: try Self.parseClaude(result), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        case .codex:
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("reviewdesk-fix-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let output = dir.appendingPathComponent("last.txt")
+            progress("Codex is working in \(clone.path)…")
+            let args = ["exec", "--json", "--sandbox", "workspace-write", "--skip-git-repo-check", "--ephemeral",
+                        "--ignore-user-config", "--ignore-rules", "--disable", "hooks", "--disable", "plugins"]
+                + chosen + ["-o", output.path, "-C", clone.path, "-"]
+            let result = try await runner.run("codex", args, stdin: Data(prompt.utf8), cwd: clone, timeout: timeout)
+            let error = Self.codexError(events: result.text)
+            guard result.status == 0 else { throw AIError.failed(error ?? Self.tail(result.stderr)) }
+            usage?.add(TokenUsage.codex(events: result.text))
+            guard let answer = try? String(contentsOf: output, encoding: .utf8) else {
+                throw error.map(AIError.failed) ?? AIError.invalidOutput("Codex wrote no answer")
+            }
+            return answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        case .claudeSession, .ollama:
+            throw AIError.failed("Fix runs with Claude Code or Codex")
+        }
+    }
+
+    static let fixTools = "Read,Grep,Glob,Edit,Write"
+
     /// Permission rules denying hidden files and everything under hidden folders inside `folder` (an absolute path).
     static func hiddenFileRules(_ folder: String) -> [String] {
         ["Read(/\(folder)/**/.*)", "Read(/\(folder)/**/.*/**)"]
