@@ -172,6 +172,27 @@ extension AppModel {
         return await clones.currentBranch(in: URL(fileURLWithPath: path))
     }
 
+    /// Starts `tool` (`claude` or `codex`) on `prompt` in a new Terminal window in the repo's clone, asking for the
+    /// clone first when none is linked. The agent runs as the viewer's own interactive session, with its own
+    /// permission prompts: ReviewDesk gives no tools to an agent it runs (AGENTS.md) and still changes no code itself.
+    func startFixAgent(_ pr: PullRequest, tool: String, prompt: String) async {
+        guard !blockDemo(pr) else { return }
+        if localClones[pr.repo] == nil, await !chooseClone(for: pr.repo) { return }
+        guard let clone = localClones[pr.repo] else { return }
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("ReviewDesk-fix-\(UUID().uuidString).md")
+        do {
+            try prompt.write(to: file, atomically: true, encoding: .utf8)
+            let command = FixPlan.agentCommand(tool: tool, clone: clone, promptFile: file.path)
+            // The command goes in as an argument, so it needs no AppleScript escaping.
+            _ = try await github.runner.output("osascript", ["-e", "on run argv", "-e", "tell application \"Terminal\"",
+                                                            "-e", "activate", "-e", "do script (item 1 of argv)",
+                                                            "-e", "end tell", "-e", "end run", command])
+        } catch {
+            try? FileManager.default.removeItem(at: file)
+            report(error, "Couldn't start \(tool)")
+        }
+    }
+
     /// Fetches what changed from the plan's head to the current one, once per pair of heads (commits never change),
     /// for the *maybe done* flags. A failure (a force-push dropped the plan's head) just leaves the flags off.
     func loadFixPlanChanges(_ run: FixPlanRun, pr: PullRequest) async {

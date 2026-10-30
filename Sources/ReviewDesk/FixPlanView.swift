@@ -63,7 +63,7 @@ struct FixPlanView: View {
                                 Text(branch.isEmpty ? "The local clone is on a detached HEAD, not \(pr.headRefName)."
                                                     : "The local clone is on \(branch), not \(pr.headRefName).")
                                     .font(.callout)
-                                Text("Check it out before pasting the prompt into an agent or opening files in your editor.")
+                                Text("Check it out before fixing, pasting the prompt into an agent or opening files in your editor.")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
@@ -203,6 +203,7 @@ private struct FixPlanRunView: View {
     let replan: () -> Void
     @ViewState private var confirmingReplies = false
     @ViewState private var copied = false
+    @ViewState private var fixing = false
 
     var body: some View {
         let detail = model.details[pr.id]
@@ -256,11 +257,18 @@ private struct FixPlanRunView: View {
                     .disabled(replies.isEmpty || posting)
                     .help(replies.isEmpty ? "Accept items with a reply to post them all at once"
                                           : "Post the accepted items' replies: in their conversation, or as a comment for a review summary")
+                let prompt = { (notes: String) in
+                    FixPlan.agentPrompt(pr: model.prs[pr.id] ?? pr, head: run.headRefOid, items: run.result.items, choices: choices,
+                                        threads: threads, reviews: reviews, findings: findings, notes: notes)
+                }
+                Button("Fix (\(changes))…") { fixing = true }
+                    .disabled(changes == 0)
+                    .help(changes == 0 ? "Accept items that change the code to fix them with an agent"
+                                       : "Start Claude Code or Codex in a Terminal window in your local clone on the accepted code changes, with your own instructions added")
+                    .sheet(isPresented: $fixing) { FixAgentSheet(pr: pr, prompt: prompt) }
                 Button(copied ? "Copied" : "Copy as Agent Prompt (\(changes))") {
-                    let prompt = FixPlan.agentPrompt(pr: model.prs[pr.id] ?? pr, head: run.headRefOid, items: run.result.items,
-                                                     choices: choices, threads: threads, reviews: reviews, findings: findings)
                     NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(prompt, forType: .string)
+                    NSPasteboard.general.setString(prompt(""), forType: .string)
                     copied = true
                     Task {
                         try? await Task.sleep(for: .seconds(1.5))
@@ -288,6 +296,55 @@ private struct FixPlanRunView: View {
         .padding(14)
         .background(Color.purple.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.purple.opacity(0.25)))
+    }
+}
+
+/// What Fix sends: the accepted code changes as a prompt, with the author's own instructions added, to Claude Code
+/// or Codex started in a Terminal window in the local clone.
+private struct FixAgentSheet: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    let pr: PullRequest
+    let prompt: (String) -> String
+    @AppStorage("fixAgent") private var tool = "claude"
+    @ViewState private var notes = ""
+
+    var body: some View {
+        Form {
+            Picker("Agent", selection: $tool) {
+                Text("Claude Code").tag("claude")
+                Text("Codex").tag("codex")
+            }
+            Section("Additional instructions") {
+                TextEditor(text: $notes)
+                    .font(.body)
+                    .frame(minHeight: 80)
+            }
+            Section("Prompt") {
+                ScrollView {
+                    Text(prompt(notes))
+                        .font(.callout.monospaced())
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(height: 220)
+            }
+            Text(model.localClones[pr.repo].map { "Opens a Terminal window in \($0). The agent asks before it changes anything; review its changes before you commit." }
+                 ?? "Asks for the local clone first, then opens a Terminal window in it.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .formStyle(.grouped)
+        .frame(width: 560)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Start") {
+                    let text = prompt(notes)
+                    dismiss()
+                    Task { await model.startFixAgent(pr, tool: tool, prompt: text) }
+                }
+            }
+        }
     }
 }
 

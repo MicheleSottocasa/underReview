@@ -215,6 +215,15 @@ private func pr(head: String = "h1") -> PullRequest {
     #expect(prompt.contains("## 1. Scope the query\n\nReviewer comment by bob on b.py:9:\n> Scope this query.\n\nWhere: b.py:9–11\n\nSteps:\n1. Filter by org\n2. Add an index\n"))
     #expect(prompt.contains("## 2. Add a test\n\nFrom bob's review:\n> Please scope the query and add a test.\n\nSteps:\n1. Add test_scope_by_org\n"))
     #expect(!prompt.contains("Cache"))
+    #expect(!prompt.contains("Additional instructions"))
+    let noted = FixPlan.agentPrompt(pr: pr, head: "abcdef123", items: items, choices: choices, threads: detail.threads,
+                                    reviews: detail.reviews, notes: "  Run make test after.\n")
+    #expect(noted.hasSuffix("\n## Additional instructions from the author\n\nRun make test after.\n"))
+}
+
+@Test func fixPlanAgentCommandStartsTheAgentInTheCloneOnThePromptFile() {
+    let command = FixPlan.agentCommand(tool: "claude", clone: "/Users/me/it's here", promptFile: "/tmp/fix.md")
+    #expect(command == #"cd '/Users/me/it'\''s here' && claude "$(cat '/tmp/fix.md'; rm -f '/tmp/fix.md')""#)
 }
 
 @Test func fixPlanMaybeDoneFlagsCodeChangesWhoseLinesChangedSincePlanning() {

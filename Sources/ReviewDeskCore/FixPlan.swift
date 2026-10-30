@@ -351,9 +351,11 @@ public enum FixPlan {
 
     /// The accepted "change code" items as one prompt to paste into a coding agent in the local clone: the pull
     /// request, then each item with the reviewer's comment, where to change and the steps. It asks for the changes
-    /// only: no commit, no push, no replies. `head` is the commit the plan's line numbers are from.
+    /// only: no commit, no push, no replies. `head` is the commit the plan's line numbers are from; `notes`, the
+    /// author's own instructions, close the prompt when there are any.
     public static func agentPrompt(pr: PullRequest, head: String, items: [FixPlanItem], choices: [String: FixPlanChoice],
-                                   threads: [ReviewThread], reviews: [Review], findings: [FixPlanAIFinding] = []) -> String {
+                                   threads: [ReviewThread], reviews: [Review], findings: [FixPlanAIFinding] = [],
+                                   notes: String = "") -> String {
         let accepted = ordered(items, threads: threads, findings: findings).filter { choices[$0.sourceID]?.decision == .accepted && $0.action == "change_code" }
         var text = """
         Address review feedback on pull request \(pr.repo)#\(pr.number), "\(pr.title)" (branch \(pr.headRefName), \
@@ -379,7 +381,16 @@ public enum FixPlan {
                 text += "\nSteps:\n" + item.steps.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n") + "\n"
             }
         }
+        let notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !notes.isEmpty { text += "\n## Additional instructions from the author\n\n\(notes)\n" }
         return text
+    }
+
+    /// The shell line Fix types in a new Terminal window: the agent (`claude` or `codex`) in the clone, started on the
+    /// prompt saved at `promptFile`, which it reads and deletes. A file, so review text never meets shell quoting.
+    public static func agentCommand(tool: String, clone: String, promptFile: String) -> String {
+        let file = Updater.shellQuoted(promptFile)
+        return "cd \(Updater.shellQuoted(clone)) && \(tool) \"$(cat \(file); rm -f \(file))\""
     }
 
     /// Ids of the "change code" items of a plan made at an older head whose code changed since: `changes` are the
