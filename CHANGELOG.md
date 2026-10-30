@@ -5,6 +5,10 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+## 0.10.0-beta.4
+
+- **Fix runs in the background:** *Fix (N)…* no longer opens Terminal. Claude Code or Codex makes the accepted changes in your local clone like a review runs, with its steps and *Cancel* in the Fix Plan tab, then shows what it changed. It needs the clone on the pull request's branch, and it can only read and edit files there: no commands, so it doesn't build, test, commit or push, and hidden files like `.env` stay off-limits.
+
 ## 0.10.0-beta.3
 
 - **Fix from the plan:** *Fix (N)…* on a fix plan sends the accepted code changes to Claude Code or Codex, started in a new Terminal window in your local clone, with your own instructions added at the end of the prompt. The sheet shows the full prompt before it goes. The agent runs as your own session and asks before it changes anything; ReviewDesk itself still edits, commits and pushes nothing.
