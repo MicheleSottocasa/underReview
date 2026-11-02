@@ -5,6 +5,8 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+## 0.10.0-beta.5
+
 - **Plan Stack:** in a stack, the Fix Plan tab lists every open pull request of yours with what it has to address and its plan. *Plan Stack (N)* plans, bottom first, those with feedback and no current plan, with the engine, model and effort picked there, and shows its progress on the pull request you started it from. Codex and Ollama skip *Prepare Context*, as in stack reviews. Planning still changes and posts nothing.
 
 ## 0.10.0-beta.4
