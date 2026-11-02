@@ -75,6 +75,50 @@ extension AppModel {
         return FixPlan.changes(pr: pr, body: details[pr.id]?.body ?? "", files: files[pr.id] ?? [], feedback: feedback, budget: budget)
     }
 
+    /// The viewer's own open PRs of `pr`'s stack, bottom first; empty outside a stack.
+    func ownStackMembers(of pr: PullRequest) -> [PullRequest] {
+        stackPullRequests(of: pr).filter { $0.viewerIsAuthor && $0.state == "OPEN" }
+    }
+
+    /// Has feedback to address and no plan that still matches it. Once the conversation is loaded, its feedback
+    /// decides (as planning does), not the polled counts.
+    func isFixPlanDue(_ pr: PullRequest) -> Bool {
+        let pr = prs[pr.id] ?? pr
+        let open = fixPlanFeedback(pr).map { !$0.isEmpty } ?? (toAddress(pr).count > 0)
+        return open && (fixPlanRuns(for: pr.id).isEmpty || hasOutdatedFixPlan(pr))
+    }
+
+    /// Plans every PR of the stack with feedback and no current plan, bottom first, with the engine `engineName`
+    /// picks for each (a linked session belongs to its own PR) and its model and effort. Progress and the live log
+    /// show on `current`, the PR it was started from; the member being planned shows as busy. Each plan builds its own
+    /// context, as stack reviews do, so Codex and Ollama skip Prepare Context.
+    func startStackFixPlan(_ prs: [PullRequest], from current: String, engineName: String, ollamaModel: String) {
+        if let demo = prs.first(where: \.isDemo) { _ = blockDemo(demo); return }
+        aiTasks[current]?.cancel()
+        aiTasks[current] = Task {
+            aiActivity[current] = []
+            defer {
+                aiStatus[current] = nil
+                aiActivity[current] = nil
+                aiTasks[current] = nil
+            }
+            for (index, pr) in prs.enumerated() where !Task.isCancelled {
+                let engine = engine(named: engineName, ollamaModel: ollamaModel, for: pr)
+                aiStatus[current] = "Planning #\(pr.number) (\(index + 1) of \(prs.count)) with \(engine.name)…"
+                await loadDetail(pr.id)
+                guard isFixPlanDue(pr) else {
+                    logStep("#\(pr.number): nothing new to plan, skipped", pr: current)
+                    continue
+                }
+                logStep("#\(pr.number) \(pr.title)", pr: current)
+                if pr.id != current { aiStatus[pr.id] = "Planned with the stack from the pull request it started on…" }
+                await fixPlan(pr, engine: engine, options: aiOptions(for: engine), prepared: nil, key: current)
+                if pr.id != current { aiStatus[pr.id] = nil }
+            }
+            logStep("Stack planned", pr: current)
+        }
+    }
+
     /// Plans how to address the feedback, tool-less, with `engine` and `options`' model and effort (`aiOptions`).
     /// `prepared` is the context Prepare Context showed, as the viewer left it; nil builds it here.
     func startFixPlan(_ pr: PullRequest, engine: AIEngine, options: AIOptions,
@@ -84,18 +128,21 @@ extension AppModel {
         aiTasks[pr.id] = Task {
             aiStatus[pr.id] = "Planning fixes with \(engine.name)…"
             aiActivity[pr.id] = []
-            await fixPlan(pr, engine: engine, options: options, prepared: prepared)
+            await fixPlan(pr, engine: engine, options: options, prepared: prepared, key: pr.id)
             aiStatus[pr.id] = nil
             aiActivity[pr.id] = nil
             aiTasks[pr.id] = nil
         }
     }
 
+    /// One PR's plan. `key` is the PR whose live log shows the steps (the one a stack plan started from).
     private func fixPlan(_ pr: PullRequest, engine: AIEngine, options: AIOptions,
-                         prepared: (context: ReviewContext, partial: Bool)?) async {
+                         prepared: (context: ReviewContext, partial: Bool)?, key: String) async {
         do {
             // The latest feedback, so the plan answers what's open now and its markers match what was sent.
             await loadDetail(pr.id)
+            // The polled PR, so the plan's head is the one its feedback was read on.
+            let pr = prs[pr.id] ?? pr
             guard let detail = details[pr.id], let feedback = fixPlanFeedback(pr) else { return }
             guard !feedback.isEmpty else {
                 lastError = "No open feedback to plan for"
@@ -103,15 +150,15 @@ extension AppModel {
             }
             let threads = feedback.threads.count, reviews = feedback.reviews.count, findings = feedback.findings.count
             logStep("\(threads) open thread\(threads == 1 ? "" : "s"), \(reviews) review summar\(reviews == 1 ? "y" : "ies") and "
-                    + "\(findings) AI review finding\(findings == 1 ? "" : "s") to address", pr: pr.id)
+                    + "\(findings) AI review finding\(findings == 1 ? "" : "s") to address", pr: key)
             let changes: (context: ReviewContext, partial: Bool)
             if let prepared {
                 changes = prepared
             } else {
                 changes = try await fixPlanContext(pr, budget: UserDefaults.standard.object(forKey: "aiBudget") as? Int ?? 150_000)
             }
-            logStep(changes.partial ? "The whole diff is over the budget: sending the files the feedback points at" : "Sending the whole diff", pr: pr.id)
-            logStep("Asking \(engine.name)…", pr: pr.id)
+            logStep(changes.partial ? "The whole diff is over the budget: sending the files the feedback points at" : "Sending the whole diff", pr: key)
+            logStep("Asking \(engine.name)…", pr: key)
             let author = viewer(for: pr)
             let prompt = FixPlan.prompt(title: pr.title, body: detail.body, author: author, feedback: feedback, changes: changes.context,
                                         partial: changes.partial, instructions: Prompts.fixPlan)
@@ -126,7 +173,10 @@ extension AppModel {
             fixPlans.append(run)
         } catch is CancellationError {
         } catch {
-            if !Task.isCancelled { report(error, engine.name) }
+            guard !Task.isCancelled else { return }
+            // In a stack, name the PR that failed; the others go on.
+            if key != pr.id { logStep("#\(pr.number) failed: \(error.userMessage ?? "\(error)")", pr: key) }
+            report(error, key == pr.id ? engine.name : "#\(pr.number) · \(engine.name)")
         }
     }
 

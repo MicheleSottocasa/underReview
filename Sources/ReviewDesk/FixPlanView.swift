@@ -38,6 +38,12 @@ struct FixPlanView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     AIProgress(pr: pr)
+                    let members = model.ownStackMembers(of: pr)
+                    if members.count > 1 {
+                        StackFixPlan(pr: pr, members: members, engine: engine) {
+                            model.startStackFixPlan($0, from: pr.id, engineName: engineName, ollamaModel: ollamaModel)
+                        }
+                    }
                     if let context {
                         let runEngine = contextEngine ?? engine
                         ContextPanel(context: Binding(get: { context }, set: { self.context = $0 }), engine: runEngine, answer: .fixPlan) {
@@ -99,6 +105,8 @@ struct FixPlanView: View {
             await model.loadDetail(pr.id)
             // Open in Editor needs the file's diff.
             if model.files[pr.id] == nil, !pr.isDemo { try? await model.fetchFiles(pr) }
+            // The stack card needs each member's feedback to tell what's due.
+            for member in model.ownStackMembers(of: pr) where model.details[member.id] == nil { await model.loadDetail(member.id) }
         }
         // Read again when the clone is linked or changed, and after each checkout.
         .task(id: "\(pr.id)|\(model.localClones[pr.repo] ?? "")|\(model.checkingOut.count)") { cloneBranch = await model.cloneBranch(pr) }
@@ -192,6 +200,53 @@ struct FixPlanView: View {
             }
             preparing = false
         }
+    }
+}
+
+/// The fix plan state of each of the viewer's PRs in the stack, and one button to plan all with something new.
+private struct StackFixPlan: View {
+    @Environment(AppModel.self) private var model
+    let pr: PullRequest
+    let members: [PullRequest]
+    let engine: AIEngine
+    let plan: ([PullRequest]) -> Void
+
+    var body: some View {
+        let due = members.filter(model.isFixPlanDue)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("Stack #\(pr.stack?.number ?? 0)", systemImage: "square.stack.3d.up").font(.headline)
+                Spacer()
+                EstimateLabel(estimate: due.isEmpty ? nil : model.fixPlanEstimate(due, engine: engine), prefix: "up to ", help: "At most: each plan's feedback plus its whole diff. It counts toward your plan's limits.")
+                Button("Plan Stack (\(due.count))") { plan(due) }
+                .disabled(due.isEmpty || model.isAIBusy(pr))
+                .help(due.isEmpty ? "Every pull request of yours in this stack has a current plan or nothing to address"
+                                  : "Plan the \(due.count) pull request\(due.count == 1 ? "" : "s") with feedback and no current plan, bottom first, with \(engine.name)")
+            }
+            ForEach(members) { member in
+                let count = model.toAddress(member).count
+                Button { model.selection = [.pr(member.id)] } label: {
+                    HStack(spacing: 8) {
+                        Text(verbatim: "\(member.stackPosition ?? 0)").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 16, alignment: .trailing)
+                        Text(verbatim: "#\(member.number) \(member.title)").lineLimit(1).fontWeight(member.id == pr.id ? .semibold : .regular)
+                        Spacer()
+                        if count > 0 { Text("\(count) to address").font(.caption).foregroundStyle(.secondary) }
+                        if let run = model.fixPlanRuns(for: member.id).first {
+                            Badge(text: "\(run.result.items.count) planned", color: .purple)
+                            if model.hasOutdatedFixPlan(member) { Badge(text: "Outdated", color: .orange) }
+                        } else if count == 0 {
+                            Text("Nothing to address").font(.caption).foregroundStyle(.tertiary)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Open #\(member.number)'s fix plan")
+            }
+        }
+        .padding(12)
+        .background(.background, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.25)))
     }
 }
 

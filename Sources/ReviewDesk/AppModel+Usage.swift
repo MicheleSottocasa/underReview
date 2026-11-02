@@ -61,6 +61,12 @@ extension AppModel {
         return TokenEstimator.prompt(tokens: input, engine: engine, answer: .fixPlan)
     }
 
+    func fixPlanEstimate(_ prs: [PullRequest], engine: AIEngine) -> TokenEstimate? {
+        let each = prs.map { fixPlanEstimate($0, engine: engine) }
+        guard !each.contains(where: { $0 == nil }) else { return nil }
+        return TokenEstimate.sum(each.compactMap { $0 })
+    }
+
     /// The next question in a chat: its context and the conversation so far are resent every time.
     func chatEstimate(_ chat: Explanation, question: String) -> TokenEstimate? {
         guard !chat.prompt.isEmpty else { return nil }

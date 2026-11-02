@@ -5,6 +5,8 @@ Add a `## <version>` section here before tagging a release: the release workflow
 
 ## Unreleased
 
+- **Plan Stack:** in a stack, the Fix Plan tab lists every open pull request of yours with what it has to address and its plan. *Plan Stack (N)* plans, bottom first, those with feedback and no current plan, with the engine, model and effort picked there, and shows its progress on the pull request you started it from. Codex and Ollama skip *Prepare Context*, as in stack reviews. Planning still changes and posts nothing.
+
 ## 0.10.0-beta.4
 
 - **Fix runs in the background:** *Fix (N)…* no longer opens Terminal. Claude Code or Codex makes the accepted changes in your local clone like a review runs, with its steps and *Cancel* in the Fix Plan tab, then shows what it changed. It needs the clone on the pull request's branch, and it can only read and edit files there: no commands, so it doesn't build, test, commit or push, and hidden files like `.env` stay off-limits.
